@@ -202,6 +202,71 @@
                class(nek_ext_dvector), intent(in) :: self
             end function
          end interface
+
+      !-------------------------------------------------------------
+      !-----     NEK EXTENDED REAL VECTOR TYPE with forcing    -----
+      !-------------------------------------------------------------
+      
+      ! --> Type.
+         type, extends(abstract_vector_rdp), public :: nek_ext_dvector_forcing
+            real(kind=dp), dimension(lv) :: vx, vy, vz
+            real(kind=dp), dimension(lp) :: pr
+            real(kind=dp), dimension(lv, ldimt) :: theta
+            real(kind=dp) :: f
+         contains
+            private
+            procedure, pass(self), public :: zero => nek_ext_f_dzero
+            procedure, pass(self), public :: rand => nek_ext_f_drand
+            procedure, pass(self), public :: scal => nek_ext_f_dscal
+            procedure, pass(self), public :: axpby => nek_ext_f_daxpby
+            procedure, pass(self), public :: dot => nek_ext_f_ddot
+            procedure, pass(self), public :: get_size => nek_ext_f_dsize
+         end type nek_ext_dvector_forcing
+      
+      ! --> Constructor.
+         interface nek_ext_dvector_forcing
+            pure module function construct_nek_ext_dvector_forcing(vx, vy, vz, pr, theta, f) result(out)
+               real(kind=dp), dimension(lv), intent(in) :: vx, vy
+               real(kind=dp), dimension(lv), optional, intent(in) :: vz
+               real(kind=dp), dimension(lp), optional, intent(in) :: pr
+               real(kind=dp), dimension(lv, ldimt), optional, intent(in) :: theta
+               real(kind=dp), optional, intent(in) :: f
+               type(nek_ext_dvector_forcing) :: out
+            end function
+         end interface
+      
+      ! --> Type-bound procedures.
+         interface
+            module subroutine nek_ext_f_dzero(self)
+               class(nek_ext_dvector_forcing), intent(inout) :: self
+            end subroutine
+      
+            module subroutine nek_ext_f_drand(self, ifnorm)
+               class(nek_ext_dvector_forcing), intent(inout) :: self
+               logical, optional, intent(in) :: ifnorm
+            end subroutine
+      
+            module subroutine nek_ext_f_dscal(self, alpha)
+               class(nek_ext_dvector_forcing), intent(inout) :: self
+               real(kind=dp), intent(in) :: alpha
+            end subroutine
+      
+            module subroutine nek_ext_f_daxpby(self, alpha, vec, beta)
+               class(nek_ext_dvector_forcing), intent(inout) :: self
+               real(kind=dp), intent(in) :: alpha
+               class(abstract_vector_rdp), intent(in) :: vec
+               real(kind=dp), intent(in) :: beta
+            end subroutine
+      
+            real(kind=dp) module function nek_ext_f_ddot(self, vec) result(alpha)
+               class(nek_ext_dvector_forcing), intent(in) :: self
+               class(abstract_vector_rdp), intent(in) :: vec
+            end function
+      
+            integer pure module function nek_ext_f_dsize(self) result(n)
+               class(nek_ext_dvector_forcing), intent(in) :: self
+            end function
+         end interface
       
       !-------------------------------------------
       !-----     NEK COMPLEX VECTOR TYPE     -----

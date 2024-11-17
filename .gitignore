@@ -35,13 +35,20 @@ Nek5000/
 
 # Logs and compilation byproduct, build files, executables etc.
 **.log
+**.log*
+**/logfile
+**.dat
+**.info
 **/makefile
 **/makefile_usr.inc
 **/.state
 **/.usr
 **/makefile
 **/makefile_usr.inc
+**/makefile_usr
 **/nek5000
 **/run*/
 **/obj/
 **/??_run*/
+**/*.png
+**/SESSION.NAME

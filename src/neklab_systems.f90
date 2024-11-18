@@ -453,6 +453,8 @@
       ! internal
             type(nek_ext_dvector_forcing) :: dFdf
             real(dp) :: dGdf, df
+            real(dp), parameter :: mean = 0.0_dp
+            real(dp), parameter :: var  = 1.0_dp
       
             select type (vec_in)
             type is (nek_ext_dvector_forcing)
@@ -481,13 +483,13 @@
                   call vec_out%sub(vec_in)
            
       ! Evaluate G'(X) @ dx and add to forcing term
-      !            vec_out%f = mass_flux(vec_in)
+                  vec_out%f = get_mass_flux(vec_in)
 
       ! Evaluate dF/df and dG/df
       ! Set the initial guess for fixed point
                   call abs_ext_vec_f2nek(vx, vy, vz, pr, t, self%X)
       ! Add perturbation to f
-      !           call add_df
+                  df = normal(mean, var)*1e-6
                   call compute_f_derivatives(dFdf, dGdf, df)
                   call vec_out%axpby(1.0_dp, dFdf, vec_in%f)
 
@@ -506,6 +508,8 @@
       ! internal
             type(nek_ext_dvector_forcing) :: dFdf
             real(dp) :: dGdf, df
+            real(dp), parameter :: mean = 0.0_dp
+            real(dp), parameter :: var  = 1.0_dp
       
             select type (vec_in)
             type is (nek_ext_dvector_forcing)
@@ -540,7 +544,8 @@
       ! Set the initial guess for fixed point
                   call abs_ext_vec_f2nek(vx, vy, vz, pr, t, self%X)
       ! Add perturbation to f
-      !           call add_df
+                  df = normal(mean, var)*1e-6
+                  ! add forcing to baseflow
                   call compute_f_derivatives(dFdf, dGdf, df)
                   call vec_out%axpby(1.0_dp, dFdf, vec_in%f)
 

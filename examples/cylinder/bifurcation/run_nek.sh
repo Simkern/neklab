@@ -1,1 +1,1 @@
-nekmpi 1cyl 12
+nekmpi 1cyl 4

@@ -11,7 +11,7 @@ c-----------------------------------------------------------------------
             
       if (istep.eq.0) then
          ! Load baseflow.
-         call load_fld("BF_1cyl0.f00001")
+         call load_fld("BF.fld")
          allocate(bf) ; call nek2vec(bf, vx, vy, vz, pr, t)
          call vec2nek(vx, vy, vz, pr, t, bf)
 

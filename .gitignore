@@ -47,6 +47,7 @@ Nek5000/
 **/makefile_usr.inc
 **/makefile_usr
 **/nek5000
+**/*.nek5000
 **/run*/
 **/obj/
 **/??_run*/

@@ -33,7 +33,7 @@
       
       contains
       
-         subroutine linear_stability_analysis_fixed_point(exptA, kdim, nev, adjoint)
+         subroutine linear_stability_analysis_fixed_point(exptA, kdim, nev, adjoint, X0)
             type(exptA_linop), intent(inout) :: exptA
       !! Operator whose stability properties are to be investigated.
             integer, intent(in) :: kdim
@@ -42,6 +42,8 @@
       !! Desired number of eigenpairs to converge.
             logical, intent(in), optional :: adjoint
       !! Whether direct or adjoint analysis should be conducted.
+				type(nek_dvector), optional, intent(in) :: X0
+		!! Initial guess for the eigenvectors
       
       ! Eigenvalue computation related variables.
             type(nek_dvector), allocatable :: eigvecs(:)
@@ -66,10 +68,10 @@
             end if
       
       ! Allocate eigenvectors and initialize Krylov basis.
-            allocate (eigvecs(nev)); call initialize_krylov_subspace(eigvecs)
+            allocate (eigvecs(nev)); call zero_basis(eigvecs)
       
       ! Run the eigenvalue analysis.
-            call eigs(exptA, eigvecs, eigvals, residuals, info, kdim=kdim, transpose=adjoint_)
+				call eigs(exptA, eigvecs, eigvals, residuals, info, x0=X0, kdim=kdim, transpose=adjoint_)
       
       ! Transform eigenspectrum to continuous-time representation.
             eigvals = log(eigvals)/exptA%tau
@@ -127,20 +129,23 @@
             return
          end subroutine transient_growth_analysis_fixed_point
       
-         subroutine newton_fixed_point_iteration(sys, bf, tol)
+         subroutine newton_fixed_point_iteration(sys, bf, tol, tol_mode)
             type(nek_system), intent(inout) :: sys
       !! System for which a fixed point is sought
             type(nek_dvector), intent(inout) :: bf
       !! Initial guess for the fixed point
             real(dp), intent(inout) :: tol
       !! Absolute tolerance for the Newton solver
+            integer, optional, intent(in) :: tol_mode
       
       ! Misc
-            integer :: info
+            integer :: info, tol_mode_
             type(newton_dp_opts) :: opts
       !type(gmres_dp_opts)  :: gmres_opts
             character(len=3) :: file_prefix
       
+				tol_mode_ = optval(tol_mode, 1)
+
       ! Set up logging
             call logger_setup(nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
       
@@ -148,7 +153,11 @@
             opts = newton_dp_opts(maxiter=30, ifbisect=.true.)
       
       ! Call to LightKrylov.
-            call newton(sys, bf, gmres_rdp, info, tolerance=tol, options=opts, scheduler=constant_atol_dp)
+            if (tol_mode_ == 1) then
+               call newton(sys, bf, gmres_rdp, info, tolerance=tol, options=opts, scheduler=constant_atol_dp)
+            else
+					call newton(sys, bf, gmres_rdp, info, tolerance=tol, options=opts, scheduler=dynamic_tol_dp)
+				end if
       
       ! Outpost initial condition.
             file_prefix = 'nwt'

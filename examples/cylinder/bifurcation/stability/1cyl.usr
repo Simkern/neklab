@@ -5,11 +5,19 @@ c-----------------------------------------------------------------------
       include "SIZE"
       include "TOTAL"
 
-      type(nek_dvector), allocatable :: bf
+      type(nek_dvector), allocatable :: bf, X0
       type(exptA_linop), allocatable :: exptA
       integer, parameter :: kdim = 128, nev = 2
+      logical :: exist
             
       if (istep.eq.0) then
+         ! Load eigenvector if present
+			allocate(X0)
+         inquire(file="EV_1cyl.fld", exist=exist)
+         if (exist) then
+            call load_fld("EV_1cyl.ld")
+				call nek2vec(X0, vx, vy, vz, pr, t)
+			end if
          ! Load baseflow.
          call load_fld("BF.fld")
          allocate(bf) ; call nek2vec(bf, vx, vy, vz, pr, t)
@@ -19,9 +27,13 @@ c-----------------------------------------------------------------------
          exptA = exptA_linop(1.0_dp, bf) ; call exptA%init()
        	
 			! Stability analysis.
-         call linear_stability_analysis_fixed_point(exptA, kdim, nev)
+			if (exist) then
+         	call linear_stability_analysis_fixed_point(exptA, kdim, nev, X0=X0)
+			else 
+         	call linear_stability_analysis_fixed_point(exptA, kdim, nev)
+			end if
         
-			call nek_end()
+	   call nek_end()
       end if
 
       return

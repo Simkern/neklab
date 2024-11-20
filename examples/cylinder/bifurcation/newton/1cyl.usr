@@ -11,7 +11,10 @@ c-----------------------------------------------------------------------
       type(nek_dvector) :: bf
       ! Tolerance for the Newton solver
       real(dp) :: tol
+		integer :: tol_mode
 
+		tol_mode = 1 ! constant
+		!tol_mode = 2 ! dynamic
       
       if (istep.eq.0) then
          ! load initial guess
@@ -25,7 +28,7 @@ c-----------------------------------------------------------------------
          sys = nek_system()
          sys%jacobian = nek_jacobian()
          sys%jacobian%X = bf
-         call newton_fixed_point_iteration(sys, bf, tol)
+         call newton_fixed_point_iteration(sys, bf, tol, tol_mode)
          call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
          
          call nek_end()

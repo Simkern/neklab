@@ -20,11 +20,8 @@
          character(len=*), parameter, private :: this_module = 'neklab_utils'
       
          integer, parameter :: lv = lx1*ly1*lz1*lelv
-      !! Local number of grid points for the velocity mesh.
          integer, parameter :: lp = lx2*ly2*lz2*lelv
-      !! Local number of grid points for the pressure mesh.
          integer, parameter :: lt = lx1*ly1*lz1*lelt
-      !! Local number of grid points for the temperature/passive scalar mesh.
       
       ! Set up solver
          public :: setup_nek, setup_nonlinear_solver, setup_linear_solver, nek_status

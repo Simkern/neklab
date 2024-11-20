@@ -31,10 +31,6 @@
       ! utilities for extended nek vectors
          public :: nek2ext_vec, ext_vec2nek, abs_ext_vec2nek, outpost_ext_dnek
          public :: get_period, get_period_abs
-      ! utilities for nek pvectors
-         public :: nek2pr_vec, pr_vec2nek
-      ! neklab forcing (called in userf)
-         public :: neklab_forcing
       ! miscellaneous
          public :: nopcopy
       
@@ -393,5 +389,8 @@
             end do
             return
          end subroutine outpost_ext_dnek_basis
+<<<<<<< HEAD
       
+=======
+>>>>>>> main
       end module neklab_utils

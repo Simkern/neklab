@@ -34,8 +34,6 @@
       ! utilities for extended nek vectors forcing
          public :: nek2ext_vec_f, ext_vec_f2nek, abs_ext_vec_f2nek!, outpost_ext_f_dnek
          public :: get_forcing, get_forcing_abs
-      ! utilities for nek pvectors
-         public :: nek2pr_vec, pr_vec2nek
       ! neklab forcing (called in userf)
          public :: neklab_forcing
       ! miscellaneous
@@ -520,6 +518,7 @@
             end do
             return
          end subroutine outpost_ext_dnek_basis
+<<<<<<< HEAD
 
          subroutine outpost_ext_f_dnek_vector(vec, prefix)
             type(nek_ext_dvector_forcing), intent(in) :: vec
@@ -537,5 +536,10 @@
             end do
             return
          end subroutine outpost_ext_f_dnek_basis
+=======
+<<<<<<< HEAD
+>>>>>>> dev
       
+=======
+>>>>>>> main
       end module neklab_utils

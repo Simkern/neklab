@@ -34,6 +34,8 @@ LightKrylov/
 Nek5000/
 
 # Logs and compilation byproduct, build files, executables etc.
+**.npy
+**.fld
 **.log
 **.log*
 **/logfile

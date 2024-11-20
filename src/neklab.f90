@@ -8,6 +8,8 @@
       ! --> Utility functions for Nek5000 setup
          use neklab_nek_setup
       ! --> Definitions of the abstract linops in the Nek framework.
+         use neklab_nek_setup
+      ! --> Routines to control the solver state in Nek5000
          use neklab_linops
       ! --> Definitions of the abstract systems in the Nek framework.
          use neklab_systems
@@ -48,10 +50,11 @@
          public :: nek_zvector
          public :: nek_pr_dvector
          public :: nek_ext_dvector
+         public :: nek_zvector
       
       ! Implementation of the standard linear operators.
          public :: exptA_linop
-         public :: LNS_linop, DDT_linop
+         public :: resolvent_linop, neklab_forcing
       
       ! Implementation of the abstract systems and Jacobians
          public :: nek_system, nek_system_upo
@@ -87,5 +90,5 @@
          public :: nek2pr_vec, pr_vec2nek
          public :: nek2ext_vec, ext_vec2nek
          public :: setup_nonlinear_solver, setup_linear_solver
-      
+         public :: outpost_dnek
       end module neklab

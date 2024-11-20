@@ -102,34 +102,6 @@
             module procedure outpost_ext_f_dnek_basis
          end interface
       
-      ! Nek pressure vector utilities
-         interface nek2pr_vec
-            module procedure nek2pr_vec_std
-            module procedure nek2pr_vec_prt
-         end interface
-      
-         interface pr_vec2nek
-            module procedure pr_vec2nek_std
-            module procedure pr_vec2nek_prt
-         end interface
-      
-      ! Nek forcing function
-         interface
-            subroutine abstract_neklab_forcing(ffx, ffy, ffz, ix, iy, iz, ieg, ipert)
-               import dp
-               real(kind=dp), intent(inout) :: ffx
-               real(kind=dp), intent(inout) :: ffy
-               real(kind=dp), intent(inout) :: ffz
-               integer, intent(in) :: ix
-               integer, intent(in) :: iy
-               integer, intent(in) :: iz
-               integer, intent(in) :: ieg
-               integer, intent(in) :: ipert
-            end subroutine abstract_neklab_forcing
-         end interface
-      
-         procedure(abstract_neklab_forcing), pointer :: neklab_forcing => null()
-      
       contains
       
          subroutine nek2vec_prt(vec, vx_, vy_, vz_, pr_, t_)
@@ -420,39 +392,18 @@
             forcing = vec%f
          end function get_forcing
 
-         ! PRESSURE
+         pure real(dp) function get_period_abs(vec) result(period)
+            class(abstract_vector_rdp), intent(in) :: vec
+            select type (vec)
+            type is (nek_ext_dvector)
+               period = vec%T
+            end select
+         end function get_period_abs
       
-         subroutine nek2pr_vec_prt(vec, pr_)
-            include "SIZE"
-            type(nek_pr_dvector), intent(out) :: vec
-            real(kind=dp), dimension(lp, lpert), intent(in) :: pr_
-            call copy(vec%pr, pr_(:, 1), lp)
-            return
-         end subroutine nek2pr_vec_prt
-      
-         subroutine nek2pr_vec_std(vec, pr_)
-            include "SIZE"
-            type(nek_pr_dvector), intent(out) :: vec
-            real(kind=dp), dimension(lx2, ly2, lz2, lelv), intent(in) :: pr_
-            call copy(vec%pr, pr_, lp)
-            return
-         end subroutine nek2pr_vec_std
-      
-         subroutine pr_vec2nek_std(pr_, vec)
-            include "SIZE"
-            type(nek_pr_dvector), intent(in) :: vec
-            real(kind=dp), dimension(lx2, ly2, lz2, lelv), intent(out) :: pr_
-            call copy(pr_, vec%pr, lp)
-            return
-         end subroutine pr_vec2nek_std
-      
-         subroutine pr_vec2nek_prt(pr_, vec)
-            include "SIZE"
-            type(nek_pr_dvector), intent(in) :: vec
-            real(kind=dp), dimension(lp, 1), intent(out) :: pr_
-            call copy(pr_(:, 1), vec%pr, lp)
-            return
-         end subroutine pr_vec2nek_prt
+         pure real(dp) function get_period(vec) result(period)
+            class(nek_ext_dvector), intent(in) :: vec
+            period = vec%T
+         end function get_period
       
          subroutine nopcopy(a1, a2, a3, a4, a5, b1, b2, b3, b4, b5)
             implicit none
@@ -519,6 +470,7 @@
             return
          end subroutine outpost_ext_dnek_basis
 <<<<<<< HEAD
+<<<<<<< HEAD
 
          subroutine outpost_ext_f_dnek_vector(vec, prefix)
             type(nek_ext_dvector_forcing), intent(in) :: vec
@@ -542,4 +494,6 @@
       
 =======
 >>>>>>> main
+=======
+>>>>>>> dev
       end module neklab_utils

@@ -1,22 +1,22 @@
       module neklab
-      ! --> Abstract Krylov methods.
          use LightKrylov
-      ! --> Definition of the abstract vectors in the Nek framework.
+      !! --> Abstract Krylov methods.
          use neklab_vectors
-      ! --> Utility functions for Nek vectors
+      !! --> Definition of the abstract vectors in the Nek framework.
          use neklab_utils
-      ! --> Utility functions for Nek5000 setup
+      !! --> Utility functions for Nek5000 setup
          use neklab_nek_setup
-      ! --> Definitions of the abstract linops in the Nek framework.
-         use neklab_nek_setup
-      ! --> Routines to control the solver state in Nek5000
+      !! --> Routines to control the solver state in Nek5000
+         use neklab_nek_forcing
+      !! --> Data interface for the user defined forcing
          use neklab_linops
-      ! --> Definitions of the abstract systems in the Nek framework.
+      !! --> Definitions of the abstract linops in the Nek framework.
          use neklab_systems
-      ! --> OTD definition
+      !! --> Definitions of the abstract systems in the Nek framework.
          use neklab_otd
-      ! --> Stability analysis routines
+      !! --> OTD definition
          use neklab_analysis
+      !! --> Stability analysis routines
       
          private
       
@@ -54,11 +54,14 @@
       
       ! Implementation of the standard linear operators.
          public :: exptA_linop
-         public :: resolvent_linop, neklab_forcing
+         public :: resolvent_linop
       
       ! Implementation of the abstract systems and Jacobians
          public :: nek_system, nek_system_upo
          public :: nek_jacobian, nek_jacobian_upo
+      
+      ! Data for nek5000 user-defined forcing function
+         public :: get_neklab_forcing, set_neklab_forcing, neklab_forcing
       
       ! Baseflow computation
          public :: newton_fixed_point_iteration
@@ -77,17 +80,12 @@
          public :: compute_LNS_gradp
          public :: compute_LNS_laplacian
          public :: apply_Lv, apply_L
-         public :: pressure_projection
       
       ! Forcing function export
          public :: neklab_forcing
       
-      ! Miscellaneous.
-         public :: compare_nek_arnoldi
-      
       ! Various utilities.
          public :: nek2vec, vec2nek
-         public :: nek2pr_vec, pr_vec2nek
          public :: nek2ext_vec, ext_vec2nek
          public :: setup_nonlinear_solver, setup_linear_solver
          public :: outpost_dnek

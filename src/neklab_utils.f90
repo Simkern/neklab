@@ -34,8 +34,6 @@
       ! utilities for extended nek vectors forcing
          public :: nek2ext_vec_f, ext_vec_f2nek, abs_ext_vec_f2nek!, outpost_ext_f_dnek
          public :: get_forcing, get_forcing_abs
-      ! neklab forcing (called in userf)
-         public :: neklab_forcing
       ! miscellaneous
          public :: nopcopy
       
@@ -391,19 +389,6 @@
             class(nek_ext_dvector_forcing), intent(in) :: vec
             forcing = vec%f
          end function get_forcing
-
-         pure real(dp) function get_period_abs(vec) result(period)
-            class(abstract_vector_rdp), intent(in) :: vec
-            select type (vec)
-            type is (nek_ext_dvector)
-               period = vec%T
-            end select
-         end function get_period_abs
-      
-         pure real(dp) function get_period(vec) result(period)
-            class(nek_ext_dvector), intent(in) :: vec
-            period = vec%T
-         end function get_period
       
          subroutine nopcopy(a1, a2, a3, a4, a5, b1, b2, b3, b4, b5)
             implicit none
@@ -469,8 +454,6 @@
             end do
             return
          end subroutine outpost_ext_dnek_basis
-<<<<<<< HEAD
-<<<<<<< HEAD
 
          subroutine outpost_ext_f_dnek_vector(vec, prefix)
             type(nek_ext_dvector_forcing), intent(in) :: vec
@@ -488,12 +471,5 @@
             end do
             return
          end subroutine outpost_ext_f_dnek_basis
-=======
-<<<<<<< HEAD
->>>>>>> dev
-      
-=======
->>>>>>> main
-=======
->>>>>>> dev
+
       end module neklab_utils

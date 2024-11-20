@@ -90,19 +90,6 @@ def compute_baseflow(Re, step):
    to_file = f'BF{step:02d}.fld'
    skip = copy_from_to(from_file, to_file)
 
-   if (not skip):
-      os.chdir(new_folder_newton)
-      # Execute the simulation command: nekmpi 1cyl 12
-      launch_nek()
-      # return home
-      os.chdir(home)
-      # Step 3: Copy the new baseflow into main folder
-      from_file = os.path.join(new_folder_newton, 'nwt1cyl0.f00001')
-      to_file = f'BF{step:02d}.fld'
-      skip = copy_from_to(from_file, to_file)
-   else:
-      print(f"Skip.")
-
 def compute_stability(Re, step):
    # Step 2: After simulation completes, create the same subfolder inside the stability folder
    new_folder_stability, skip = create_runfolder(step, stability_folder)
@@ -126,19 +113,6 @@ def compute_stability(Re, step):
    from_file = os.path.join(new_folder_stability, 'dir_eigenspectrum.npy')
    to_file = f'dir_eigenspectrum{step:02d}.npy'
    skip = copy_from_to(from_file, to_file)
-
-   if (not skip):
-      os.chdir(new_folder_stability)
-      # Execute the simulation command: nekmpi 1cyl 12
-      launch_nek()
-      # return home
-      os.chdir(home)
-      # Step 3: Copy the eigenvalues over
-      from_file = os.path.join(new_folder_stability, 'dir_eigenspectrum.npy')
-      to_file = f'dir_eigenspectrum{step:02d}.npy'
-      skip = copy_from_to(from_file, to_file)
-   else:
-      print(f"Skip.")
 
    return to_file
 
@@ -182,7 +156,7 @@ print('\nStart bisection:\n')
 # Golden ratio bisection
 golden_ratio = (1 + 5 ** 0.5) / 2  # Golden ratio constant
 tol = 1e-4
-max_iter = 30
+max_iter = 12
 
 do_a, do_b = True, True
 

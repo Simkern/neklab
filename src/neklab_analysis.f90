@@ -58,7 +58,8 @@
             character(len=3) :: file_prefix
       
       ! Set up logging
-            call logger_setup(nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
+            call logger_setup(logfile='lightkrylov_eig.log', nio=0, log_level=debug_level, log_stdout=.false., log_timestamp=.true.)
+		call logger%log_message('Starting eigenvalue computation.', module=this_module)
       
       ! Optional parameters.
             if (present(adjoint)) then
@@ -71,7 +72,7 @@
             allocate (eigvecs(nev)); call zero_basis(eigvecs)
       
       ! Run the eigenvalue analysis.
-				call eigs(exptA, eigvecs, eigvals, residuals, info, x0=X0, kdim=kdim, transpose=adjoint_)
+		call eigs(exptA, eigvecs, eigvals, residuals, info, x0=X0, kdim=kdim, transpose=adjoint_)
       
       ! Transform eigenspectrum to continuous-time representation.
             eigvals = log(eigvals)/exptA%tau
@@ -84,6 +85,8 @@
       
       ! Export eigenfunctions to disk.
             call outpost_dnek(eigvecs(:nev), file_prefix)
+
+		call logger%log_message('Exiting eigenvalue computation.', module=this_module)
       
             return
          end subroutine linear_stability_analysis_fixed_point
@@ -106,7 +109,7 @@
             character(len=3) :: file_prefix
       
       ! Set up logging
-            call logger_setup(nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
+            call logger_setup(logfile='lightkrylov_tgr.log', nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
       
       ! Allocate singular vectors.
             allocate (U(nsv)); call initialize_krylov_subspace(U)
@@ -147,7 +150,8 @@
 				tol_mode_ = optval(tol_mode, 1)
 
       ! Set up logging
-            call logger_setup(nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
+            call logger_setup(logfile='lightkrylov_nwt.log', nio=0, log_level=debug_level, log_stdout=.false., log_timestamp=.true.)
+		call logger%log_message('Starting newton iteration.', module=this_module)
       
       ! Define options for the Newton solver
             opts = newton_dp_opts(maxiter=30, ifbisect=.true.)
@@ -162,6 +166,8 @@
       ! Outpost initial condition.
             file_prefix = 'nwt'
             call outpost_dnek(bf, file_prefix)
+
+		call logger%log_message('Exiting newton iteration.', module=this_module)
       
             return
          end subroutine newton_fixed_point_iteration

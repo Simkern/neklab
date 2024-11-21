@@ -63,6 +63,46 @@ def launch_nek():
       sys.exit()
    return
 
+def compute_iteration(Re, step):
+   # Create a new folder inside the newton folder
+   new_folder, skip = create_runfolder(step, folder)
+   
+   if (not skip):
+      # Copy the initial condition from the appropriate location
+      if step == 1:
+         from_file = os.path.join(folder, 'BF.fld')
+      else:
+         from_file = bf_base_file = f'BF{step-1:02d}.fld'
+      to_file = os.path.join(new_folder, 'BF.fld')
+      skiprun = copy_from_to(from_file, to_file)
+
+      if step > 1:
+         par_file = os.path.join(new_folder, '1cyl.par')
+         update_viscosity(par_file, Re)
+      
+      # Change the directory to the new run folder
+      os.chdir(new_folder)
+      # Execute the simulation command: nekmpi 1cyl 12
+      launch_nek()
+      # return home
+      os.chdir(home)
+ 
+   # Step 3: Copy the new results
+   # baseflow
+   from_file = os.path.join(new_folder, 'BF_1cyl0.f00001')
+   to_file = f'BF{step:02d}.fld'
+   skip = copy_from_to(from_file, to_file)
+   # eigenvector
+   from_file = os.path.join(new_folder, 'dir1cyl0.f00001')
+   to_file = f'EV{step:02d}.fld'
+   skip = copy_from_to(from_file, to_file)
+   # eigenvalues
+   from_file = os.path.join(new_folder, 'dir_eigenspectrum.npy')
+   to_file = f'dir_eigenspectrum{step:02d}.npy'
+   skip = copy_from_to(from_file, to_file)
+
+   return to_file
+   
 def compute_baseflow(Re, step):
    # Create a new folder inside the newton folder
    new_folder_newton, skip = create_runfolder(step, newton_folder)
@@ -121,6 +161,7 @@ if __name__ == "__main__":
    # Define paths
    newton_folder    = 'newton'
    stability_folder = 'stability'
+   folder           = 'newton_eigs'
    run_folder_base = 'run_'
    par_file = '1cyl.par'
 
@@ -139,8 +180,9 @@ if __name__ == "__main__":
          Re  += Re_inc
          Rev.append(Re)
 
-      compute_baseflow(Re, step)
-      eig_file = compute_stability(Re, step)
+      #compute_baseflow(Re, step)
+      #eig_file = compute_stability(Re, step)
+      eig_file = compute_iteration(Re, step)
 
       data = np.load(eig_file)
       print(Re)
@@ -148,6 +190,8 @@ if __name__ == "__main__":
 
       if data[:,0].max() > 0.0:
          unstable = True
+
+      sys.exit()
 
 Re_a, Re_b = Rev[-2:]
 Re_d = Re_b - Re_a
@@ -170,16 +214,18 @@ while Re_d > tol and step < max_iter:
    if do_a:
       step += 1
       print(f'\n\tNext Re = {Re1}\n')
-      compute_baseflow(Re1, step) 
-      eig_file = compute_stability(Re1, step)
+      #compute_baseflow(Re1, step) 
+      #eig_file = compute_stability(Re1, step)
+      eig_file = compute_iteration(Re1, step)
       data1 = np.load(eig_file)
       print(data1)
       f1 = abs(data1[:,0].max())
    if do_b:
       step += 1
       print(f'\n\tNext Re = {Re2}\n')
-      compute_baseflow(Re2, step) 
-      eig_file = compute_stability(Re2, step)
+      #compute_baseflow(Re2, step) 
+      #eig_file = compute_stability(Re2, step)
+      eig_file = compute_iteration(Re2, step)
       data2 = np.load(eig_file)
       print(data2)
       f2 = abs(data2[:,0].max())

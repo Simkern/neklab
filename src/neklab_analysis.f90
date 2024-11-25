@@ -9,6 +9,7 @@
          use LightKrylov, only: linear_combination, innerprod
          use LightKrylov, only: newton, newton_dp_opts
          use LightKrylov_Logger
+         use LightKrylov_Timing, only: timer => global_lightkrylov_timer
          use LightKrylov_NewtonKrylov, only: dynamic_tol_dp, constant_atol_dp
          use neklab_vectors
          use neklab_linops
@@ -58,7 +59,7 @@
             character(len=3) :: file_prefix
       
       ! Set up logging
-            call logger_setup(logfile='lightkrylov_eig.log', nio=0, log_level=debug_level, log_stdout=.false., log_timestamp=.true.)
+            call logger_setup(logfile='lightkrylov_eig.log', nio=0, log_level=warning_level, log_stdout=.false., log_timestamp=.true.)
 		call logger%log_message('Starting eigenvalue computation.', module=this_module)
       
       ! Optional parameters.
@@ -87,6 +88,12 @@
             call outpost_dnek(eigvecs(:nev), file_prefix)
 
 		call logger%log_message('Exiting eigenvalue computation.', module=this_module)
+
+      ! Finalize exptA timings
+            call exptA%finalize_timer()
+      ! Finalize timing
+            call logger_setup(logfile='lightkrylov_tmr.log', nio=0, log_level=warning_level, log_stdout=.false., log_timestamp=.true.)
+            call timer%finalize()
       
             return
          end subroutine linear_stability_analysis_fixed_point
@@ -150,8 +157,10 @@
 				tol_mode_ = optval(tol_mode, 1)
 
       ! Set up logging
-            call logger_setup(logfile='lightkrylov_nwt.log', nio=0, log_level=debug_level, log_stdout=.false., log_timestamp=.true.)
+            call logger_setup(logfile='lightkrylov_nwt.log', nio=0, log_level=warning_level, log_stdout=.false., log_timestamp=.true.)
 		call logger%log_message('Starting newton iteration.', module=this_module)
+      ! Set up timing
+            call timer%initialize()
       
       ! Define options for the Newton solver
             opts = newton_dp_opts(maxiter=30, ifbisect=.true.)
@@ -168,6 +177,9 @@
             call outpost_dnek(bf, file_prefix)
 
 		call logger%log_message('Exiting newton iteration.', module=this_module)
+
+            ! Finalize system timings
+            call sys%finalize_timer()
       
             return
          end subroutine newton_fixed_point_iteration

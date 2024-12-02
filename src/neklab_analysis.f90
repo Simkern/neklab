@@ -10,7 +10,6 @@
          use LightKrylov, only: newton, newton_dp_opts
          use LightKrylov_Logger
          use LightKrylov_Timing, only: timer => global_lightkrylov_timer
-         use LightKrylov_NewtonKrylov, only: dynamic_tol_dp, constant_atol_dp
          use neklab_vectors
          use neklab_linops
          use neklab_utils
@@ -157,59 +156,71 @@
 				tol_mode_ = optval(tol_mode, 1)
 
       ! Set up logging
-            call logger_setup(logfile='lightkrylov_nwt.log', nio=0, log_level=warning_level, log_stdout=.false., log_timestamp=.true.)
-		call logger%log_message('Starting newton iteration.', module=this_module)
+            call logger_setup(logfile='lightkrylov_nwt.log', nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
+		      call logger%log_message('Starting newton iteration.', module=this_module)
       ! Set up timing
             call timer%initialize()
       
       ! Define options for the Newton solver
-            opts = newton_dp_opts(maxiter=30, ifbisect=.true.)
+            opts = newton_dp_opts(maxiter=40, ifbisect=.true.)
       
       ! Call to LightKrylov.
             if (tol_mode_ == 1) then
-               call newton(sys, bf, gmres_rdp, info, tolerance=tol, options=opts, scheduler=constant_atol_dp)
+               call newton(sys, bf, gmres_rdp, info, tolerance=tol, options=opts, scheduler=nek_constant_tol)
             else
-					call newton(sys, bf, gmres_rdp, info, tolerance=tol, options=opts, scheduler=dynamic_tol_dp)
+					call newton(sys, bf, gmres_rdp, info, tolerance=tol, options=opts, scheduler=nek_dynamic_tol)
 				end if
       
       ! Outpost initial condition.
             file_prefix = 'nwt'
             call outpost_dnek(bf, file_prefix)
 
-		call logger%log_message('Exiting newton iteration.', module=this_module)
+		      call logger%log_message('Exiting newton iteration.', module=this_module)
 
             ! Finalize system timings
             call sys%finalize_timer()
+            call timer%finalize()
       
             return
          end subroutine newton_fixed_point_iteration
       
-         subroutine newton_periodic_orbit(sys, bf, tol)
+         subroutine newton_periodic_orbit(sys, bf, tol, tol_mode)
             type(nek_system_upo), intent(inout) :: sys
       !! System for which a fixed point is sought
             type(nek_ext_dvector), intent(inout) :: bf
       !! Initial guess for the fixed point
             real(dp), intent(inout) :: tol
       !! Absolute tolerance for the Newton solver
+            integer, optional, intent(in) :: tol_mode
       
       ! Misc
-            integer :: info
+            integer :: info, tol_mode_
             type(newton_dp_opts) :: opts
       !type(gmres_dp_opts)  :: gmres_opts
             character(len=3) :: file_prefix
       
       ! Set up logging
             call logger_setup(nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
+		! Set up timing
+            call timer%initialize()
       
       ! Define options for the Newton solver
-            opts = newton_dp_opts(maxiter=30, ifbisect=.true.)
+            opts = newton_dp_opts(maxiter=40, ifbisect=.true.)
       
       ! Call to LightKrylov.
-            call newton(sys, bf, gmres_rdp, info, tolerance=tol, options=opts, scheduler=constant_atol_dp)
+            if (tol_mode_ == 1) then
+               call newton(sys, bf, gmres_rdp, info, tolerance=tol, options=opts, scheduler=nek_constant_tol)
+            else
+					call newton(sys, bf, gmres_rdp, info, tolerance=tol, options=opts, scheduler=nek_dynamic_tol)
+				end if
       
       ! Outpost initial condition.
             file_prefix = 'nwt'
             call outpost_ext_dnek(bf, file_prefix)
+
+				! Finalize system timings
+            call sys%finalize_timer()
+            call timer%finalize()
       
             return
          end subroutine newton_periodic_orbit

@@ -25,15 +25,19 @@
          end procedure nonlinear_map
       
          module procedure jac_exptA_matvec
+      ! internal
+            real(dp) :: atol
             select type (vec_in)
             type is (nek_dvector)
                select type (vec_out)
                type is (nek_dvector)
+                  atol = param(22)
       ! Set the baseflow initial condition
                   call abs_vec2nek(vx, vy, vz, pr, t, self%X)
       ! Ensure correct nek status
                   call setup_linear_solver(solve_baseflow=.false.,
-     $   recompute_dt = .true., cfl_limit = 0.5_dp)
+     $   recompute_dt = .true., cfl_limit = 0.5_dp, 
+     $   vtol = atol/2.0, ptol = atol/2.0)
       ! Set the initial condition for Nek5000's linearized solver.
                   call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
       ! Integrate the equations forward in time.
@@ -50,15 +54,19 @@
          end procedure jac_exptA_matvec
       
          module procedure jac_exptA_rmatvec
+      ! internal
+            real(dp) :: atol
             select type (vec_in)
             type is (nek_dvector)
                select type (vec_out)
                type is (nek_dvector)
+                  atol = param(22)
       ! Set the baseflow initial condition
                   call abs_vec2nek(vx, vy, vz, pr, t, self%X)
       ! Ensure correct nek status
                   call setup_linear_solver(transpose=.true., solve_baseflow=.false.,
-     $   recompute_dt = .true., cfl_limit = 0.5_dp)
+     $   recompute_dt = .true., cfl_limit = 0.5_dp, 
+     $   vtol = atol/2.0, ptol = atol/2.0)
       ! Set the initial condition for Nek5000's linearized solver.
                   call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
       ! Integrate the equations forward in time.

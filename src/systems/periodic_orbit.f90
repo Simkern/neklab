@@ -32,16 +32,19 @@
    
          module procedure jac_direct_map
       ! internal
+            real(dp) :: atol
             type(nek_ext_dvector) :: vec
             select type (vec_in)
             type is (nek_ext_dvector)
                select type (vec_out)
                type is (nek_ext_dvector)
+                  atol = param(22)
       ! Set the baseflow initial condition
                   call abs_ext_vec2nek(vx, vy, vz, pr, t, self%X)
       ! Ensure correct nek status -> set end time
                   call setup_linear_solver(solve_baseflow=.true., transpose=.false.,
-     $   recompute_dt = .true., endtime = get_period_abs(self%X), cfl_limit = 0.4_dp)
+     $   recompute_dt = .true., endtime = get_period_abs(self%X), cfl_limit = 0.4_dp, 
+     $   vtol = atol/2.0, ptol = atol/2.0)
       ! Set the perturbation initial condition
                   call ext_vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
       ! Intgrate the coupled equations forward
@@ -68,16 +71,19 @@
       
          module procedure jac_adjoint_map
       ! internal
+            real(dp) :: atol
             type(nek_ext_dvector) :: vec
             select type (vec_in)
             type is (nek_ext_dvector)
                select type (vec_out)
                type is (nek_ext_dvector)
+                  atol = param(22)
       ! Set the baseflow initial condition
                   call abs_ext_vec2nek(vx, vy, vz, pr, t, self%X)
       ! Ensure correct nek status -> set end time
                   call setup_linear_solver(solve_baseflow=.true., transpose=.true.,
-     $   recompute_dt = .true., endtime = get_period_abs(self%X), cfl_limit = 0.4_dp)
+     $   recompute_dt = .true., endtime = get_period_abs(self%X), cfl_limit = 0.4_dp, 
+     $   vtol = atol/2.0, ptol = atol/2.0)
       ! Set the perturbation initial condition
                   call ext_vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
       ! Integrate the equations forward in time.

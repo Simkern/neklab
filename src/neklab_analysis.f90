@@ -153,11 +153,11 @@
       !type(gmres_dp_opts)  :: gmres_opts
             character(len=3) :: file_prefix
       
-				tol_mode_ = optval(tol_mode, 1)
+		tol_mode_ = optval(tol_mode, 1)
 
       ! Set up logging
             call logger_setup(logfile='lightkrylov_nwt.log', nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
-		      call logger%log_message('Starting newton iteration.', module=this_module)
+		call logger%log_message('Starting newton iteration.', module=this_module)
       ! Set up timing
             call timer%initialize()
       
@@ -166,10 +166,10 @@
       
       ! Call to LightKrylov.
             if (tol_mode_ == 1) then
-               call newton(sys, bf, gmres_rdp, info, tolerance=tol, options=opts, scheduler=nek_constant_tol)
+               call newton(sys, bf, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_constant_tol)
             else
-					call newton(sys, bf, gmres_rdp, info, tolerance=tol, options=opts, scheduler=nek_dynamic_tol)
-				end if
+		   call newton(sys, bf, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_dynamic_tol)
+		end if
       
       ! Outpost initial condition.
             file_prefix = 'nwt'
@@ -209,10 +209,10 @@
       
       ! Call to LightKrylov.
             if (tol_mode_ == 1) then
-               call newton(sys, bf, gmres_rdp, info, tolerance=tol, options=opts, scheduler=nek_constant_tol)
+               call newton(sys, bf, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_constant_tol)
             else
-					call newton(sys, bf, gmres_rdp, info, tolerance=tol, options=opts, scheduler=nek_dynamic_tol)
-				end if
+		   call newton(sys, bf, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_dynamic_tol)
+		end if
       
       ! Outpost initial condition.
             file_prefix = 'nwt'

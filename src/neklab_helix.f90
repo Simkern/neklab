@@ -54,8 +54,8 @@
             real(dp) :: womersley
             ! forcing
             integer :: nf
-            real(dp), dimension(lp) :: fshape
-            complex(dp), allocatable, public :: dpds(:)
+            real(dp), dimension(lv):: fshape
+            complex(dp), allocatable :: dpds(:)
             ! mesh inputs
             real(dp) :: length
             real(dp) :: nslices
@@ -190,14 +190,7 @@
             ! Streamwise angle in the equatorial plane & angle within cross-sectional plane
             self%as    = atan2(self%xax, self%yax) ! clockwise from y axis
             self%alpha = atan2(self%zax, pipe_r)
-            !self%alpha = atan2(self%zax, sqrt(self%xax**2 + self%yax**2) - helix_r)
-            !do i =1,lv
-            !   x = self%xax(i,1,1,1)
-            !   y = self%yax(i,1,1,1)
-            !   z = self%zax(i,1,1,1)
-            !   self%as(i)    = atan2(x, y) ! clockwise from y axis
-            !   
-            !enddo
+            
          end subroutine init_geom
 
          subroutine init_flow(self, womersley, dpds)
@@ -226,29 +219,26 @@
             class(helix), intent(inout) :: self
             ! internals
             integer :: i, ix, iy, iz, ie
-            real(dp) :: x, y, z, r2, r, rr, alpha
+            real(dp) :: helix_r2, r, rr, alpha
 
             self%fshape = 0.0_dp
 
             i = 0
+            print *, self%delta, self%curv_radius
             do ie = 1, lelv
             do iz = 1, lz1
             do iy = 1, ly1
             do ix = 1, lx1
                i = i+1
-               ! extract coordinates
-               x = self%xax(i)
-               y = self%yax(i)
-               z = self%zax(i)
 
-               ! Diatance from the origin in the equatorial plane
-               r2 = x**2 + y**2
+               ! Distance from the origin in the equatorial plane
+               helix_r2 = self%xax(i)**2 + self%yax(i)**2
                ! Distance from the pipe center in the equatorial plane
-               r = sqrt(r2) - self%curv_radius
+               r = sqrt(helix_r2) - self%curv_radius
                ! Azimuthal angle in the cross-sectional plane
-               alpha = atan2(r, z)
+               alpha = atan2(r, self%zax(i))
                ! Radial position in the cross-sectional plane
-               rr = sqrt(r2 + z**2)
+               rr = sqrt(r**2 + self%zax(i)**2)
 
                ! Compute fshape
                self%fshape(i) = 1.0_dp / abs(1.0_dp + self%delta * rr * sin(alpha))

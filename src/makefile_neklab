@@ -13,5 +13,6 @@ $(OBJDIR)/neklab_systems.o		:$(NEKLAB_SOURCE_ROOT)/src/systems/neklab_systems.f9
 $(OBJDIR)/fixed_point.o			:$(NEKLAB_SOURCE_ROOT)/src/systems/fixed_point.f90		;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/periodic_orbit.o		:$(NEKLAB_SOURCE_ROOT)/src/systems/periodic_orbit.f90		;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_otd.o			:$(NEKLAB_SOURCE_ROOT)/src/neklab_otd.f90			;$(FC) -c $(FL2) $< -o $@
+$(OBJDIR)/neklab_helix.o			:$(NEKLAB_SOURCE_ROOT)/src/neklab_helix.f90			;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_analysis.o		:$(NEKLAB_SOURCE_ROOT)/src/neklab_analysis.f90			;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab.o			:$(NEKLAB_SOURCE_ROOT)/src/neklab.f90				;$(FC) -c $(FL2) $< -o $@

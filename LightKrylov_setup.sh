@@ -54,7 +54,7 @@ if [ "$should_clone" == "yes" ]; then
         echo "Cloning LightKrylov repository..."
         git clone https://github.com/nekStab/LightKrylov.git
         cd LightKrylov
-        git checkout dev
+        git checkout updates_skern
     else
         echo "Skipping cloning."
     fi
@@ -76,10 +76,10 @@ fpm clean --all
 
 # Sets the compilation options depending on the detected compiler.
 if command -v mpiifort >/dev/null 2>&1; then
-    FPM_FFLAGS="-Ofast -xHost -g -traceback"
+    FPM_FFLAGS="-Ofast -xHost -g -traceback -D MPI"
     FPM_FC="mpiifort"
 else
-    FPM_FFLAGS="-march=native -O3 -funroll-loops -ffast-math"
+    FPM_FFLAGS="-march=native -O3 -funroll-loops -ffast-math -D MPI"
     FPM_FC="mpifort"
 fi
 

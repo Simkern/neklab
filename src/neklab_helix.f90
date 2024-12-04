@@ -60,6 +60,8 @@
             real(dp) :: length
             real(dp) :: nslices
             real(dp) :: nelf
+            ! sanity check
+            logical :: is_initialized = .false.
             ! data
             ! Sweep angle (radians)
             real(dp), dimension(lv) :: sweep_angle
@@ -125,6 +127,8 @@
             integer :: ix, iy, iz, ie, i
             real(dp), external :: glmax, glmin
 
+            if (self%is_initialized) call stop_error('Attempting to reinitialize the mesh', this_module, 'helix%init_mesh')
+
          !  Geometry modification for helical pipe
 
             pi = 4.0_dp*atan(1.0_dp)
@@ -140,8 +144,8 @@
             call copy(self%zax,zm1,lv) ! zax set before curvature in z is added!
 
             ! rescale the new x axis
-            xmin = glmin(xm1,lp)
-            xmax = glmax(xm1,lp)
+            xmin = glmin(xm1,lv)
+            xmax = glmax(xm1,lv)
             xm1 = self%sweep/(xmax-xmin) * xm1 ! x in [ 0, max_sweep_angle ]
             call copy(self%sweep_angle,xm1,lv) ! save sweep angle
             call copy(pipe_r,          ym1,lv) ! local distance from pipe center
@@ -190,6 +194,8 @@
             ! Streamwise angle in the equatorial plane & angle within cross-sectional plane
             self%as    = atan2(self%xax, self%yax) ! clockwise from y axis
             self%alpha = atan2(self%zax, pipe_r)
+
+            self%is_initialized = .true.
             
          end subroutine init_geom
 
@@ -254,7 +260,7 @@
             integer :: i, ix, iy, iz, ie
             complex(dp) :: eiwt
             real(dp) :: dpds
-            real(dp), dimension(lp) :: ffx, ffy, ffz, fs
+            real(dp), dimension(lv) :: ffx, ffy, ffz, fs
 
             eiwt = cexp(imag * self%omega * time)
             dpds = real(self%dpds(1))
@@ -264,7 +270,7 @@
 
             fs = self%fshape * dpds / self%curv_radius
 
-            do i = 1, lp
+            do i = 1, lv
                ffx(i) =  fs(i) * cos(self%phi) * cos(self%as(i))
                ffy(i) = -fs(i) * cos(self%phi) * sin(self%as(i))
                ffz(i) =  fs(i) * sin(self%phi)

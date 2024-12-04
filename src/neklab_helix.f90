@@ -82,6 +82,9 @@
             procedure, pass(self), public :: compute_bf_forcing
             procedure, pass(self), public :: compute_usrt
             procedure, pass(self), public :: compute_ubar
+            procedure, pass(self), public :: get_forcing
+            procedure, pass(self), public :: get_dpds
+            procedure, pass(self), public :: set_dpds
          end type helix
 
          type(helix) :: pipe
@@ -218,7 +221,7 @@
                ! problem
                self%dpds(1) = real(self%dpds(1))
             end if
-             
+            
          end subroutine init_flow
 
          subroutine compute_fshape(self)
@@ -254,26 +257,36 @@
             end do
          end subroutine compute_fshape
 
-         subroutine compute_bf_forcing(self)
-            class(helix), intent(inout) :: self
+         real(dp) pure function get_forcing(self, t) result(f)
+            class(helix), intent(in) :: self
+            real(dp), intent(in) :: t
+            !! time
             ! internal
             integer :: i, ix, iy, iz, ie
             complex(dp) :: eiwt
-            real(dp) :: dpds
-            real(dp), dimension(lv) :: ffx, ffy, ffz, fs
 
-            eiwt = cexp(imag * self%omega * time)
-            dpds = real(self%dpds(1))
+            eiwt = cexp(imag * self%omega * t)
+            f = real(self%dpds(1))
             do i = 2, self%nf
-               dpds = dpds + 2.0_dp * real(self%dpds(i) * eiwt)
+               f = f + 2.0_dp * real(self%dpds(i) * eiwt)
             end do
+         end function get_forcing
 
-            fs = self%fshape * dpds / self%curv_radius
+         subroutine compute_bf_forcing(self, t)
+            class(helix), intent(in) :: self
+            real(dp) :: t
+            !! time
+            ! internal
+            integer :: i
+            real(dp) :: fs
+            real(dp), dimension(lv) :: ffx, ffy, ffz
+
+            fs = self%get_forcing(t) / self%curv_radius
 
             do i = 1, lv
-               ffx(i) =  fs(i) * cos(self%phi) * cos(self%as(i))
-               ffy(i) = -fs(i) * cos(self%phi) * sin(self%as(i))
-               ffz(i) =  fs(i) * sin(self%phi)
+               ffx(i) =  fs * self%fshape(i) * cos(self%phi) * cos(self%as(i))
+               ffy(i) = -fs * self%fshape(i) * cos(self%phi) * sin(self%as(i))
+               ffz(i) =  fs * self%fshape(i) * sin(self%phi)
             end do
 
             ! set baseflow forcing
@@ -322,7 +335,6 @@
             end do
          end subroutine compute_usrt
             
-
          real(dp) function compute_ubar(self,u,v,w) result(ubar)
             class(helix) :: self
             real(dp), dimension(lx1,ly1,lz1,lelv) :: u
@@ -361,5 +373,25 @@
             ubar = num/den  ! "1/r"-weighted volumetric average of streamwise velocity
             
          end function compute_ubar
+
+         subroutine set_dpds(self, dpds, reset)
+            class(helix), intent(inout) :: self
+            complex(dp), dimension(:), intent(in) :: dpds
+            logical, optional, intent(in) :: reset
+            ! internal
+            logical :: reset_dpds
+            reset_dpds = optval(reset, .false.)
+            if (size(dpds) /= self%nf) call stop_error('Incompatible sizes.', this_module, 'set_dpds')
+            if (reset_dpds) self%dpds = complex(0.0_dp,0.0_dp)
+            self%dpds = self%dpds + dpds
+         end subroutine set_dpds
+
+         subroutine get_dpds(self, dpds)
+            class(helix), intent(in) :: self
+            complex(dp), dimension(:), allocatable, intent(out) :: dpds
+            if (self%nf == 0) call stop_error('dpds not set.', this_module, 'get_dpds')
+            allocate(dpds(self%nf))
+            dpds = self%dpds
+         end subroutine get_dpds
       
       end module neklab_helix

@@ -171,10 +171,10 @@
          interface nek_ext_dvector_forcing
             pure module function construct_nek_ext_dvector_forcing(vx, vy, f, vz, pr, theta) result(out)
                real(kind=dp), dimension(lv), intent(in) :: vx, vy
-               real(kind=dp), dimension(:), intent(in) :: f
                real(kind=dp), dimension(lv), optional, intent(in) :: vz
                real(kind=dp), dimension(lp), optional, intent(in) :: pr
                real(kind=dp), dimension(lv, ldimt), optional, intent(in) :: theta
+               real(kind=dp), dimension(:), intent(in) :: f
                type(nek_ext_dvector_forcing) :: out
             end function
          end interface

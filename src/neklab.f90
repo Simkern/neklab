@@ -50,6 +50,7 @@
          public :: nek_zvector
          public :: nek_pr_dvector
          public :: nek_ext_dvector
+         public :: nek_ext_dvector_forcing
          public :: nek_zvector
       
       ! Implementation of the standard linear operators.
@@ -87,6 +88,7 @@
       ! Various utilities.
          public :: nek2vec, vec2nek
          public :: nek2ext_vec, ext_vec2nek
+         public :: nek2ext_vec_f, ext_f_vec2nek
          public :: setup_nonlinear_solver, setup_linear_solver
          public :: outpost_dnek
       end module neklab

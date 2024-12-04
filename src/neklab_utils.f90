@@ -377,18 +377,28 @@
             return
          end subroutine abstract_ext_vec_f2nek_prt
 
-         pure real(dp) function get_forcing_abs(vec) result(forcing)
+         subroutine get_forcing_abs(forcing, vec)
+            real(dp), dimension(:), allocatable, intent(out) :: forcing
             class(abstract_vector_rdp), intent(in) :: vec
             select type (vec)
             type is (nek_ext_dvector_forcing)
-               forcing = vec%f
-            end select
-         end function get_forcing_abs
-      
-         pure real(dp) function get_forcing(vec) result(forcing)
-            class(nek_ext_dvector_forcing), intent(in) :: vec
+            if (vec%nf == 0) then
+               call stop_error('forcing component not initialized', this_module, 'get_forcing_abs')
+            end if
+            allocate(forcing(vec%nf))
             forcing = vec%f
-         end function get_forcing
+            end select
+         end subroutine get_forcing_abs
+      
+         subroutine get_forcing(forcing, vec)
+            real(dp), dimension(:), allocatable, intent(out) :: forcing
+            class(nek_ext_dvector_forcing), intent(in) :: vec
+            if (vec%nf == 0) then
+               call stop_error('forcing component not initialized', this_module, 'get_forcing_abs')
+            end if
+            allocate(forcing(vec%nf))
+            forcing = vec%f
+         end subroutine get_forcing
       
          subroutine nopcopy(a1, a2, a3, a4, a5, b1, b2, b3, b4, b5)
             implicit none

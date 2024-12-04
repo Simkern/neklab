@@ -20,6 +20,7 @@
          use neklab_linops
          use neklab_utils
          use neklab_nek_setup
+         use neklab_helix
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -31,6 +32,7 @@
          integer, parameter :: lp = lx2*ly2*lz2*lelv
 
          public :: compute_fdot
+         public :: compute_fdot_forcing
          public :: nek_constant_tol
          public :: nek_dynamic_tol
       
@@ -113,6 +115,45 @@
                class(abstract_vector_rdp), intent(out) :: vec_out
             end Subroutine jac_adjoint_map
          end interface
+
+      !---------------------------------------------------------
+      !-----     NEKLAB SYSTEM FOR FORCED FIXED-POINTS   -------
+      !---------------------------------------------------------
+
+         type, extends(abstract_system_rdp), public :: nek_system_forced
+         contains
+            private
+            procedure, pass(self), public :: response => nonlinear_map_forced
+         end type nek_system_forced
+      
+         type, extends(abstract_jacobian_linop_rdp), public :: nek_jacobian_forced
+         contains
+            private
+            procedure, pass(self), public :: matvec => jac_direct_map_forced
+            procedure, pass(self), public :: rmatvec => jac_adjoint_map_forced
+         end type nek_jacobian_forced
+
+         ! --> Type-bound procedures for nek_system_forced & nek_jacobian_forced
+         interface
+            module subroutine nonlinear_map_forced(self, vec_in, vec_out, atol)
+               class(nek_system_forced), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+               real(dp), intent(in) :: atol
+            end subroutine nonlinear_map_forced
+
+            module subroutine jac_direct_map_forced(self, vec_in, vec_out)
+               class(nek_jacobian_forced), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+            end subroutine jac_direct_map_forced
+
+            module subroutine jac_adjoint_map_forced(self, vec_in, vec_out)
+               class(nek_jacobian_forced), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+            end Subroutine jac_adjoint_map_forced
+         end interface
       
       contains
       
@@ -138,6 +179,38 @@
             vec%T = 0.0_dp ! ensure that the period shift vec_out%T is zero
             return
          end subroutine compute_fdot
+
+         subroutine compute_fdot_forcing(vec, df, icomp)
+            class(nek_ext_dvector_forcing), intent(out) :: vec
+            real(dp), intent(in) :: df
+            integer, intent(in) :: icomp
+      ! internal
+            complex(dp), dimension(:), allocatable :: dpds
+            type(nek_ext_dvector_forcing) :: vec_in
+      ! copy initial condition
+            call nek2ext_vec_f(vec_in, vx, vy, vz, pr, t)
+      ! perturb
+            vec_in%f(icomp) = vec_in%f(icomp) + df
+      ! extract and set forcing
+            call dpds_from_vector(dpds, vec_in)
+            call pipe%set_dpds(dpds)
+      ! Integrate the nonlinear equations forward in time.
+            time = 0.0_dp
+            do istep = 1, nsteps
+               call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
+               call nek_advance()
+            end do
+      ! Extract f(X(t0+dt))
+            call nek2ext_vec_f(vec, vx, vy, vz, pr, t)
+      ! Approximate derivative at t = t0:
+      !
+      !    f'(X(t0)) ~ ( f(X(t0+dt)) - f(X(t0)) ) / dt
+      !
+            call vec%sub(vec_in)
+            call vec%scal(1.0/df)
+            vec%f = 0.0_dp ! ensure that the forcing shift vec_out%f is zero
+            return
+         end subroutine compute_fdot_forcing
 
          !---------------------------------------------------------------------
          !-----     Definition of two tolerance schedulers for Nek5000    -----

@@ -58,8 +58,9 @@
          public :: resolvent_linop
       
       ! Implementation of the abstract systems and Jacobians
-         public :: nek_system, nek_system_upo
-         public :: nek_jacobian, nek_jacobian_upo
+         public :: nek_system, nek_jacobian
+         public :: nek_system_upo, nek_jacobian_upo
+         public :: nek_system_forced, nek_jacobian_forced
       
       ! Data for nek5000 user-defined forcing function
          public :: get_neklab_forcing, set_neklab_forcing, neklab_forcing

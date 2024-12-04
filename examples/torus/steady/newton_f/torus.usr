@@ -31,31 +31,72 @@ c-----------------------------------------------------------------------
       subroutine userchk
       use neklab
       use neklab_helix
+      use LightKrylov_Logger
       implicit none     
       include "SIZE"
       include "TOTAL"
 
       ! System for which we seek a fixed point
-      type(nek_system), allocatable :: sys
+      type(nek_system_forced), allocatable :: sys
       ! State vectors
-      type(nek_dvector) :: bf
+      type(nek_ext_dvector_forcing) :: bf
+      type(nek_ext_dvector_forcing) :: ftest
       ! Tolerance for the Newton solver
-      real(dp) :: tol
+      real(dp) :: tol, mf
+      ! flow parameters
+      real, parameter :: womersley   = 35.0d0
+      real, parameter :: dp0ds       = 7.945994987500288e-02
+      complex(dp), dimension(1), parameter :: dpds = [ (dp0ds, 0.0d0) ]
+      complex(dp), dimension(:), allocatable :: dpds_out
       
       if (istep.eq.0) then
+          ! Set up logging
+          call logger_setup(nio=0, log_stdout=.false., log_timestamp=.true.)
+      
+          ! Set flow parameters
+          call pipe%init_flow(dpds) !, womersley)
+          
           call load_fld('BF.fld')
-          call nek2vec(bf, vx, vy, vz, pr, t)
 
+          call pipe%get_dpds(dpds_out)
+          if (nid == 0) print *, 'init_flow', pipe%nf, dpds_out
+          
+          call nek2ext_vec_f(bf, vx, vy, vz, pr, t)
+          if (nid == 0) print *, 'init vec', bf%nf
+          allocate(bf%f(pipe%nf))
+          bf%nf = pipe%nf
+          
+          call dpds_to_vector(bf, dpds)
+          if (nid == 0) print *, 'init vec', bf%nf, bf%f
+          if (nid == 0) print *, real(cexp(complex(0.0_dp, 1.0_dp) * pipe%omega * time))
+          if (nid == 0) print *, aimag(cexp(complex(0.0_dp, 1.0_dp) * pipe%omega * time))
+          if (nid == 0) print *, 't = ', time, 'forcing: ', pipe%get_forcing(time), param(10)
+          
           ! parameters
           tol = 1e-6_dp
+          
+          call nek2ext_vec_f(ftest,vx,vy,vz,pr,t)
+          allocate(ftest%f(1))
+          ftest%f = pipe%get_forcing(time)
+          
+          !if (nid == 0) print *, 't_end = ', param(10)
+          !STOP 8
+          !print *, ftest%f, ' good-bye'
 
           ! define system
-          sys = nek_system()
-          sys%jacobian = nek_jacobian()
+          sys = nek_system_forced()
+          sys%jacobian = nek_jacobian_forced()
           sys%jacobian%X = bf
 
-          call newton_fixed_point_iteration(sys, bf, tol)
-          call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
+          mf = pipe%compute_ubar(vx,vy,vz)
+          if (nid == 0) print *, 'ubar', mf     
+          call sys%response(bf, ftest, tol)
+
+
+          mf = pipe%compute_ubar(vx,vy,vz)
+          if (nid == 0) print *, 'ubar', mf
+          !call newton_fixed_point_iteration(sys, bf, tol)
+          !call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
 
           call nek_end()
       end if
@@ -122,18 +163,11 @@ c-----------------------------------------------------------------------
       ! mesh parameters
       integer,  parameter :: nslices = 5
       integer,  parameter :: nelf    = 108
-      ! flow parameters
-      real, parameter :: womersley   = 35.0d0
-      real, parameter :: dp0ds       = 7.945994987500288e-02
-      complex, dimension(1), parameter :: dpds = [ (dp0ds, 0.0d0) ]
-      integer, parameter :: lv = lx1*ly1*lz1*lelv
       if (istep.eq.0) then
          ! Initialize type
          call helix_pipe(delta, diameter, pitch_s, length, nslices, nelf)
          ! Set geometry
          call pipe%init_geom()
-         ! Set flow parameters
-         call pipe%init_flow(womersley, dpds)
          ! compute forcing distribution
          call pipe%compute_fshape()
       endif

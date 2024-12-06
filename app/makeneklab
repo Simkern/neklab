@@ -116,12 +116,12 @@ USR+=" neklab_nek_forcing.o"
 USR+=" neklab_linops.o"
 USR+=" exponential_propagator.o"
 USR+=" resolvent.o"
+USR+=" neklab_helix.o"
 USR+=" neklab_systems.o"
 USR+=" fixed_point.o"
 USR+=" fixed_point_forced.o"
 USR+=" periodic_orbit.o"
 USR+=" neklab_otd.o"
-USR+=" neklab_helix.o"
 USR+=" neklab_analysis.o"
 USR+=" neklab.o"
 ADD_USR="add_USR.sh"
@@ -131,7 +131,7 @@ if [ -f $MAKEFILE_USR ]; then
         echo "include makefile_usr" >> makefile_usr.inc
         source $ADD_USR
     else
-        echo "Warning: cannot fine add_USR.sh!"
+        echo "Warning: cannot find add_USR.sh!"
     fi
 fi
 export USR

@@ -65,6 +65,9 @@
       ! Data for nek5000 user-defined forcing function
          public :: get_neklab_forcing, set_neklab_forcing, neklab_forcing
       
+      ! Data for nek5000 user-defined forcing function
+         public :: get_neklab_forcing, set_neklab_forcing, neklab_forcing
+      
       ! Baseflow computation
          public :: newton_fixed_point_iteration
          public :: newton_periodic_orbit

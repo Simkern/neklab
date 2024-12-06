@@ -146,7 +146,13 @@ echo "      compiler:     $(which $FC)"
 echo "      flags:      $FFLAGS"
 echo "      link-flags: $USR_LFLAGS"
 echo "  USR = $USR"
+<<<<<<< HEAD
 echo ""
+=======
+
+# Update makefile and static variables
+echo "include $NEKLAB_SOURCE_ROOT/src/makefile_neklab" > makefile_usr.inc
+>>>>>>> main
 
 set +a -e
 $NEK_SOURCE_ROOT/bin/nekconfig $@

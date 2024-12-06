@@ -41,15 +41,18 @@ Nek5000/
 **/logfile
 **.dat
 **.info
-**/makefile
-**/makefile_usr.inc
+
+# output
+*0.f0*
+*.nek5000
+
+# Build files, executables etc.
 **/.state
 **/.usr
 **/makefile
 **/makefile_usr.inc
 **/makefile_usr
 **/nek5000
-**/*.nek5000
 **/run*/
 **/test*/
 **/obj/
@@ -57,3 +60,6 @@ Nek5000/
 **/*.png
 **/SESSION.NAME
 **/*.f0*
+**/??_run*/*
+examples/**/*.f
+

@@ -59,8 +59,7 @@
             character(len=3) :: file_prefix
       
       ! Set up logging
-            call logger_setup(logfile='lightkrylov_eig.log', nio=0, log_level=warning_level, log_stdout=.false., log_timestamp=.true.)
-		call logger%log_message('Starting eigenvalue computation.', module=this_module)
+            call logger_setup(nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
       
       ! Optional parameters.
             if (present(adjoint)) then
@@ -116,7 +115,7 @@
             character(len=3) :: file_prefix
       
       ! Set up logging
-            call logger_setup(logfile='lightkrylov_tgr.log', nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
+            call logger_setup(nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
       
       ! Allocate singular vectors.
             allocate (U(nsv)); call initialize_krylov_subspace(U)

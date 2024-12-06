@@ -24,7 +24,7 @@
          include "TOTAL"
          include "ADJOINT"
          private
-         character(len=*), parameter, private :: this_module = 'neklab_otd'
+         character(len=*), parameter, private :: this_module = 'neklab_linops'
          character(len=*), parameter, private :: logfile_Ls = 'Ls.dat'
          character(len=*), parameter, private :: logfile_Lr = 'Lr.dat'
       

@@ -108,6 +108,8 @@
             real(dp), intent(in) :: length
             integer, intent(in) :: nslices
             integer, intent(in) :: nelf
+            ! internal
+            character(len=128) :: msg
 
             ! Geometry
             pipe%delta    = delta
@@ -125,8 +127,34 @@
             pipe%phi         = atan2(pipe%pitch_s,pipe%curv_radius)
             pipe%sweep       = pipe%length*cos(pipe%phi)/pipe%curv_radius ! sweep angle in radians
 
-            if (nid.eq.0) write(6,*) 'USERDAT2: phi         = ', pipe%phi*180./pi
-            if (nid.eq.0) write(6,*) 'USERDAT2: curv_radius = ', pipe%curv_radius
+            call nek_log_message('##  HELIX SETUP ##', module=this_module)
+            call nek_log_message('Geometry:', module=this_module)
+            write (msg, '(A,F15.8)') padl('length:', 20), pipe%length
+            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+            write (msg, '(A,F15.8)') padl('diameter:', 20), pipe%diameter
+            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+            write (msg, '(A,F15.8)') padl('radius:', 20), pipe%raius
+            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+            write (msg, '(A,F15.8)') padl('pitch_s:', 20), pipe%pitch_s
+            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+            write (msg, '(A,F15.8)') padl('delta:', 20), pipe%delta
+            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+            write (msg, '(A,E15.8)') padl('curv_radius:', 20), pipe%curv_radius
+            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+            call nek_log_message('Angles:', module=this_module)
+            write (msg, '(A,E15.8)') padl('rise angle:', 20), pipe%phi
+            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+            write (msg, '(A,E15.8)') padl('sweep angle:', 20), pipe%sweep
+            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+            call nek_log_message('Mesh:', module=this_module)
+            write (msg, '(A,I8)') padl('ntot:', 20), nx1*ny1*nz1*nelv
+            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+            write (msg, '(A,I8)') padl('nelv:', 20), nelv
+            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+            write (msg, '(A,I8)') padl('slices:', 20), pipe%nslices
+            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+            write (msg, '(A,I8)') padl('nel/slice:', 20), pipe%nelf
+            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
 
          end subroutine helix_pipe
 
@@ -139,7 +167,7 @@
             integer :: ix, iy, iz, ie, i
             real(dp), external :: glmax, glmin
 
-            if (self%is_initialized) call stop_error('Attempting to reinitialize the mesh', this_module, 'helix%init_mesh')
+            if (self%is_initialized) call stop_error('Attempting to reinitialize the mesh', this_module, 'init_geom')
 
          !  Geometry modification for helical pipe
 
@@ -216,7 +244,8 @@
             real(dp), intent(in) :: dpds(:)
             real(dp), optional, intent(in) :: womersley
             ! internal
-            integer :: n           
+            integer :: i, n
+            character(len=128) :: msg, fmt
             pi = 4.0_dp*atan(1.0_dp)
             n = size(dpds)
             if (present(womersley)) then
@@ -239,6 +268,23 @@
                end if
             end if
             self%dpds = dpds
+            call nek_log_message('Flow paramter initialization:', module=this_module)
+            write (msg, '(A,L8)') padl('steady:', 20), pipe%if_steady
+            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+            write (msg, '(A,F15.8)') padl('Wo:', 20), pipe%womersley
+            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+            write (msg, '(A,F15.8)') padl('omega:', 20), pipe%omega
+            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+            write (msg, '(A,F15.8)') padl('T:', 20), pipe%pulse_T
+            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+            write (msg, '(A,F15.8,1X,F15.8)') padl('dpds_00:', 20), pipe%dpds(1), 0.0_dp
+            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+            do i = 2, n, 2
+               write(fmt,'("dpds_",I2.2)') i/2
+               write (msg, '(A,F15.8,1X,F15.8)') padl(fmt, 20), pipe%dpds(i), pipe%dpds(i+1)
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+            end do
+                  
          end subroutine init_flow
 
          subroutine compute_fshape(self)

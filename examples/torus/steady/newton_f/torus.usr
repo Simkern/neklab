@@ -68,7 +68,7 @@ c-----------------------------------------------------------------------
           !allocate(bf%f(pipe%nf))
           !bf%nf = pipe%nf
           
-          call dpds_to_vector(bf, dpds)
+          call dpds_to_vector(dpds, bf)
           !if (nid == 0) print *, 'init vec', bf%nf, bf%f
           if (nid == 0) print *, 't = ', time, 'forcing: ', pipe%get_forcing(time), param(10)
           

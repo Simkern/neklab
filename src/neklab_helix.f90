@@ -2,25 +2,18 @@
       !---------------------------------------
       !-----     LightKrylov Imports     -----
       !---------------------------------------
-         use stdlib_sorting, only: sort, sort_index
-         use stdlib_linalg, only: eig
+         use stdlib_strings, only: padl
          use stdlib_optval, only: optval
       ! Default real kind.
          use LightKrylov, only: dp
          use LightKrylov_Constants, only: imag => one_im_cdp
-      ! Abstract types for real-valued linear operators and vectors.
-         use LightKrylov, only: abstract_linop_rdp, abstract_vector_rdp
-         use LightKrylov, only: orthonormalize_basis, zero_basis, rand_basis
-         use LightKrylov_Utils, only: abstract_opts
       ! Logging
          use LightKrylov_Logger
       ! Extensions of the abstract vector types to nek data format.
          use neklab_vectors
          use neklab_vectors, only: nf => n_forcing
          use neklab_nek_forcing, only: neklab_forcing, set_neklab_forcing
-         use neklab_utils, only: nek2vec, vec2nek
-         use neklab_nek_setup, only: setup_linear_solver
-         use neklab_linops, only: apply_L
+         use neklab_nek_setup, only: nek_log_message
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -133,7 +126,7 @@
             call nek_log_message(msg, module=this_module, fmt='(5X,A)')
             write (msg, '(A,F15.8)') padl('diameter:', 20), pipe%diameter
             call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            write (msg, '(A,F15.8)') padl('radius:', 20), pipe%raius
+            write (msg, '(A,F15.8)') padl('radius:', 20), pipe%radius
             call nek_log_message(msg, module=this_module, fmt='(5X,A)')
             write (msg, '(A,F15.8)') padl('pitch_s:', 20), pipe%pitch_s
             call nek_log_message(msg, module=this_module, fmt='(5X,A)')

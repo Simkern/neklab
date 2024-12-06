@@ -26,15 +26,6 @@
          end if
       
       ! Forcing.
-         out%nf = size(f)
-         if (allocated(out%f)) then
-            if (size(out%f) /= out%nf) then
-               deallocate(out%f)
-               allocate(out%f(out%nf))
-            end if
-         else
-            allocate(out%f(out%nf))
-         end if
          out%f = f
          end procedure
       
@@ -60,8 +51,8 @@
       
          call bcdirvc(self%vx, self%vy, self%vz, v1mask, v2mask, v3mask)
       
-         do i = 1, self%nf
-            call random_number(self%f)
+         do i = 1, n_forcing
+            call random_number(self%f(i))
          end do
       
          if (optval(ifnorm, .false.)) then
@@ -76,23 +67,23 @@
          if (if3d) call dscal(lv, alpha, self%vz, 1)
          call dscal(lp, alpha, self%pr, 1)
          if (ifto) call dscal(lv, alpha, self%theta(:, 1), 1)
-         do i = 1, self%nf
+         do i = 1, size(self%f)
             self%f(i) = alpha*self%f(i)
          end do
          end procedure
       
          module procedure nek_ext_f_daxpby
          integer :: i
+         character(len=128) :: msg
          call self%scal(alpha)
          select type (vec)
          type is (nek_ext_dvector_forcing)
-            if (vec%nf /= self%nf) call stop_error('Incompatible sizes', this_module, 'nek_ext_f_daxpy')
             call daxpy(lv, beta, vec%vx, 1, self%vx, 1)
             call daxpy(lv, beta, vec%vy, 1, self%vy, 1)
             if (if3d) call daxpy(lv, beta, vec%vz, 1, self%vz, 1)
             call daxpy(lp, beta, vec%pr, 1, self%pr, 1)
             if (ifto) call daxpy(lv, beta, vec%theta(:, 1), 1, self%theta(:, 1), 1)
-            do i = 1, self%nf
+            do i = 1, n_forcing
                self%f(i) = alpha*self%f(i) + beta*vec%f(i)
             end do
          end select
@@ -101,11 +92,10 @@
          module procedure nek_ext_f_ddot
          real(kind=dp), external :: op_glsc2_wt, glsc3
          integer :: i
-      
+         character(len=128) :: msg
          ifield = 1
          select type (vec)
          type is (nek_ext_dvector_forcing)
-            if (vec%nf /= self%nf) call stop_error('Incompatible sizes', this_module, 'nek_ext_f_ddot')
             alpha = op_glsc2_wt(self%vx, self%vy, self%vz, vec%vx, vec%vy, vec%vz, bm1)
             if (ifto) then
                alpha = alpha + glsc3(self%theta(:, 1), vec%theta(:, 1), bm1, lv)
@@ -115,7 +105,7 @@
                if (ifpsco(i - 1)) alpha = alpha + glsc3(self%theta(:, i), vec%theta(:, i), bm1, lv)
             end do
             end if
-            do i = 1, self%nf
+            do i = 1, n_forcing
                alpha = alpha + self%f(i)*vec%f(i)
             end do
          end select
@@ -123,7 +113,7 @@
       
          module procedure nek_ext_f_dsize
          integer :: i
-         n = 2*lv + lp + self%nf
+         n = 2*lv + lp + n_forcing
          if (if3d) n = n + lv
          if (ifto) n = n + lv
          if (ldimt > 1) then

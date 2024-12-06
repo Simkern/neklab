@@ -16,6 +16,7 @@
          use LightKrylov_Logger
       ! Extensions of the abstract vector types to nek data format.
          use neklab_vectors
+         use neklab_vectors, only: nf => n_forcing
          use neklab_nek_forcing, only: neklab_forcing, set_neklab_forcing
          use neklab_utils, only: nek2vec, vec2nek
          use neklab_nek_setup, only: setup_linear_solver
@@ -55,9 +56,8 @@
             real(dp) :: omega
             real(dp) :: womersley
             ! forcing
-            integer, public :: nf
             real(dp), dimension(lv):: fshape
-            complex(dp), allocatable :: dpds(:)
+            real(dp), dimension(nf), public :: dpds
             ! mesh inputs
             real(dp) :: length
             real(dp) :: nslices
@@ -75,6 +75,12 @@
             real(dp), dimension(lv) :: ox, oy
             ! cartesian coordinates in torus (without torsion!)
             real(dp), dimension(lv) :: xax, yax, zax
+            ! dF/df
+            type(nek_ext_dvector_forcing), dimension(nf), public :: dFdf
+            ! dG/df
+            real(dp), dimension(nf), public :: dGdf
+            ! flag to trigger computation
+            logical, public :: to_compute_df = .false.
          contains
             procedure, pass(self), public :: init_geom
             procedure, pass(self), public :: init_flow
@@ -86,6 +92,7 @@
             procedure, pass(self), public :: get_period
             procedure, pass(self), public :: get_dpds
             procedure, pass(self), public :: set_dpds
+            procedure, pass(self), public :: add_dpds_perturbation
             procedure, pass(self), public :: is_steady
          end type helix
 
@@ -206,39 +213,32 @@
 
          subroutine init_flow(self, dpds, womersley)
             class(helix), intent(inout) :: self
-            complex(dp), intent(in) :: dpds(:)
+            real(dp), intent(in) :: dpds(:)
             real(dp), optional, intent(in) :: womersley
-            
+            ! internal
+            integer :: n           
             pi = 4.0_dp*atan(1.0_dp)
+            n = size(dpds)
             if (present(womersley)) then
                self%if_steady = .false.
                self%womersley = womersley
                self%omega     = (self%womersley**2)*cpfld(1,1)    ! pulsation frequency
                self%pulse_T   = 2.0d0*pi/self%omega               ! pulsation period
-               self%nf = size(dpds)
-               if (self%nf == 1) then
+               if (n == 1) then
                   call stop_error('Unsteady case requires more than one forcing component',module=this_module,procedure='init_flow')
+               else if (mod(n,2)==0) then
+                  call stop_error('Unsteady case requires an uneven number of forcing components',module=this_module,procedure='init_flow')
                end if
-               allocate(self%dpds(self%nf))
-               self%dpds = dpds
             else
                self%if_steady = .true.
                self%womersley = 0.0_dp   
                self%omega     = 0.0_dp   
                self%pulse_T   = 0.0_dp  
-               self%nf = size(dpds)
-               if (self%nf /= 1) then
+               if (n > 1) then
                   call stop_error('Steady case requires only one forcing component',module=this_module,procedure='init_flow')
                end if
-               allocate(self%dpds(self%nf))
-               self%dpds = dpds 
             end if
-            
-            if (abs(aimag(dpds(1))) > 0.0_dp) then
-               ! problem
-               self%dpds(1) = real(self%dpds(1))
-            end if
-            
+            self%dpds = dpds
          end subroutine init_flow
 
          subroutine compute_fshape(self)
@@ -280,13 +280,14 @@
             !! time
             ! internal
             integer :: i
-            complex(dp) :: eiwt
+            complex(dp) :: eiwt, dpds
 
-            f = real(self%dpds(1))
+            f = self%dpds(1)
             if (.not.self%if_steady) then
                eiwt = cexp(imag * self%omega * t)
-               do i = 2, self%nf
-                  f = f + 2.0_dp * real(self%dpds(i) * eiwt)
+               do i = 2, nf, 2
+                  dpds = self%dpds(i) + imag*self%dpds(i+1)
+                  f = f + 2.0_dp * real(dpds * eiwt)
                end do
             end if
          end function get_forcing
@@ -400,22 +401,18 @@
 
          subroutine set_dpds(self, dpds, reset)
             class(helix), intent(inout) :: self
-            complex(dp), dimension(:), intent(in) :: dpds
+            real(dp), dimension(nf), intent(in) :: dpds
             logical, optional, intent(in) :: reset
             ! internal
             logical :: reset_dpds
             reset_dpds = optval(reset, .true.)
-            if (size(dpds) /= self%nf) call stop_error('Incompatible sizes.', this_module, 'set_dpds')
-            if (reset_dpds) self%dpds = complex(0.0_dp,0.0_dp)
-            if (nid == 0) print *, "get dpds", self%dpds, dpds
+            if (reset_dpds) self%dpds = 0.0_dp
             self%dpds = self%dpds + dpds
          end subroutine set_dpds
 
          subroutine get_dpds(self, dpds)
             class(helix), intent(in) :: self
-            complex(dp), dimension(:), allocatable, intent(out) :: dpds
-            if (self%nf == 0) call stop_error('dpds not set.', this_module, 'get_dpds')
-            allocate(dpds(self%nf))
+            real(dp), dimension(nf), intent(out) :: dpds
             dpds = self%dpds
          end subroutine get_dpds
 
@@ -424,39 +421,24 @@
             steady = self%if_steady
          end function is_steady
 
-         subroutine dpds_from_vector(dpds, vec)
-            complex(dp), dimension(:), allocatable, intent(out) :: dpds
-            type(nek_ext_dvector_forcing), intent(in) :: vec
+         subroutine add_dpds_perturbation(self, df, i)
+            class(helix), intent(inout) :: self
+            real(dp), intent(in) :: df
+            integer, intent(in) :: i
             ! internal
-            integer :: i, icomp, n, nc
-            n = vec%nf
-            if ( n <= 0 ) call stop_error('vec%f not set.', this_module, 'dpds_from_vector')
-            nc = 2*n - 1
-            allocate(dpds(nc))
-            dpds(1)%re = vec%f(1)
-            icomp = 2
-            do i = 2, n, 2
-               dpds(icomp)%re = vec%f(i)
-               dpds(icomp)%im = vec%f(i+1)
-               icomp = icomp + 1
-            end do
+            self%dpds(i) = self%dpds(i) + df
+         end subroutine add_dpds_perturbation
+
+         subroutine dpds_from_vector(dpds, vec)
+            real(dp), dimension(nf), intent(out) :: dpds
+            type(nek_ext_dvector_forcing), intent(in) :: vec
+            dpds = vec%f
          end subroutine dpds_from_vector
 
-         subroutine dpds_to_vector(vec, dpds)
-            type(nek_ext_dvector_forcing), intent(inout) :: vec
-            complex(dp), dimension(:), intent(in) :: dpds
-            ! internal
-            integer :: i, icomp, n, nc
-            nc = size(dpds)
-            n = (nc + 1)/2
-            if ( n /= vec%nf ) call stop_error('Incompatible sizes.', this_module, 'dpds_from_vector')
-            vec%f(1) = dpds(1)%re
-            icomp = 2
-            do i = 2, n, 2
-               vec%f(i)   = dpds(icomp)%re
-               vec%f(i+1) = dpds(icomp)%im
-               icomp = icomp + 1
-            end do
+         subroutine dpds_to_vector(dpds, vec)
+            real(dp), dimension(nf), intent(in) :: dpds
+            type(nek_ext_dvector_forcing), intent(out) :: vec
+            vec%f = dpds
          end subroutine dpds_to_vector
       
       end module neklab_helix

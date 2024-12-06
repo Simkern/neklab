@@ -29,6 +29,7 @@
          public :: transient_growth_analysis_fixed_point
          public :: newton_fixed_point_iteration
          public :: newton_periodic_orbit
+         public :: newton_fixed_point_iteration_forcing
          public :: otd_analysis
       
       contains
@@ -224,6 +225,52 @@
       
             return
          end subroutine newton_periodic_orbit
+
+         subroutine newton_fixed_point_iteration_forcing(sys, bf, tol, tol_mode)
+            type(nek_system_forced), intent(inout) :: sys
+      !! System for which a fixed point is sought
+            type(nek_ext_dvector_forcing), intent(inout) :: bf
+      !! Initial guess for the fixed point
+            real(dp), intent(inout) :: tol
+      !! Absolute tolerance for the Newton solver
+            integer, optional, intent(in) :: tol_mode
+      
+      ! Misc
+            integer :: info, tol_mode_
+            type(newton_dp_opts) :: opts
+      !type(gmres_dp_opts)  :: gmres_opts
+            character(len=3) :: file_prefix
+      
+		tol_mode_ = optval(tol_mode, 1)
+
+      ! Set up logging
+            call logger_setup(logfile='lightkrylov_nwt.log', nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
+		call logger%log_message('Starting newton iteration.', module=this_module)
+      ! Set up timing
+            call timer%initialize()
+      
+      ! Define options for the Newton solver
+            opts = newton_dp_opts(maxiter=40, ifbisect=.true.)
+      
+      ! Call to LightKrylov.
+            if (tol_mode_ == 1) then
+               call newton(sys, bf, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_constant_tol)
+            else
+		   call newton(sys, bf, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_dynamic_tol)
+		end if
+      
+      ! Outpost initial condition.
+            file_prefix = 'nwt'
+            !call outpost_dnek(bf, file_prefix)
+
+		call logger%log_message('Exiting newton iteration.', module=this_module)
+
+            ! Finalize system timings
+            call sys%finalize_timer()
+            call timer%finalize()
+      
+            return
+         end subroutine newton_fixed_point_iteration_forcing
       
          subroutine otd_analysis(OTD, opts_)
             type(nek_otd), intent(inout) :: OTD

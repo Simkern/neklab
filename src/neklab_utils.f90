@@ -382,10 +382,10 @@
             class(abstract_vector_rdp), intent(in) :: vec
             select type (vec)
             type is (nek_ext_dvector_forcing)
-            if (vec%nf == 0) then
-               call stop_error('forcing component not initialized', this_module, 'get_forcing_abs')
-            end if
-            allocate(forcing(vec%nf))
+            !if (vec%nf == 0) then
+            !   call stop_error('forcing component not initialized', this_module, 'get_forcing_abs')
+            !end if
+            !allocate(forcing(vec%nf))
             forcing = vec%f
             end select
          end subroutine get_forcing_abs
@@ -393,10 +393,10 @@
          subroutine get_forcing(forcing, vec)
             real(dp), dimension(:), allocatable, intent(out) :: forcing
             class(nek_ext_dvector_forcing), intent(in) :: vec
-            if (vec%nf == 0) then
-               call stop_error('forcing component not initialized', this_module, 'get_forcing_abs')
-            end if
-            allocate(forcing(vec%nf))
+            !if (vec%nf == 0) then
+            !   call stop_error('forcing component not initialized', this_module, 'get_forcing_abs')
+            !end if
+            !allocate(forcing(vec%nf))
             forcing = vec%f
          end subroutine get_forcing
       

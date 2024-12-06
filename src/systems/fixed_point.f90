@@ -49,6 +49,7 @@
                   call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
       ! Evaluate [ exp(tau*J) - I ] @ dx.
                   call vec_out%sub(vec_in)
+                  param(22) = atol
                end select
             end select
          end procedure jac_exptA_matvec
@@ -78,6 +79,7 @@
                   call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
       ! Evaluate [ exp(tau*J) - I ] @ dx.
                   call vec_out%sub(vec_in)
+                  param(22) = atol
                end select
             end select
          end procedure jac_exptA_rmatvec      

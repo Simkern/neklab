@@ -17,6 +17,7 @@
          use LightKrylov_utils, only: assert_shape
       ! Extensions of the abstract vector types to nek data format.
          use neklab_vectors
+         use neklab_vectors, only: nf => n_forcing
          use neklab_linops
          use neklab_utils
          use neklab_nek_setup
@@ -32,7 +33,6 @@
          integer, parameter :: lp = lx2*ly2*lz2*lelv
 
          public :: compute_fdot
-         public :: compute_fdot_forcing
          public :: nek_constant_tol
          public :: nek_dynamic_tol
       
@@ -179,38 +179,6 @@
             vec%T = 0.0_dp ! ensure that the period shift vec_out%T is zero
             return
          end subroutine compute_fdot
-
-         subroutine compute_fdot_forcing(vec, df, icomp)
-            class(nek_ext_dvector_forcing), intent(out) :: vec
-            real(dp), intent(in) :: df
-            integer, intent(in) :: icomp
-      ! internal
-            complex(dp), dimension(:), allocatable :: dpds
-            type(nek_ext_dvector_forcing) :: vec_in
-      ! copy initial condition
-            call nek2ext_vec_f(vec_in, vx, vy, vz, pr, t)
-      ! perturb
-            vec_in%f(icomp) = vec_in%f(icomp) + df
-      ! extract and set forcing
-            call dpds_from_vector(dpds, vec_in)
-            call pipe%set_dpds(dpds)
-      ! Integrate the nonlinear equations forward in time.
-            time = 0.0_dp
-            do istep = 1, nsteps
-               call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
-               call nek_advance()
-            end do
-      ! Extract f(X(t0+dt))
-            call nek2ext_vec_f(vec, vx, vy, vz, pr, t)
-      ! Approximate derivative at t = t0:
-      !
-      !    f'(X(t0)) ~ ( f(X(t0+dt)) - f(X(t0)) ) / dt
-      !
-            call vec%sub(vec_in)
-            call vec%scal(1.0/df)
-            vec%f = 0.0_dp ! ensure that the forcing shift vec_out%f is zero
-            return
-         end subroutine compute_fdot_forcing
 
          !---------------------------------------------------------------------
          !-----     Definition of two tolerance schedulers for Nek5000    -----

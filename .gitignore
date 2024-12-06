@@ -56,3 +56,4 @@ Nek5000/
 **/??_run*/
 **/*.png
 **/SESSION.NAME
+**/*.f0*

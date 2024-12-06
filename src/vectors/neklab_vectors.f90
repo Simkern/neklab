@@ -15,6 +15,7 @@
          complex(kind=dp), parameter :: zero_cdp = cmplx(0.0_dp, 0.0_dp, kind=dp)
          complex(kind=dp), parameter :: one_cdp = cmplx(1.0_dp, 0.0_dp, kind=dp)
          complex(kind=dp), parameter :: im_cdp = cmplx(0.0_dp, 1.0_dp, kind=dp)
+         integer, parameter, public :: n_forcing = 1
       
          public :: mth_rand
       
@@ -155,8 +156,7 @@
             real(kind=dp), dimension(lv) :: vx, vy, vz
             real(kind=dp), dimension(lp) :: pr
             real(kind=dp), dimension(lv, ldimt) :: theta
-            real(kind=dp), dimension(:), allocatable :: f
-            integer :: nf = 0
+            real(kind=dp), dimension(n_forcing) :: f
          contains
             private
             procedure, pass(self), public :: zero => nek_ext_f_dzero
@@ -169,12 +169,12 @@
       
       ! --> Constructor.
          interface nek_ext_dvector_forcing
-            pure module function construct_nek_ext_dvector_forcing(vx, vy, f, vz, pr, theta) result(out)
+            pure module function construct_nek_ext_dvector_forcing(vx, vy, vz, pr, theta, f) result(out)
                real(kind=dp), dimension(lv), intent(in) :: vx, vy
                real(kind=dp), dimension(lv), optional, intent(in) :: vz
                real(kind=dp), dimension(lp), optional, intent(in) :: pr
                real(kind=dp), dimension(lv, ldimt), optional, intent(in) :: theta
-               real(kind=dp), dimension(:), intent(in) :: f
+               real(kind=dp), dimension(n_forcing), optional, intent(in) :: f
                type(nek_ext_dvector_forcing) :: out
             end function
          end interface

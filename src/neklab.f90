@@ -68,6 +68,7 @@
       ! Baseflow computation
          public :: newton_fixed_point_iteration
          public :: newton_periodic_orbit
+         public :: newton_fixed_point_iteration_forcing
       
       ! Stability analysis exports.
          public :: linear_stability_analysis_fixed_point
@@ -87,9 +88,10 @@
          public :: neklab_forcing
       
       ! Various utilities.
+         public :: n_forcing
          public :: nek2vec, vec2nek
          public :: nek2ext_vec, ext_vec2nek
-         public :: nek2ext_vec_f, ext_f_vec2nek
+         public :: nek2ext_vec_f, ext_vec_f2nek
          public :: setup_nonlinear_solver, setup_linear_solver
          public :: outpost_dnek
       end module neklab

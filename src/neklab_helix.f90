@@ -35,6 +35,7 @@
             !! Type containing the basic geometrical and dynamical properties of a helix
             private
             ! geometry inputs
+            real(dp) :: length
             real(dp) :: delta
             real(dp) :: diameter
             real(dp) :: pitch_s
@@ -50,11 +51,10 @@
             real(dp) :: womersley
             ! forcing
             real(dp), dimension(lv):: fshape
-            real(dp), dimension(nf), public :: dpds
+            real(dp), dimension(nf) :: dpds
             ! mesh inputs
-            real(dp) :: length
-            real(dp) :: nslices
-            real(dp) :: nelf
+            integer :: nslices
+            integer :: nelf
             ! sanity check
             logical :: is_initialized = .false.
             ! data
@@ -69,24 +69,34 @@
             ! cartesian coordinates in torus (without torsion!)
             real(dp), dimension(lv) :: xax, yax, zax
             ! dF/df
-            type(nek_ext_dvector_forcing), dimension(nf), public :: dFdf
+            type(nek_ext_dvector_forcing), dimension(nf) :: dFdf
             ! dG/df
-            real(dp), dimension(nf), public :: dGdf
+            real(dp), dimension(nf) :: dGdf
             ! flag to trigger computation
             logical, public :: to_compute_df = .false.
          contains
+            ! initialization
             procedure, pass(self), public :: init_geom
             procedure, pass(self), public :: init_flow
+            ! public computation routines
             procedure, pass(self), public :: compute_fshape
             procedure, pass(self), public :: compute_bf_forcing
             procedure, pass(self), public :: compute_usrt
             procedure, pass(self), public :: compute_ubar
+            ! helper routines
             procedure, pass(self), public :: get_forcing
             procedure, pass(self), public :: get_period
+            procedure, pass(self), public :: add_dpds
+            procedure, pass(self), public :: is_steady
+            ! getter/setter for dpds
             procedure, pass(self), public :: get_dpds
             procedure, pass(self), public :: set_dpds
-            procedure, pass(self), public :: add_dpds_perturbation
-            procedure, pass(self), public :: is_steady
+            ! getter/setter for dFdf
+            procedure, pass(self), public :: get_dFdf
+            procedure, pass(self), public :: set_dFdf
+            ! getter/setter for dGdf
+            procedure, pass(self), public :: get_dGdf
+            procedure, pass(self), public :: set_dGdf
          end type helix
 
          type(helix) :: pipe
@@ -460,13 +470,42 @@
             steady = self%if_steady
          end function is_steady
 
-         subroutine add_dpds_perturbation(self, df, i)
+         subroutine add_dpds(self, df, i)
             class(helix), intent(inout) :: self
             real(dp), intent(in) :: df
             integer, intent(in) :: i
             ! internal
             self%dpds(i) = self%dpds(i) + df
-         end subroutine add_dpds_perturbation
+         end subroutine add_dpds
+
+         subroutine get_dFdf(self, dFdf, i)
+            class(helix), intent(in) :: self
+            type(nek_ext_dvector_forcing), intent(out) :: dFdf
+            integer, intent(in) :: i
+            ! internal
+            dFdf = self%dFdf(i)
+         end subroutine get_dFdf
+
+         subroutine set_dFdf(self, dFdf, i)
+            class(helix), intent(inout) :: self
+            type(nek_ext_dvector_forcing), intent(in) :: dFdf
+            integer, intent(in) :: i
+            self%dFdf(i) = dFdf
+         end subroutine set_dFdf
+
+         real(dp) pure function get_dGdf(self, i) result(dGdf)
+            class(helix), intent(in) :: self
+            integer, intent(in) :: i
+            ! internal
+            dGdf = self%dGdf(i)
+         end function get_dGdf
+
+         subroutine set_dGdf(self, dGdf, i)
+            class(helix), intent(inout) :: self
+            real(dp), intent(in) :: dGdf
+            integer, intent(in) :: i
+            self%dGdf(i) = dGdf
+         end subroutine set_dGdf
 
          subroutine dpds_from_vector(dpds, vec)
             real(dp), dimension(nf), intent(out) :: dpds

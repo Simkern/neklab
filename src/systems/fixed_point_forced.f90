@@ -41,7 +41,7 @@
       ! internal
             integer :: i
             real(dp) :: atol, df, g_in, g_out
-            type(nek_ext_dvector_forcing) :: vec
+            type(nek_ext_dvector_forcing) :: F_in, F_out
             character(len=128) :: msg
             select type (vec_in)
             type is (nek_ext_dvector_forcing)
@@ -50,10 +50,6 @@
                   atol = param(22)
       ! Set the baseflow initial condition
                   call abs_ext_vec_f2nek(vx, vy, vz, pr, t, self%X)
-
-
-
-
       ! Ensure correct nek status
                   call setup_linear_solver(solve_baseflow=.true., transpose=.false.,
      $   recompute_dt = .true., cfl_limit = 0.5_dp, vtol = atol/2.0, ptol = atol/2.0)
@@ -73,9 +69,7 @@
                   call outpost(vxp,vyp,vzp,prp,tp,'lin')
       ! Evaluate [ exp(tau*J) - I ] @ dx.
                   call vec_out%sub(vec_in)
-      
-                  
-
+      ! Evaluate approximate derivative w.r.t forcing amplitude
                   if (pipe%to_compute_df) then
                      write(msg,'(A)') 'Computing dFdf and dGdf'
                      call logger%log_message(msg, module=this_module, procedure='jac_eval')
@@ -84,7 +78,7 @@
                      write(msg,'(2X,A,*(E12.5))') 'df   = ', df
                      call logger%log_message(msg, module=this_module, procedure='jac_eval') 
       ! Save F(X) and G(X)
-                     call nek2ext_vec_f(vec, vx, vy, vz, pr, t)
+                     call nek2ext_vec_f(F_in, vx, vy, vz, pr, t)
                      g_in = pipe%compute_ubar(vx, vy, vz)
                      write(msg,'(2X,A,*(E12.5))') 'g_in = ', g_in
                      call logger%log_message(msg, module=this_module, procedure='jac_eval')
@@ -97,7 +91,7 @@
       ! Set the baseflow initial condition
                         call abs_ext_vec_f2nek(vx, vy, vz, pr, t, self%X)
       ! Set perturbation
-                        call pipe%add_dpds_perturbation(df, i)
+                        call pipe%add_dpds(df, i)
                         write(msg,'(4X,I2,A,*(E12.5))') i, ': dpds  = ', pipe%dpds
                         call logger%log_message(msg, module=this_module, procedure='jac_eval')
       ! Evaluate F(X+df) and G(X+df)
@@ -106,32 +100,29 @@
                            call nek_advance()
                         end do
       ! Extract result and evaluate (F(X+df) - F(X))/df and (G(X+df) - G(X))/df
-                        call nek2ext_vec_f(pipe%dFdf(i), vx, vy, vz, pr, t)
-                        call pipe%dFdf(i)%sub(vec)
-                        call pipe%dFdf(i)%scal(1.0_dp/df)
-                        pipe%dFdf(i)%f = 0.0_dp
-                        write(msg,'(4X,I2,A,*(E12.5))') i, ':|dFdf| = ', pipe%dFdf(i)%norm()
+                        call nek2ext_vec_f(F_out, vx, vy, vz, pr, t)
+                        call F_out%sub(F_in)
+                        call F_out%scal(1.0_dp/df)
+                        F_out%f = 0.0_dp
+                        call pipe%set_dFdf(F_out, i)
+                        write(msg,'(4X,I2,A,*(E12.5))') i, ':|dFdf| = ', F_out%norm()
                         call logger%log_message(msg, module=this_module, procedure='jac_eval') 
                         g_out = pipe%compute_ubar(vx,vy,vz)
-                        pipe%dGdf(i) = (g_out - g_in)/df
+                        call pipe%set_dGdf((g_out - g_in)/df, i)
                         write(msg,'(4X,I2,A,*(E12.5))') i, ': g_out = ', g_out
                         call logger%log_message(msg, module=this_module, procedure='jac_eval') 
-                        write(msg,'(4X,I2,A,*(E12.5))') i, ': dGdf  = ', pipe%dGdf(i)
+                        write(msg,'(4X,I2,A,*(E12.5))') i, ': dGdf  = ', pipe%get_dGdf(i)
                         call logger%log_message(msg, module=this_module, procedure='jac_eval') 
       ! Reset perturbation
-                        call pipe%add_dpds_perturbation(-df, i)
+                        call pipe%add_dpds(-df, i)
                      end do
                      pipe%to_compute_df = .false.
                   end if
-
-
-
       ! Set the forcing contribution for F
                   do i = 1, nf
-                     call vec_out%axpby(1.0_dp, pipe%dFdf(i), vec_in%f(i))
+                     call pipe%get_dFdf(F_out,i)
+                     call vec_out%axpby(1.0_dp, F_out, vec_in%f(i))
                   end do
-
-
       ! Evaluate G(du_in)
                   do i = 1, nf
                      vec_out%f(i) = pipe%compute_ubar(vec_in%vx, vec_in%vy, vec_in%vz)
@@ -142,7 +133,6 @@
                   vec_out%f = vec_out%f + pipe%dGdf
                   write(msg,'(A,E15.8)') 'dGdf  = ', pipe%dGdf
                   call logger%log_message(msg, module=this_module, procedure='jac_eval')
-      
                   param(22) = atol
                   param(21) = atol
                end select
@@ -153,7 +143,7 @@
       ! internal
             integer :: i
             real(dp) :: atol, df, g_in, g_out
-            type(nek_ext_dvector_forcing) :: vec
+            type(nek_ext_dvector_forcing) :: F_in, F_out
             character(len=128) :: msg
             select type (vec_in)
             type is (nek_ext_dvector_forcing)
@@ -162,10 +152,6 @@
                   atol = param(22)
       ! Set the baseflow initial condition
                   call abs_ext_vec_f2nek(vx, vy, vz, pr, t, self%X)
-
-
-
-
       ! Ensure correct nek status
                   call setup_linear_solver(solve_baseflow=.true., transpose=.true.,
      $   recompute_dt = .true., cfl_limit = 0.5_dp, vtol = atol/2.0, ptol = atol/2.0)
@@ -185,9 +171,7 @@
                   call outpost(vxp,vyp,vzp,prp,tp,'lin')
       ! Evaluate [ exp(tau*J) - I ] @ dx.
                   call vec_out%sub(vec_in)
-      
-                  
-
+      ! Evaluate approximate derivative w.r.t forcing amplitude
                   if (pipe%to_compute_df) then
                      write(msg,'(A)') 'Computing dFdf and dGdf'
                      call logger%log_message(msg, module=this_module, procedure='jac_eval')
@@ -196,7 +180,7 @@
                      write(msg,'(2X,A,*(E12.5))') 'df   = ', df
                      call logger%log_message(msg, module=this_module, procedure='jac_eval') 
       ! Save F(X) and G(X)
-                     call nek2ext_vec_f(vec, vx, vy, vz, pr, t)
+                     call nek2ext_vec_f(F_in, vx, vy, vz, pr, t)
                      g_in = pipe%compute_ubar(vx, vy, vz)
                      write(msg,'(2X,A,*(E12.5))') 'g_in = ', g_in
                      call logger%log_message(msg, module=this_module, procedure='jac_eval')
@@ -209,7 +193,7 @@
       ! Set the baseflow initial condition
                         call abs_ext_vec_f2nek(vx, vy, vz, pr, t, self%X)
       ! Set perturbation
-                        call pipe%add_dpds_perturbation(df, i)
+                        call pipe%add_dpds(df, i)
                         write(msg,'(4X,I2,A,*(E12.5))') i, ': dpds  = ', pipe%dpds
                         call logger%log_message(msg, module=this_module, procedure='jac_eval')
       ! Evaluate F(X+df) and G(X+df)
@@ -218,43 +202,39 @@
                            call nek_advance()
                         end do
       ! Extract result and evaluate (F(X+df) - F(X))/df and (G(X+df) - G(X))/df
-                        call nek2ext_vec_f(pipe%dFdf(i), vx, vy, vz, pr, t)
-                        call pipe%dFdf(i)%sub(vec)
-                        call pipe%dFdf(i)%scal(1.0_dp/df)
-                        pipe%dFdf(i)%f = 0.0_dp
-                        write(msg,'(4X,I2,A,*(E12.5))') i, ': |dFdf|= ', pipe%dFdf(i)%norm()
+                        call nek2ext_vec_f(F_out, vx, vy, vz, pr, t)
+                        call F_out%sub(F_in)
+                        call F_out%scal(1.0_dp/df)
+                        F_out%f = 0.0_dp
+                        call pipe%set_dFdf(F_out, i)
+                        write(msg,'(4X,I2,A,*(E12.5))') i, ':|dFdf| = ', F_out%norm()
                         call logger%log_message(msg, module=this_module, procedure='jac_eval') 
                         g_out = pipe%compute_ubar(vx,vy,vz)
-                        pipe%dGdf(i) = (g_out - g_in)/df
+                        call pipe%set_dGdf((g_out - g_in)/df, i)
                         write(msg,'(4X,I2,A,*(E12.5))') i, ': g_out = ', g_out
                         call logger%log_message(msg, module=this_module, procedure='jac_eval') 
-                        write(msg,'(4X,I2,A,*(E12.5))') i, ': dGdf  = ', pipe%dGdf(i)
+                        write(msg,'(4X,I2,A,*(E12.5))') i, ': dGdf  = ', pipe%get_dGdf(i)
                         call logger%log_message(msg, module=this_module, procedure='jac_eval') 
       ! Reset perturbation
-                        call pipe%add_dpds_perturbation(-df, i)
+                        call pipe%add_dpds(-df, i)
                      end do
                      pipe%to_compute_df = .false.
                   end if
-
-
-
       ! Set the forcing contribution for F
                   do i = 1, nf
-                     call vec_out%axpby(1.0_dp, pipe%dFdf(i), vec_in%f(i))
+                     call pipe%get_dFdf(F_out,i)
+                     call vec_out%axpby(1.0_dp, F_out, vec_in%f(i))
                   end do
-
-
       ! Evaluate G(du_in)
                   do i = 1, nf
                      vec_out%f(i) = pipe%compute_ubar(vec_in%vx, vec_in%vy, vec_in%vz)
-                     write(msg,'(A,E15.8)') 'G(du_in)= ', vec_out%f(i)
+                     write(msg,'(A,E15.8)') 'G(du) = ', vec_out%f(i)
                      call logger%log_message(msg, module=this_module, procedure='jac_eval')
                   end do
       ! Set the forcing contribution for G
                   vec_out%f = vec_out%f + pipe%dGdf
                   write(msg,'(A,E15.8)') 'dGdf  = ', pipe%dGdf
                   call logger%log_message(msg, module=this_module, procedure='jac_eval')
-      
                   param(22) = atol
                   param(21) = atol
                end select

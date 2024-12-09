@@ -13,7 +13,7 @@
          use neklab_vectors
          use neklab_vectors, only: nf => n_forcing
          use neklab_nek_forcing, only: neklab_forcing, set_neklab_forcing
-         use neklab_nek_setup, only: nek_log_message
+         use neklab_nek_setup, only: nek_log_message, nek_log_warning
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -88,7 +88,9 @@
             procedure, pass(self), public :: get_period
             procedure, pass(self), public :: add_dpds
             procedure, pass(self), public :: is_steady
+            procedure, pass(self), public :: setup_summary
             ! getter/setter for dpds
+            procedure, pass(self), public :: get_dpds_all
             procedure, pass(self), public :: get_dpds
             procedure, pass(self), public :: set_dpds
             ! getter/setter for dFdf
@@ -130,36 +132,45 @@
             pipe%phi         = atan2(pipe%pitch_s,pipe%curv_radius)
             pipe%sweep       = pipe%length*cos(pipe%phi)/pipe%curv_radius ! sweep angle in radians
 
-            call nek_log_message('##  HELIX SETUP ##', module=this_module)
-            call nek_log_message('Geometry:', module=this_module)
-            write (msg, '(A,F15.8)') padl('length:', 20), pipe%length
-            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            write (msg, '(A,F15.8)') padl('diameter:', 20), pipe%diameter
-            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            write (msg, '(A,F15.8)') padl('radius:', 20), pipe%radius
-            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            write (msg, '(A,F15.8)') padl('pitch_s:', 20), pipe%pitch_s
-            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            write (msg, '(A,F15.8)') padl('delta:', 20), pipe%delta
-            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            write (msg, '(A,E15.8)') padl('curv_radius:', 20), pipe%curv_radius
-            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            call nek_log_message('Angles:', module=this_module)
-            write (msg, '(A,E15.8)') padl('rise angle:', 20), pipe%phi
-            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            write (msg, '(A,E15.8)') padl('sweep angle:', 20), pipe%sweep
-            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            call nek_log_message('Mesh:', module=this_module)
-            write (msg, '(A,I8)') padl('ntot:', 20), nx1*ny1*nz1*nelv
-            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            write (msg, '(A,I8)') padl('nelv:', 20), nelv
-            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            write (msg, '(A,I8)') padl('slices:', 20), pipe%nslices
-            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            write (msg, '(A,I8)') padl('nel/slice:', 20), pipe%nelf
-            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-
          end subroutine helix_pipe
+
+         subroutine setup_summary(self)
+            class(helix), intent(in) :: self
+            ! internal
+            character(len=128) :: msg
+            if (self%is_initialized) then
+               call nek_log_message('##  HELIX SETUP ##', module=this_module)
+               call nek_log_message('Geometry:', module=this_module)
+               write (msg, '(A,F15.8)') padl('length:', 20), pipe%length
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,F15.8)') padl('diameter:', 20), pipe%diameter
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,F15.8)') padl('radius:', 20), pipe%radius
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,F15.8)') padl('pitch_s:', 20), pipe%pitch_s
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,F15.8)') padl('delta:', 20), pipe%delta
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,F15.8)') padl('curv_radius:', 20), pipe%curv_radius
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               call nek_log_message('Angles:', module=this_module)
+               write (msg, '(A,F15.8)') padl('rise angle:', 20), pipe%phi
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,F15.8)') padl('sweep angle:', 20), pipe%sweep
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               call nek_log_message('Mesh:', module=this_module)
+               write (msg, '(A,I8)') padl('ntot:', 20), nx1*ny1*nz1*nelv
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,I8)') padl('nelv:', 20), nelv
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,I8)') padl('slices:', 20), pipe%nslices
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,I8)') padl('nel/slice:', 20), pipe%nelf
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+            else
+               call nek_log_warning('helix instance not initialized', module=this_module, fmt='(A)')
+            end if
+         end subroutine setup_summary
 
          subroutine init_geom(self)
             class(helix), intent(inout) :: self
@@ -448,6 +459,11 @@
             
          end function compute_ubar
 
+         logical pure function is_steady(self) result(steady)
+            class(helix), intent(in) :: self
+            steady = self%if_steady
+         end function is_steady
+
          subroutine set_dpds(self, dpds, reset)
             class(helix), intent(inout) :: self
             real(dp), dimension(nf), intent(in) :: dpds
@@ -459,16 +475,17 @@
             self%dpds = self%dpds + dpds
          end subroutine set_dpds
 
-         subroutine get_dpds(self, dpds)
+         subroutine get_dpds_all(self, dpds)
             class(helix), intent(in) :: self
             real(dp), dimension(nf), intent(out) :: dpds
             dpds = self%dpds
-         end subroutine get_dpds
+         end subroutine get_dpds_all
 
-         logical pure function is_steady(self) result(steady)
+         real(dp) pure function get_dpds(self, i) result(dpds_i)
             class(helix), intent(in) :: self
-            steady = self%if_steady
-         end function is_steady
+            integer, intent(in) :: i
+            dpds_i = self%dpds(i)
+         end function get_dpds
 
          subroutine add_dpds(self, df, i)
             class(helix), intent(inout) :: self

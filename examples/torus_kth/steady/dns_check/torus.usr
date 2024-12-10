@@ -1,0 +1,182 @@
+c-----------------------------------------------------------------------
+      subroutine uservp (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      udiff =0.0d0
+      utrans=0.0d0
+      end
+c-----------------------------------------------------------------------
+      subroutine userf(ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      ffx = 0.0d0
+      ffy = 0.0d0
+      ffz = 0.0d0
+      
+      if (jp == 0) call makebf_str_pulse(ffx,ffy,ffz,ix,iy,iz,ieg)
+      
+      end
+c-----------------------------------------------------------------------
+      subroutine userq(ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      qvol = 0.0d0
+      source = 0.0d0
+      end
+c-----------------------------------------------------------------------
+      subroutine userchk
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'HELIXD'
+		integer, parameter :: ntot = lx1*ly1*lz1*lelv
+		integer :: ix, iy, iz, ie, eg
+		real :: p, pp, rr, delta, tau, dpds
+		real :: fshape(lx1,ly1,lz1,lelv)
+		real :: tffx(lx1,ly1,lz1,lelv)
+		real :: tffy(lx1,ly1,lz1,lelv)
+		real :: tffz(lx1,ly1,lz1,lelv)
+		real :: anglet(lx1,ly1,lz1,lelv)
+		real :: alpha( lx1,ly1,lz1,lelv)
+      real :: ubar, ubar_manual
+		real :: glsum, get_ubar
+		real :: num, den, us, usr
+		real :: s_L, x, y, z, ri
+		character(len=128) :: fmt
+
+		call load_fld('rsttorus0.f00001')
+
+		! fshape
+		call rzero(fshape, ntot)
+
+		do ie = 1, lelv
+		do iz = 1, lz1
+		do iy = 1, ly1
+		do ix = 1, lx1
+			! Compute angle_t and pp once
+			pp = xax(ix,iy,iz,ie)**2 + yax(ix,iy,iz,ie)**2
+			anglet(ix,iy,iz,ie) = atan2(xax(ix,iy,iz,ie), yax(ix,iy,iz,ie))
+			! Compute p and related values
+			p = sqrt(pp) - curv_radius
+			alpha(ix,iy,iz,ie) = atan2(p, zax(ix, iy, iz, ie))
+			rr = p**2 + zax(ix, iy, iz, ie)**2
+			! Precompute constants used in multiple calculations
+			delta = curv_radius / (curv_radius**2 + pitch_s**2)
+			tau = pitch_s / (curv_radius**2 + pitch_s**2)
+			! Compute fshape and First fourier mode
+			fshape(ix,iy,iz,ie) = 1.0d0 / abs(1.0d0 + delta * sqrt(rr) * sin(alpha(ix,iy,iz,ie)))
+			dpds = dp0ds*fshape(ix,iy,iz,ie)/curv_radius
+
+         tffx(ix,iy,iz,ie) =  dpds*cos(an_phi)*cos(anglet(ix,iy,iz,ie))
+         tffy(ix,iy,iz,ie) = -dpds*cos(an_phi)*sin(anglet(ix,iy,iz,ie))
+         tffz(ix,iy,iz,ie) =  dpds*sin(an_phi)
+		end do
+		end do
+		end do
+		end do
+		call outpost(fshape, anglet, alpha, pr, t, 'fsh')
+		call outpost(tffx,tffy,tffz, pr, t, 'fsh')
+
+		ubar = get_ubar(vx,vy,vz)
+
+		num = 0.0d0
+      den = 0.0d0
+
+      delta = curv_radius/(curv_radius**2+pitch_s**2)
+      tau = pitch_s/(curv_radius**2+pitch_s**2)
+		pi = atan(1.0d0)*4.0d0
+		fmt = '(A,4(1X,I3),A,8(1X,E15.8),A,F10.6)'
+      do ie = 1,nelv
+      do iz = 1,lz1
+      do iy = 1,ly1
+      do ix = 1,lx1
+         us = cos(an_phi)*(cos(anglet(ix,iy,iz,ie))*vx(ix,iy,iz,ie)
+     $                    -sin(anglet(ix,iy,iz,ie))*vy(ix,iy,iz,ie))
+     $  						  +sin(an_phi)*vz(ix,iy,iz,ie)
+         usr = us*fshape(ix,iy,iz,ie)      ! Streamwise u/r
+         num = num + usr*bm1(ix,iy,iz,ie)
+         den = den + fshape(ix,iy,iz,ie)*bm1(ix,iy,iz,ie)
+      enddo
+      enddo
+      enddo
+		enddo
+		num=glsum(num,1)
+      den=glsum(den,1)
+      ubar_manual = num/den  ! "1/r"-weighted volumetric average of streamwise velocity
+      if (nid == 0) print *, 'Ubar =', ubar, ubar_manual, den, num
+
+      call nek_end()
+
+      call hpts
+      call save_ubar
+
+      end
+c----------------------------------------------------------------------------------
+      subroutine userbc(i,j,k,iside,eg)
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      include 'HELIXD'
+      integer i,j,k,iside,eg
+      if (JP.eq.0) then ! velocity
+            ux = 1.0d0
+            uy = 0.0d0
+            uz = 0.0d0
+            temp=0.0d0
+         else           ! perturbation
+            ux = 0.0d0
+            uy = 0.0d0
+            uz = 0.0d0
+            temp=0.0d0
+         endif
+      end
+c-----------------------------------------------------------------------
+      subroutine useric(i,j,k,eg)
+      implicit none 
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      integer i,j,k,eg
+        if (JP.eq.0) then ! velocity
+            ux = 1.0d0
+            uy = 0.0d0
+            uz = 0.0d0
+            temp=0.0d0
+         else             ! perturbation
+            ux = 0.0d0
+            uy = 0.0d0
+            uz = 0.0d0
+            temp=0.0d0
+         endif
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      call setbc(1,1,'W  ')
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat2
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'HELIXD'
+      if (istep.eq.0) then
+         omega = 0.0d0 !(womersley**2)*cpfld(1,1)      ! pulsation frequency
+         pulse_T = 0.0d0 !2.0d0*pi/omega               ! pulsation period
+         an_phi = atan2(pitch_s,curv_radius)
+         sweep = length*cos(an_phi)/curv_radius ! sweep angle in radians
+      endif
+      call helix_pipe
+      if (nid.eq.0) write(6,*) 'USERDAT2: phi = ', an_phi*180.0d0/3.140d0
+      if (nid.eq.0) write(6,*) 'USERDAT2: curv_radius = ', curv_radius
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat3
+      end
+c-----------------------------------------------------------------------

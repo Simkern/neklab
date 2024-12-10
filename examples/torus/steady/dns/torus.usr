@@ -1,0 +1,148 @@
+c-----------------------------------------------------------------------
+      subroutine uservp (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      udiff =0.0d0
+      utrans=0.0d0
+      end
+c-----------------------------------------------------------------------
+      subroutine userf(ix,iy,iz,ieg)
+      use neklab
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      ffx = 0.0d0
+      ffy = 0.0d0
+      ffz = 0.0d0
+      
+      if (jp == 0) call neklab_forcing(ffx,ffy,ffz,ix,iy,iz,ieg,jp)
+      
+      end
+c-----------------------------------------------------------------------
+      subroutine userq(ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      qvol = 0.0d0
+      source = 0.0d0
+      end
+c-----------------------------------------------------------------------
+      subroutine userchk
+      use neklab
+      use neklab_helix
+      use LightKrylov_Logger
+      implicit none     
+      include "SIZE"
+      include "TOTAL"
+      
+      ! System for which we seek a fixed point
+      type(nek_system), allocatable :: sys
+      ! State vectors
+      type(nek_dvector) :: bf, ref
+      ! Tolerance for the Newton solver
+      real(dp) :: tol, ubar, norm
+      ! flow parameters
+      real, parameter :: womersley   = 35.0d0
+      real, parameter :: dp0ds       = 7.9486896e-2 !7.945994987500288e-02
+      real(dp), dimension(n_forcing), parameter :: dpds = [ dp0ds ]
+
+      if (istep == 0) then
+         call pipe%setup_summary()
+         ! Set flow parameters
+         call pipe%init_flow(dpds)
+	 call load_fld('rsttorus0.f00001')
+	 call nek2vec(ref, vx, vy, vz, pr, t)
+	 call nek2vec(bf, vx, vy, vz, pr, t)
+      end if
+
+      call pipe%compute_bf_forcing(time)
+
+      ubar = pipe%compute_ubar(vx,vy,vz)
+      if (nid == 0) print *, 'UBAR: ', ubar
+
+      if (istep > 0 .and. mod(istep,250) == 0) then
+         call nek2vec(bf, vx, vy, vz, pr, t)
+	 call load_fld('rsttorus0.f00001')
+         call nek2vec(ref, vx, vy, vz, pr, t)
+      	 call ref%sub(bf)
+	 call outpost_dnek(ref, 'res')
+	 norm = ref%norm()
+         if (nid == 0) print *, 'istep', istep, ': norm', norm
+	 call vec2nek(vx, vy, vz, pr, t, bf)
+      end if
+
+      return
+      end
+c----------------------------------------------------------------------------------
+      subroutine userbc(i,j,k,iside,eg)
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      integer i,j,k,iside,eg
+      if (JP.eq.0) then ! velocity
+            ux = 1.0d0
+            uy = 0.0d0
+            uz = 0.0d0
+            temp=0.0d0
+         else           ! perturbation
+            ux = 0.0d0
+            uy = 0.0d0
+            uz = 0.0d0
+            temp=0.0d0
+         endif
+      end
+c-----------------------------------------------------------------------
+      subroutine useric(i,j,k,eg)
+      implicit none 
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      integer i,j,k,eg
+        if (JP.eq.0) then ! velocity
+            ux = 1.0d0
+            uy = 0.0d0
+            uz = 0.0d0
+            temp=0.0d0
+         else             ! perturbation
+            ux = 0.0d0
+            uy = 0.0d0
+            uz = 0.0d0
+            temp=0.0d0
+         endif
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      call setbc(1,1,'W  ')
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat2
+      use neklab_helix
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      ! geometry parameters
+      real, parameter :: delta       = 0.3d0
+      real, parameter :: diameter    = 2.0d0
+      real, parameter :: pitch_s     = 0.0d0
+      real, parameter :: length      = 1.0d0
+      ! mesh parameters
+      integer,  parameter :: nslices = 5
+      integer,  parameter :: nelf    = 108
+      if (istep.eq.0) then
+         ! Initialize type
+         call helix_pipe(delta, diameter, pitch_s, length, nslices, nelf)
+         ! Set geometry
+         call pipe%init_geom()
+         ! compute forcing distribution
+         call pipe%compute_fshape()
+      endif
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat3
+      end
+c-----------------------------------------------------------------------

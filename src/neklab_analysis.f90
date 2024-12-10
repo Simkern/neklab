@@ -29,7 +29,7 @@
          public :: transient_growth_analysis_fixed_point
          public :: newton_fixed_point_iteration
          public :: newton_periodic_orbit
-         public :: newton_fixed_point_iteration_forcing
+         public :: newton_fixed_point_iteration_torus
          public :: otd_analysis
       
       contains
@@ -225,10 +225,10 @@
             return
          end subroutine newton_periodic_orbit
 
-         subroutine newton_fixed_point_iteration_forcing(sys, bf, tol, tol_mode)
-            type(nek_system_forced), intent(inout) :: sys
+         subroutine newton_fixed_point_iteration_torus(sys, bf, tol, tol_mode)
+            type(nek_system_torus), intent(inout) :: sys
       !! System for which a fixed point is sought
-            type(nek_ext_dvector_forcing), intent(inout) :: bf
+            type(nek_dvector), intent(inout) :: bf
       !! Initial guess for the fixed point
             real(dp), intent(inout) :: tol
       !! Absolute tolerance for the Newton solver
@@ -243,8 +243,7 @@
 		tol_mode_ = optval(tol_mode, 1)
 
       ! Set up logging
-            call logger_setup(logfile='lightkrylov_nwt.log', nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
-		call logger%log_message('Starting newton iteration.', module=this_module)
+            call logger%log_message('Starting newton iteration.', module=this_module)
       ! Set up timing
             call timer%initialize()
       
@@ -269,7 +268,7 @@
             call timer%finalize()
       
             return
-         end subroutine newton_fixed_point_iteration_forcing
+         end subroutine newton_fixed_point_iteration_torus
       
          subroutine otd_analysis(OTD, opts_)
             type(nek_otd), intent(inout) :: OTD

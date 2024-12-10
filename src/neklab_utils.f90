@@ -31,9 +31,6 @@
       ! utilities for extended nek vectors
          public :: nek2ext_vec, ext_vec2nek, abs_ext_vec2nek, outpost_ext_dnek
          public :: get_period, get_period_abs
-      ! utilities for extended nek vectors forcing
-         public :: nek2ext_vec_f, ext_vec_f2nek, abs_ext_vec_f2nek!, outpost_ext_f_dnek
-         public :: get_forcing, get_forcing_abs
       ! miscellaneous
          public :: nopcopy
       
@@ -77,27 +74,6 @@
          interface outpost_ext_dnek
             module procedure outpost_ext_dnek_vector
             module procedure outpost_ext_dnek_basis
-         end interface
-
-      ! Extended nek vector forcing utilities
-         interface nek2ext_vec_f
-            module procedure nek2ext_vec_f_std
-            module procedure nek2ext_vec_f_prt
-         end interface
-      
-         interface ext_vec_f2nek
-            module procedure ext_vec_f2nek_std
-            module procedure ext_vec_f2nek_prt
-         end interface
-      
-         interface abs_ext_vec_f2nek
-            module procedure abstract_ext_vec_f2nek_std
-            module procedure abstract_ext_vec_f2nek_prt
-         end interface
-      
-         interface outpost_ext_f_dnek
-            module procedure outpost_ext_f_dnek_vector
-            module procedure outpost_ext_f_dnek_basis
          end interface
       
       contains
@@ -288,117 +264,6 @@
             class(nek_ext_dvector), intent(in) :: vec
             period = vec%T
          end function get_period
-
-         ! EXTENDED FORCING
-      
-         subroutine nek2ext_vec_f_prt(vec, vx_, vy_, vz_, pr_, t_)
-            include "SIZE"
-            type(nek_ext_dvector_forcing), intent(out) :: vec
-            real(kind=dp), dimension(lv, 1), intent(in) :: vx_
-            real(kind=dp), dimension(lv, 1), intent(in) :: vy_
-            real(kind=dp), dimension(lv, 1), intent(in) :: vz_
-            real(kind=dp), dimension(lp, 1), intent(in) :: pr_
-            real(kind=dp), dimension(lt, ldimt, 1), intent(in) :: t_
-      
-            call nopcopy(vec%vx, vec%vy, vec%vz, vec%pr, vec%theta, vx_(:, 1), vy_(:, 1), vz_(:, 1), pr_(:, 1), t_(:, :, 1))
-      
-            return
-         end subroutine nek2ext_vec_f_prt
-      
-         subroutine nek2ext_vec_f_std(vec, vx_, vy_, vz_, pr_, t_)
-            include "SIZE"
-            type(nek_ext_dvector_forcing), intent(out) :: vec
-            real(kind=dp), dimension(lx1, ly1, lz1, lelv), intent(in) :: vx_
-            real(kind=dp), dimension(lx1, ly1, lz1, lelv), intent(in) :: vy_
-            real(kind=dp), dimension(lx1, ly1, lz1, lelv), intent(in) :: vz_
-            real(kind=dp), dimension(lx2, ly2, lz2, lelv), intent(in) :: pr_
-            real(kind=dp), dimension(lx1, ly1, lz1, lelt, ldimt), intent(in) :: t_
-      
-            call nopcopy(vec%vx, vec%vy, vec%vz, vec%pr, vec%theta, vx_, vy_, vz_, pr_, t_)
-      
-            return
-         end subroutine nek2ext_vec_f_std
-      
-         subroutine ext_vec_f2nek_std(vx_, vy_, vz_, pr_, t_, vec)
-            include "SIZE"
-            type(nek_ext_dvector_forcing), intent(in) :: vec
-            real(kind=dp), dimension(lx1, ly1, lz1, lelv), intent(out) :: vx_
-            real(kind=dp), dimension(lx1, ly1, lz1, lelv), intent(out) :: vy_
-            real(kind=dp), dimension(lx1, ly1, lz1, lelv), intent(out) :: vz_
-            real(kind=dp), dimension(lx2, ly2, lz2, lelv), intent(out) :: pr_
-            real(kind=dp), dimension(lx1, ly1, lz1, lelt, ldimt), intent(out) :: t_
-      
-            call nopcopy(vx_, vy_, vz_, pr_, t_, vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
-      
-            return
-         end subroutine ext_vec_f2nek_std
-      
-         subroutine ext_vec_f2nek_prt(vx_, vy_, vz_, pr_, t_, vec)
-            include "SIZE"
-            type(nek_ext_dvector_forcing), intent(in) :: vec
-            real(kind=dp), dimension(lv, 1), intent(out) :: vx_
-            real(kind=dp), dimension(lv, 1), intent(out) :: vy_
-            real(kind=dp), dimension(lv, 1), intent(out) :: vz_
-            real(kind=dp), dimension(lp, 1), intent(out) :: pr_
-            real(kind=dp), dimension(lt, ldimt, 1), intent(out) :: t_
-      
-            call nopcopy(vx_(:, 1), vy_(:, 1), vz_(:, 1), pr_(:, 1), t_(:, :, 1), vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
-      
-            return
-         end subroutine ext_vec_f2nek_prt
-      
-         subroutine abstract_ext_vec_f2nek_std(vx_, vy_, vz_, pr_, t_, vec)
-            include "SIZE"
-            class(abstract_vector_rdp), intent(in) :: vec
-            real(kind=dp), dimension(lx1, ly1, lz1, lelv), intent(out) :: vx_
-            real(kind=dp), dimension(lx1, ly1, lz1, lelv), intent(out) :: vy_
-            real(kind=dp), dimension(lx1, ly1, lz1, lelv), intent(out) :: vz_
-            real(kind=dp), dimension(lx2, ly2, lz2, lelv), intent(out) :: pr_
-            real(kind=dp), dimension(lx1, ly1, lz1, lelt, ldimt), intent(out) :: t_
-            select type (vec)
-            type is (nek_ext_dvector_forcing)
-               call nopcopy(vx_, vy_, vz_, pr_, t_, vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
-            end select
-            return
-         end subroutine abstract_ext_vec_f2nek_std
-     
-         subroutine abstract_ext_vec_f2nek_prt(vx_, vy_, vz_, pr_, t_, vec)
-            include "SIZE"
-            class(abstract_vector_rdp), intent(in) :: vec
-            real(kind=dp), dimension(lv, 1), intent(out) :: vx_
-            real(kind=dp), dimension(lv, 1), intent(out) :: vy_
-            real(kind=dp), dimension(lv, 1), intent(out) :: vz_
-            real(kind=dp), dimension(lp, 1), intent(out) :: pr_
-            real(kind=dp), dimension(lt, ldimt, 1), intent(out) :: t_
-            select type (vec)
-            type is (nek_ext_dvector_forcing)
-               call nopcopy(vx_(:, 1), vy_(:, 1), vz_(:, 1), pr_(:, 1), t_(:, :, 1), vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
-            end select
-            return
-         end subroutine abstract_ext_vec_f2nek_prt
-
-         subroutine get_forcing_abs(forcing, vec)
-            real(dp), dimension(:), allocatable, intent(out) :: forcing
-            class(abstract_vector_rdp), intent(in) :: vec
-            select type (vec)
-            type is (nek_ext_dvector_forcing)
-            !if (vec%nf == 0) then
-            !   call stop_error('forcing component not initialized', this_module, 'get_forcing_abs')
-            !end if
-            !allocate(forcing(vec%nf))
-            forcing = vec%f
-            end select
-         end subroutine get_forcing_abs
-      
-         subroutine get_forcing(forcing, vec)
-            real(dp), dimension(:), allocatable, intent(out) :: forcing
-            class(nek_ext_dvector_forcing), intent(in) :: vec
-            !if (vec%nf == 0) then
-            !   call stop_error('forcing component not initialized', this_module, 'get_forcing_abs')
-            !end if
-            !allocate(forcing(vec%nf))
-            forcing = vec%f
-         end subroutine get_forcing
       
          subroutine nopcopy(a1, a2, a3, a4, a5, b1, b2, b3, b4, b5)
             implicit none
@@ -464,22 +329,5 @@
             end do
             return
          end subroutine outpost_ext_dnek_basis
-
-         subroutine outpost_ext_f_dnek_vector(vec, prefix)
-            type(nek_ext_dvector_forcing), intent(in) :: vec
-            character(len=3), intent(in) :: prefix
-            call outpost(vec%vx, vec%vy, vec%vz, vec%pr, vec%theta, prefix)
-            return
-         end subroutine outpost_ext_f_dnek_vector
-      
-         subroutine outpost_ext_f_dnek_basis(vec, prefix)
-            type(nek_ext_dvector_forcing), intent(in) :: vec(:)
-            character(len=3), intent(in) :: prefix
-            integer :: i
-            do i = 1, size(vec)
-               call outpost_ext_f_dnek_vector(vec(i), prefix)
-            end do
-            return
-         end subroutine outpost_ext_f_dnek_basis
 
       end module neklab_utils

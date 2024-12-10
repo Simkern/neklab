@@ -11,7 +11,6 @@
          use LightKrylov_Logger
       ! Extensions of the abstract vector types to nek data format.
          use neklab_vectors
-         use neklab_vectors, only: nf => n_forcing
          use neklab_nek_forcing, only: neklab_forcing, set_neklab_forcing
          use neklab_nek_setup, only: nek_log_message, nek_log_warning
          implicit none
@@ -25,11 +24,10 @@
       !! Local number of grid points for the velocity mesh.
          integer, parameter :: lp = lx2*ly2*lz2*lelv
       !! Local number of grid points for the pressure mesh.
+         integer, parameter :: nf = 1
 
          public :: pipe
          public :: helix_pipe ! constructor for the pipe instance of the helix type
-         public :: dpds_from_vector
-         public :: dpds_to_vector
 
          type, public :: helix
             !! Type containing the basic geometrical and dynamical properties of a helix
@@ -50,7 +48,7 @@
             real(dp) :: omega
             real(dp) :: womersley
             ! forcing
-            real(dp), dimension(lv):: fshape
+            real(dp), dimension(lv) :: fshape
             real(dp), dimension(nf) :: dpds
             ! mesh inputs
             integer :: nslices
@@ -68,12 +66,6 @@
             real(dp), dimension(lv) :: ox, oy
             ! cartesian coordinates in torus (without torsion!)
             real(dp), dimension(lv) :: xax, yax, zax
-            ! dF/df
-            type(nek_ext_dvector_forcing), dimension(nf) :: dFdf
-            ! dG/df
-            real(dp), dimension(nf) :: dGdf
-            ! flag to trigger computation
-            logical, public :: to_compute_df = .false.
          contains
             ! initialization
             procedure, pass(self), public :: init_geom
@@ -89,16 +81,13 @@
             procedure, pass(self), public :: add_dpds
             procedure, pass(self), public :: is_steady
             procedure, pass(self), public :: setup_summary
+            procedure, pass(self), public :: get_fshape
+            procedure, pass(self), public :: get_angle_s
+            procedure, pass(self), public :: get_alpha
             ! getter/setter for dpds
             procedure, pass(self), public :: get_dpds_all
             procedure, pass(self), public :: get_dpds
             procedure, pass(self), public :: set_dpds
-            ! getter/setter for dFdf
-            procedure, pass(self), public :: get_dFdf
-            procedure, pass(self), public :: set_dFdf
-            ! getter/setter for dGdf
-            procedure, pass(self), public :: get_dGdf
-            procedure, pass(self), public :: set_dGdf
          end type helix
 
          type(helix) :: pipe
@@ -310,7 +299,6 @@
             self%fshape = 0.0_dp
 
             i = 0
-            print *, self%delta, self%curv_radius
             do ie = 1, lelv
             do iz = 1, lz1
             do iy = 1, ly1
@@ -365,7 +353,6 @@
             integer :: i
             real(dp) :: fs
             real(dp), dimension(lv) :: ffx, ffy, ffz
-
             fs = self%get_forcing(t) / self%curv_radius
 
             do i = 1, lv
@@ -442,8 +429,8 @@
                i = i+1
                ! Compute fshape
                us = cos(self%phi)*(
-     $               cos( self%as(i) * u(ix,iy,iz,ie) )
-     $             - sin( self%as(i) * v(ix,iy,iz,ie) ))
+     $               cos( self%as(i) ) * u(ix,iy,iz,ie)
+     $             - sin( self%as(i) ) * v(ix,iy,iz,ie))
      $             + sin( self%phi ) * w(ix,iy,iz,ie)
                us_r = us * self%fshape(i) ! u/r
                num = num + us_r*bm1(ix,iy,iz,ie)
@@ -454,7 +441,6 @@
             end do
             num = glsum(num,1)
             den = glsum(den,1)
-            !s_L = self%sweep*sqrt(self%curv_radius**2 + self%pitch_s**2)
             ubar = num/den  ! "1/r"-weighted volumetric average of streamwise velocity
             
          end function compute_ubar
@@ -491,49 +477,25 @@
             class(helix), intent(inout) :: self
             real(dp), intent(in) :: df
             integer, intent(in) :: i
-            ! internal
             self%dpds(i) = self%dpds(i) + df
          end subroutine add_dpds
 
-         subroutine get_dFdf(self, dFdf, i)
+         subroutine get_fshape(self, fshape)
             class(helix), intent(in) :: self
-            type(nek_ext_dvector_forcing), intent(out) :: dFdf
-            integer, intent(in) :: i
-            ! internal
-            dFdf = self%dFdf(i)
-         end subroutine get_dFdf
+            real, dimension(lx1,ly1,lz1,lelv), intent(out) :: fshape
+            call copy(fshape, self%fshape, lv)
+         end subroutine get_fshape
 
-         subroutine set_dFdf(self, dFdf, i)
-            class(helix), intent(inout) :: self
-            type(nek_ext_dvector_forcing), intent(in) :: dFdf
-            integer, intent(in) :: i
-            self%dFdf(i) = dFdf
-         end subroutine set_dFdf
-
-         real(dp) pure function get_dGdf(self, i) result(dGdf)
+         subroutine get_angle_s(self, angle_s)
             class(helix), intent(in) :: self
-            integer, intent(in) :: i
-            ! internal
-            dGdf = self%dGdf(i)
-         end function get_dGdf
+            real, dimension(lx1,ly1,lz1,lelv), intent(out) :: angle_s
+            call copy(angle_s, self%as, lv)
+         end subroutine get_angle_s
 
-         subroutine set_dGdf(self, dGdf, i)
-            class(helix), intent(inout) :: self
-            real(dp), intent(in) :: dGdf
-            integer, intent(in) :: i
-            self%dGdf(i) = dGdf
-         end subroutine set_dGdf
-
-         subroutine dpds_from_vector(dpds, vec)
-            real(dp), dimension(nf), intent(out) :: dpds
-            type(nek_ext_dvector_forcing), intent(in) :: vec
-            dpds = vec%f
-         end subroutine dpds_from_vector
-
-         subroutine dpds_to_vector(dpds, vec)
-            real(dp), dimension(nf), intent(in) :: dpds
-            type(nek_ext_dvector_forcing), intent(out) :: vec
-            vec%f = dpds
-         end subroutine dpds_to_vector
+         subroutine get_alpha(self, alpha)
+            class(helix), intent(in) :: self
+            real, dimension(lx1,ly1,lz1,lelv), intent(out) :: alpha
+            call copy(alpha, self%alpha, lv)
+         end subroutine get_alpha
       
       end module neklab_helix

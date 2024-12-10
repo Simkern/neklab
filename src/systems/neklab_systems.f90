@@ -17,7 +17,6 @@
          use LightKrylov_utils, only: assert_shape
       ! Extensions of the abstract vector types to nek data format.
          use neklab_vectors
-         use neklab_vectors, only: nf => n_forcing
          use neklab_linops
          use neklab_utils
          use neklab_nek_setup
@@ -120,39 +119,39 @@
       !-----     NEKLAB SYSTEM FOR FORCED FIXED-POINTS   -------
       !---------------------------------------------------------
 
-         type, extends(abstract_system_rdp), public :: nek_system_forced
+         type, extends(abstract_system_rdp), public :: nek_system_torus
          contains
             private
-            procedure, pass(self), public :: response => nonlinear_map_forced
-         end type nek_system_forced
+            procedure, pass(self), public :: response => nonlinear_map_torus
+         end type nek_system_torus
       
-         type, extends(abstract_jacobian_linop_rdp), public :: nek_jacobian_forced
-         contains
-            private
-            procedure, pass(self), public :: matvec => jac_direct_map_forced
-            procedure, pass(self), public :: rmatvec => jac_adjoint_map_forced
-         end type nek_jacobian_forced
+         !type, extends(abstract_jacobian_linop_rdp), public :: nek_jacobian_torus
+         !contains
+         !   private
+         !   procedure, pass(self), public :: matvec => jac_direct_map_torus
+         !   procedure, pass(self), public :: rmatvec => jac_adjoint_map_torus
+         !end type nek_jacobian_torus
 
-         ! --> Type-bound procedures for nek_system_forced & nek_jacobian_forced
+         ! --> Type-bound procedures for nek_system_torus & nek_jacobian_torus
          interface
-            module subroutine nonlinear_map_forced(self, vec_in, vec_out, atol)
-               class(nek_system_forced), intent(inout) :: self
+            module subroutine nonlinear_map_torus(self, vec_in, vec_out, atol)
+               class(nek_system_torus), intent(inout) :: self
                class(abstract_vector_rdp), intent(in) :: vec_in
                class(abstract_vector_rdp), intent(out) :: vec_out
                real(dp), intent(in) :: atol
-            end subroutine nonlinear_map_forced
+            end subroutine nonlinear_map_torus
 
-            module subroutine jac_direct_map_forced(self, vec_in, vec_out)
-               class(nek_jacobian_forced), intent(inout) :: self
-               class(abstract_vector_rdp), intent(in) :: vec_in
-               class(abstract_vector_rdp), intent(out) :: vec_out
-            end subroutine jac_direct_map_forced
+            !module subroutine jac_direct_map_torus(self, vec_in, vec_out)
+            !   class(nek_jacobian_torus), intent(inout) :: self
+            !   class(abstract_vector_rdp), intent(in) :: vec_in
+            !   class(abstract_vector_rdp), intent(out) :: vec_out
+            !end subroutine jac_direct_map_torus
 
-            module subroutine jac_adjoint_map_forced(self, vec_in, vec_out)
-               class(nek_jacobian_forced), intent(inout) :: self
-               class(abstract_vector_rdp), intent(in) :: vec_in
-               class(abstract_vector_rdp), intent(out) :: vec_out
-            end Subroutine jac_adjoint_map_forced
+            !module subroutine jac_adjoint_map_torus(self, vec_in, vec_out)
+            !   class(nek_jacobian_torus), intent(inout) :: self
+            !   class(abstract_vector_rdp), intent(in) :: vec_in
+            !   class(abstract_vector_rdp), intent(out) :: vec_out
+            !end Subroutine jac_adjoint_map_torus
          end interface
       
       contains
@@ -227,21 +226,30 @@
             integer,  intent(out)  :: info
             !! Information flag
             ! internals
+            real(dp), parameter :: maxtol = 1e-4_dp ! maximum acceptable solver tolerance
+            real(dp), parameter :: mintol = 10*atol_dp! minimum acceptable solver tolerance
             real(dp) :: tol_old, target_tol_
             character(len=256) :: msg
 
-            target_tol_ = max(target_tol, 10*atol_dp)
-            if (target_tol < 10*atol_dp) then
-               write(msg,'(A,E9.2)') 'Input target tolerance below 10*atol! Resetting target to 10*atol= ', target_tol_
+            if (target_tol < mintol) then
+               write(msg,'(A,E9.2)') 'Input target tolerance below minimum tolerance! Resetting target to mintol= ', mintol
                call logger%log_warning(msg, module=this_module, procedure='nek_dynamic_tol')
                if (nid == 0) print '(A)', trim(msg)
             end if
+            target_tol_ = max(target_tol, mintol)
+
+            if (target_tol > maxtol) then
+               write(msg,'(A,E9.2)') 'Input target tolerance above maximum tolerance! Resetting target to maxtol= ', maxtol
+               call logger%log_warning(msg, module=this_module, procedure='nek_dynamic_tol')
+               if (nid == 0) print '(A)', trim(msg)
+            end if
+            target_tol_ = min(target_tol_, maxtol)
             
             tol_old = tol
-            tol = max(0.1*rnorm, target_tol)
+            tol = max(0.1*rnorm, target_tol_)
       
             if (tol /= tol_old) then
-               if (tol == target_tol) then
+               if (tol == target_tol_) then
                   write(msg,'(A,E9.2)') 'Nek solver tolerance set to input target. tol= ', tol
                else
                   write(msg,'(A,E9.2)') 'Nek solver tolerance set to tol= ', tol

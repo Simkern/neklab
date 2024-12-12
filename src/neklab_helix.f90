@@ -24,7 +24,7 @@
       !! Local number of grid points for the velocity mesh.
          integer, parameter :: lp = lx2*ly2*lz2*lelv
       !! Local number of grid points for the pressure mesh.
-         integer, parameter :: nf = 1
+         integer, parameter :: nf = 3
 
          public :: pipe
          public :: helix_pipe ! constructor for the pipe instance of the helix type
@@ -271,20 +271,21 @@
                end if
             end if
             self%dpds = dpds
-            call nek_log_message('Flow paramter initialization:', module=this_module)
-            write (msg, '(A,L8)') padl('steady:', 20), pipe%if_steady
+            call nek_log_message('Flow parameter initialization:', module=this_module)
+            write (msg, '(A,L8)') padl('steady:', 20), self%if_steady
             call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            write (msg, '(A,F15.8)') padl('Wo:', 20), pipe%womersley
+            write (msg, '(A,F15.8)') padl('Wo:', 20), self%womersley
             call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            write (msg, '(A,F15.8)') padl('omega:', 20), pipe%omega
+            write (msg, '(A,F15.8)') padl('omega:', 20), self%omega
             call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            write (msg, '(A,F15.8)') padl('T:', 20), pipe%pulse_T
+            write (msg, '(A,F15.8)') padl('T:', 20), self%pulse_T
             call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            write (msg, '(A,F15.8,1X,F15.8)') padl('dpds_00:', 20), pipe%dpds(1), 0.0_dp
+            write (msg, '(A,F15.8,1X,F15.8)') padl('dpds_00:', 20), self%dpds(1), 0.0_dp
             call nek_log_message(msg, module=this_module, fmt='(5X,A)')
             do i = 2, n, 2
                write(fmt,'("dpds_",I2.2)') i/2
-               write (msg, '(A,F15.8,1X,F15.8)') padl(fmt, 20), pipe%dpds(i), pipe%dpds(i+1)
+               print *, fmt
+               write (msg, '(A,F15.8,1X,F15.8)') padl(trim(fmt), 20), self%dpds(i), self%dpds(i+1)
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
             end do
                   

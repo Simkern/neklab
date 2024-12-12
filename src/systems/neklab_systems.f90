@@ -115,9 +115,9 @@
             end subroutine jac_adjoint_map
          end interface
 
-      !---------------------------------------------------------
-      !-----     NEKLAB SYSTEM FOR FORCED FIXED-POINTS   -------
-      !---------------------------------------------------------
+      !--------------------------------------------------------------
+      !-----     NEKLAB SYSTEM FOR PERIODIC ORBITS  IN TORI   -------
+      !--------------------------------------------------------------
 
          type, extends(abstract_system_rdp), public :: nek_system_torus
          contains
@@ -125,15 +125,16 @@
             procedure, pass(self), public :: response => nonlinear_map_torus
          end type nek_system_torus
       
-         !type, extends(abstract_jacobian_linop_rdp), public :: nek_jacobian_torus
-         !contains
-         !   private
-         !   procedure, pass(self), public :: matvec => jac_direct_map_torus
-         !   procedure, pass(self), public :: rmatvec => jac_adjoint_map_torus
-         !end type nek_jacobian_torus
+         type, extends(abstract_jacobian_linop_rdp), public :: nek_jacobian_torus
+         contains
+            private
+            procedure, pass(self), public :: matvec => jac_direct_map_torus
+            procedure, pass(self), public :: rmatvec => jac_adjoint_map_torus
+         end type nek_jacobian_torus
 
          ! --> Type-bound procedures for nek_system_torus & nek_jacobian_torus
          interface
+            ! these routines differ from the regular ones only w.r.t to the time-dependent BF forcing.
             module subroutine nonlinear_map_torus(self, vec_in, vec_out, atol)
                class(nek_system_torus), intent(inout) :: self
                class(abstract_vector_rdp), intent(in) :: vec_in
@@ -141,17 +142,17 @@
                real(dp), intent(in) :: atol
             end subroutine nonlinear_map_torus
 
-            !module subroutine jac_direct_map_torus(self, vec_in, vec_out)
-            !   class(nek_jacobian_torus), intent(inout) :: self
-            !   class(abstract_vector_rdp), intent(in) :: vec_in
-            !   class(abstract_vector_rdp), intent(out) :: vec_out
-            !end subroutine jac_direct_map_torus
+            module subroutine jac_direct_map_torus(self, vec_in, vec_out)
+               class(nek_jacobian_torus), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+            end subroutine jac_direct_map_torus
 
-            !module subroutine jac_adjoint_map_torus(self, vec_in, vec_out)
-            !   class(nek_jacobian_torus), intent(inout) :: self
-            !   class(abstract_vector_rdp), intent(in) :: vec_in
-            !   class(abstract_vector_rdp), intent(out) :: vec_out
-            !end Subroutine jac_adjoint_map_torus
+            module subroutine jac_adjoint_map_torus(self, vec_in, vec_out)
+               class(nek_jacobian_torus), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+            end Subroutine jac_adjoint_map_torus
          end interface
       
       contains
@@ -196,9 +197,10 @@
             integer,  intent(out)  :: info
             !! Information flag
             character(len=256) :: msg
-            if (target_tol < 10*atol_dp) then
-               tol = 10*atol_dp
-               write(msg,'(A,E9.2)') 'Input tolerance below 10*atol! Resetting solver tolerance to atol= ', tol
+            real(dp), parameter :: mintol = 10*atol_dp! minimum acceptable solver tolerance
+            if (target_tol < mintol) then
+               tol = mintol
+               write(msg,'(A,E9.2)') 'Input tolerance below minimum tolerance! Resetting solver tolerance to mintol= ', tol
                call logger%log_warning(msg, module=this_module, procedure='nek_constant_tol')
             else
                tol = target_tol

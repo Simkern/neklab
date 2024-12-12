@@ -11,8 +11,8 @@ $(OBJDIR)/exponential_propagator.o	:$(NEKLAB_SOURCE_ROOT)/src/linops/exponential
 $(OBJDIR)/resolvent.o	:$(NEKLAB_SOURCE_ROOT)/src/linops/resolvent.f90	;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_systems.o		:$(NEKLAB_SOURCE_ROOT)/src/systems/neklab_systems.f90		;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/fixed_point.o			:$(NEKLAB_SOURCE_ROOT)/src/systems/fixed_point.f90		;$(FC) -c $(FL2) $< -o $@
-$(OBJDIR)/fixed_point_torus.o			:$(NEKLAB_SOURCE_ROOT)/src/systems/fixed_point_torus.f90		;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/periodic_orbit.o		:$(NEKLAB_SOURCE_ROOT)/src/systems/periodic_orbit.f90		;$(FC) -c $(FL2) $< -o $@
+$(OBJDIR)/periodic_orbit_torus.o			:$(NEKLAB_SOURCE_ROOT)/src/systems/periodic_orbit_torus.f90		;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_otd.o			:$(NEKLAB_SOURCE_ROOT)/src/neklab_otd.f90			;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_helix.o			:$(NEKLAB_SOURCE_ROOT)/src/neklab_helix.f90			;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_analysis.o		:$(NEKLAB_SOURCE_ROOT)/src/neklab_analysis.f90			;$(FC) -c $(FL2) $< -o $@

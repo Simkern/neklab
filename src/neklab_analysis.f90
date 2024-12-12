@@ -29,7 +29,7 @@
          public :: transient_growth_analysis_fixed_point
          public :: newton_fixed_point_iteration
          public :: newton_periodic_orbit
-         public :: newton_fixed_point_iteration_torus
+         public :: newton_forced_periodic_orbit_torus
          public :: otd_analysis
       
       contains
@@ -225,7 +225,7 @@
             return
          end subroutine newton_periodic_orbit
 
-         subroutine newton_fixed_point_iteration_torus(sys, bf, tol, tol_mode)
+         subroutine newton_forced_periodic_orbit_torus(sys, bf, tol, tol_mode)
             type(nek_system_torus), intent(inout) :: sys
       !! System for which a fixed point is sought
             type(nek_dvector), intent(inout) :: bf
@@ -268,7 +268,7 @@
             call timer%finalize()
       
             return
-         end subroutine newton_fixed_point_iteration_torus
+         end subroutine newton_forced_periodic_orbit_torus
       
          subroutine otd_analysis(OTD, opts_)
             type(nek_otd), intent(inout) :: OTD

@@ -103,7 +103,7 @@
                else
                   write (msg, '(A,I0,A,I0)') "Neklab multi-perturbation mode. lpert =", lpert, ", npert =", npert
                end if
-               call nek_log_message(msg, this_module, 'setup_nek')
+               call nek_log_debug(msg, this_module, 'setup_nek')
                if (lpert /= npert) then
                   param(31) = lpert
                   npert = lpert

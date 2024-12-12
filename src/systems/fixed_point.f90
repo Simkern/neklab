@@ -19,7 +19,7 @@
       ! Extract the final solution to vector.
                call nek2vec(vec_out, vx, vy, vz, pr, t)
       ! Evaluate residual F(X) - X.
-               call vec_out%sub(vec_in)
+               call vec_out%axpby(1.0_dp, vec_in, -1.0_dp)
             end select
          end select
          end procedure nonlinear_map

@@ -60,7 +60,7 @@
       ! Implementation of the abstract systems and Jacobians
          public :: nek_system, nek_jacobian
          public :: nek_system_upo, nek_jacobian_upo
-         public :: nek_system_torus
+         public :: nek_system_torus, nek_jacobian_torus
       
       ! Data for nek5000 user-defined forcing function
          public :: get_neklab_forcing, set_neklab_forcing, neklab_forcing
@@ -71,7 +71,7 @@
       ! Baseflow computation
          public :: newton_fixed_point_iteration
          public :: newton_periodic_orbit
-         public :: newton_fixed_point_iteration_torus
+         public :: newton_forced_periodic_orbit_torus
       
       ! Stability analysis exports.
          public :: linear_stability_analysis_fixed_point
@@ -91,7 +91,6 @@
          public :: neklab_forcing
       
       ! Various utilities.
-         public :: n_forcing
          public :: nek2vec, vec2nek
          public :: nek2ext_vec, ext_vec2nek
          public :: nek2ext_vec_f, ext_vec_f2nek

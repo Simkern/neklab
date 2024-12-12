@@ -235,20 +235,23 @@
 
             if (target_tol < mintol) then
                write(msg,'(A,E9.2)') 'Input target tolerance below minimum tolerance! Resetting target to mintol= ', mintol
-               call logger%log_warning(msg, module=this_module, procedure='nek_dynamic_tol')
-               if (nid == 0) print '(A)', trim(msg)
+               call nek_log_warning(msg, module=this_module, procedure='nek_dynamic_tol')
             end if
             target_tol_ = max(target_tol, mintol)
 
             if (target_tol > maxtol) then
                write(msg,'(A,E9.2)') 'Input target tolerance above maximum tolerance! Resetting target to maxtol= ', maxtol
-               call logger%log_warning(msg, module=this_module, procedure='nek_dynamic_tol')
-               if (nid == 0) print '(A)', trim(msg)
+               call nek_log_warning(msg, module=this_module, procedure='nek_dynamic_tol')
             end if
             target_tol_ = min(target_tol_, maxtol)
-            
+
             tol_old = tol
             tol = max(0.1*rnorm, target_tol_)
+            if (tol > maxtol) then
+               write(msg,'(A,E9.2)') 'Residual is large. Setting tolerance to tol= ', maxtol
+               call nek_log_information(msg, module=this_module, procedure='nek_dynamic_tol')
+            end if
+            tol = min(tol, maxtol)
       
             if (tol /= tol_old) then
                if (tol == target_tol_) then
@@ -256,16 +259,14 @@
                else
                   write(msg,'(A,E9.2)') 'Nek solver tolerance set to tol= ', tol
                end if
-               call logger%log_information(msg, module=this_module, procedure='nek_dynamic_tol')
+               call nek_log_information(msg, module=this_module, procedure='nek_dynamic_tol')
                param(21) = tol; TOLPDF = param(21); call bcast(TOLPDF,wdsize)
                param(22) = tol; TOLHDF = param(22); call bcast(TOLHDF,wdsize)
                restol(:) = param(22); call bcast(restol, (ldimt1+1)*wdsize)
                atol(:) = param(22); call bcast(atol, (ldimt1+1)*wdsize)
-               if (nid == 0) print '(A)', trim(msg)
             else
                write(msg,'(A,E9.2)') 'Nek solver tolerances unchanged at tol= ', tol_old
-               call logger%log_information(msg, module=this_module, procedure='nek_dynamic_tol')
-               if (nid == 0) print '(A)', trim(msg)
+               call nek_log_information(msg, module=this_module, procedure='nek_dynamic_tol')
             end if
             return
          end subroutine nek_dynamic_tol

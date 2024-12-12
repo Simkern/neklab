@@ -2,9 +2,9 @@
 # nek parameter file
 #
 [GENERAL] 
-#startFrom = BF_torus0.f00001
+startFrom = rsttorus0.f00001
 stopAt = endTime
-endTime = 8.719522467106364
+endTime = 100.
 
 dt = 0
 timeStepper = bdf3
@@ -40,6 +40,6 @@ writeToFieldFile = yes
 residualTol = 1.0E-10
 residualProj = yes
 density = 1.0
-viscosity = -1700.0
+viscosity = -1725.0
 advection = yes
 writeToFieldFile = yes

@@ -30,6 +30,7 @@ c-----------------------------------------------------------------------
 c-----------------------------------------------------------------------
       subroutine userchk
       use neklab
+      use neklab_nek_setup
       use neklab_helix
       use LightKrylov_Logger
       implicit none     
@@ -37,12 +38,11 @@ c-----------------------------------------------------------------------
       include "TOTAL"
       
       ! System for which we seek a fixed point
-      type(nek_system_torus), allocatable :: sys
+      type(nek_system), allocatable :: sys
       ! State vectors
       type(nek_dvector) :: bf
       ! Tolerance for the Newton solver
-      real(dp) :: tol, ubar_old, ubar_new, deltaf
-      real(dp) :: df
+      real(dp) :: tol, ubar_old, ubar_new, deltaf, df
       ! flow parameters
       real, parameter :: womersley   = 35.0d0
       real, parameter :: dp0ds       = 7.9486896e-2 !7.945994987500288e-02
@@ -52,53 +52,62 @@ c-----------------------------------------------------------------------
       
       if (istep.eq.0) then
          ! Set up logging
-			call logger_setup(nio=0, log_stdout=.true., log_timestamp=.true.)
+         call logger_setup(nio=0, log_stdout=.true., log_timestamp=.true.)
       
-			call pipe%setup_summary()
-			! Set flow parameters
+	 call pipe%setup_summary()
+	 ! Set flow parameters
          dpds = [ dp0ds ]
-			call pipe%init_flow(dpds) !, womersley)
+	 call pipe%init_flow(dpds)
+         call pipe%compute_bf_forcing(0.0_dp) ! --> set neklab_forcing data
 			
-			call load_fld('rsttorus0.f00001')
+	 call load_fld('rsttorus0.f00001')
          call nek2vec(bf, vx, vy, vz, pr, t)
 
          ! parameters
-         tol = 1e-8_dp
+         tol = 1e-10_dp
          tol_mode = 2
          df = 100*tol
 
          ! define system
-         sys = nek_system_torus()
+         sys = nek_system()
          sys%jacobian = nek_jacobian()
          sys%jacobian%X = bf
 
-         call newton_fixed_point_iteration_torus(sys, bf, tol, tol_mode)
+         call newton_fixed_point_iteration(sys, bf, tol, tol_mode)
          call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
          ubar_old = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
 
          write(msg,'(A,E15.8)') 'u_bar_old= ', ubar_old
-         call logger%log_message(msg, procedure='userchk')
+         call nek_log_message(msg, procedure='userchk')
 
          dpds = [ dp0ds + df ]
          call pipe%init_flow(dpds) !, womersley)
+         call pipe%compute_bf_forcing(0.0_dp) ! --> set neklab_forcing data
 
-         call newton_fixed_point_iteration_torus(sys, bf, tol, tol_mode)
+         call newton_fixed_point_iteration(sys, bf, tol, tol_mode)
          call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
          ubar_new = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
 
          write(msg,'(A,E15.8)') 'u_bar_new= ', ubar_new
-         call logger%log_message(msg, procedure='userchk')
+         call nek_log_message(msg, procedure='userchk')
 
-         deltaf = df/(ubar_old - ubar_new)*(1.0_dp - ubar_old)
-         if (nid == 0) print *, 'deltaf= ', deltaf
-         write(msg,'(A,E15.8)') 'deltaf= ', deltaf
-         call logger%log_message(msg, procedure='userchk')
+         if (abs(ubar_new - ubar_new) > tol) then
+            deltaf = df/(ubar_new - ubar_old)*(1.0_dp - ubar_old)
+            if (nid == 0) print *, 'deltaf= ', deltaf
+            write(msg,'(A,E15.8)') 'deltaf= ', deltaf
+            call nek_log_message(msg, procedure='userchk')
 
-         dpds = [ dp0ds + deltaf ]
-         call pipe%init_flow(dpds) !, womersley)
+            dpds = [ dp0ds + deltaf ]
+            call pipe%init_flow(dpds) !, womersley)
+            call pipe%compute_bf_forcing(0.0_dp) ! --> set neklab_forcing data
 
-         call newton_fixed_point_iteration_torus(sys, bf, tol, tol_mode)
-         call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
+            call newton_fixed_point_iteration(sys, bf, tol, tol_mode)
+            call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
+            ubar_new = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
+
+            write(msg,'(A,E15.8)') 'u_bar_final= ', ubar_new
+            call nek_log_message(msg, procedure='userchk')
+         end if
 
          call nek_end()
       end if

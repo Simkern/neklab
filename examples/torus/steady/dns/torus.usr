@@ -41,35 +41,39 @@ c-----------------------------------------------------------------------
       ! State vectors
       type(nek_dvector) :: bf, ref
       ! Tolerance for the Newton solver
-      real(dp) :: tol, ubar, norm
+      real(dp) :: tol, ubar, norm, pd
       ! flow parameters
-      real, parameter :: womersley   = 35.0d0
-      real, parameter :: dp0ds       = 7.9486896e-2 !7.945994987500288e-02
-      real(dp), dimension(n_forcing), parameter :: dpds = [ dp0ds ]
+      real, parameter :: dp0ds = 7.9486896e-2 !7.945994987500288e-02 ! 
+      real(dp), dimension(1), parameter :: dpds = [ dp0ds ]
+      integer :: outpost_step
+
+      save ref
 
       if (istep == 0) then
          call pipe%setup_summary()
          ! Set flow parameters
          call pipe%init_flow(dpds)
-	 call load_fld('rsttorus0.f00001')
-	 call nek2vec(ref, vx, vy, vz, pr, t)
-	 call nek2vec(bf, vx, vy, vz, pr, t)
+	   !call load_fld('rsttorus0.f00001')
+	   call nek2vec(ref, vx, vy, vz, pr, t)
+	   call nek2vec(bf, vx, vy, vz, pr, t)
+         call outpost_dnek(bf, 'bas')
       end if
 
       call pipe%compute_bf_forcing(time)
 
+      pd = 1.0_dp
+      outpost_step = nint(pd/dt)
       ubar = pipe%compute_ubar(vx,vy,vz)
-      if (nid == 0) print *, 'UBAR: ', ubar
+      if (nid == 0) print *, time, time/pd, 'UBAR: ', ubar, pd, outpost_step
 
-      if (istep > 0 .and. mod(istep,250) == 0) then
+      if (istep > 0 .and. mod(istep,outpost_step) == 0) then
          call nek2vec(bf, vx, vy, vz, pr, t)
-	 call load_fld('rsttorus0.f00001')
-         call nek2vec(ref, vx, vy, vz, pr, t)
-      	 call ref%sub(bf)
-	 call outpost_dnek(ref, 'res')
-	 norm = ref%norm()
+         call ref%axpby(1.0_dp, bf, -1.0_dp)
+         call outpost_dnek(ref, 'res')
+         call outpost_dnek(bf, 'bas')
+         norm = ref%norm()
          if (nid == 0) print *, 'istep', istep, ': norm', norm
-	 call vec2nek(vx, vy, vz, pr, t, bf)
+         call nek2vec(ref, vx, vy, vz, pr, t)
       end if
 
       return
@@ -131,8 +135,8 @@ c-----------------------------------------------------------------------
       real, parameter :: pitch_s     = 0.0d0
       real, parameter :: length      = 1.0d0
       ! mesh parameters
-      integer,  parameter :: nslices = 5
-      integer,  parameter :: nelf    = 108
+      integer, parameter :: nslices  = 5
+      integer, parameter :: nelf     = 108
       if (istep.eq.0) then
          ! Initialize type
          call helix_pipe(delta, diameter, pitch_s, length, nslices, nelf)

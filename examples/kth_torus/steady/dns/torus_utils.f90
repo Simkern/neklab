@@ -289,10 +289,12 @@
 
          ! Compute fshape and First fourier mode
          fshape = 1.0d0 / sqrt((1.0d0 + delta * sqrt(rr) * sin(alpha))**2)
-         dp1ds = 2.0d0 * real((dp1dsr + dp1dsi * imag) * cexp(imag * omega * time))
+         !dp1ds = 2.0d0 * real((dp1dsr + dp1dsi * imag) * cexp(imag * omega * time))
 
          ! Final dpds calculation and force components
-         dpds = (dp0ds + dp1ds) * fshape / curv_radius
+         !dpds = (dp0ds + dp1ds) * fshape / curv_radius
+         !if (nid == 0) print *, 'dp0ds= ', dp0ds
+         dpds = dp0ds * fshape / curv_radius
          ffx_p = dpds * cos(an_phi) * cos(angle_t)
          ffy_p = -dpds * cos(an_phi) * sin(angle_t)
          ffz_p = dpds * sin(an_phi)
@@ -336,8 +338,9 @@
          j0_b   = jn_b(1) ; j1_b   = jn_b(2)
          binv_pulse   = 1.0d0/(2.0d0*j1_b/(j0_b*wwi)-1.0d0)
          fshape = 1.0d0/sqrt((1+delta*sqrt(rr)*sin(alpha))**2)
-         dp1ds = 2.0d0*real( (dp1dsr + dp1dsi*imag)*cexp(imag*omega*time) )
-         dpds = ( dp0ds + dp1ds )*fshape/curv_radius
+         !dp1ds = 2.0d0*real( (dp1dsr + dp1dsi*imag)*cexp(imag*omega*time) )
+         !dpds = ( dp0ds + dp1ds )*fshape/curv_radius
+         dpds = dp0ds*fshape/curv_radius
 
          ffx_p =  dpds*cos(an_phi)*cos(angle_t)
          ffy_p = -dpds*cos(an_phi)*sin(angle_t)

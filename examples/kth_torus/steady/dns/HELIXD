@@ -25,9 +25,9 @@
       !Re(fsamp_-1)          Re(fsamp_0)           Re(fsamp_1)           I
       !Im(fsamp_-1)          Im(fsamp_0)           Im(fsamp_1)
 
-      real, parameter :: dp0ds  = 7.945994987500288e-02
-      real, parameter :: dp1dsr = 6.089552728290498e-05
-      real, parameter :: dp1dsi = 1.210190262497429e-03
+      real, parameter :: dp0ds  = 7.9486896e-2 !7.8837073e-2 !7.8840073e-2 !7.9486896e-2 !7.950994987500288e-02
+      real, parameter :: dp1dsr = 0.0d0 !6.089552728290498e-05
+      real, parameter :: dp1dsi = 0.0d0 !1.210190262497429e-03
       real, parameter :: womersley = 35.0d0
 
       real pulse_T            !< @var period of pulsation

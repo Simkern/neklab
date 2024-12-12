@@ -17,7 +17,7 @@
          include "TOTAL"
          include "ADJOINT"
          private
-         character(len=*), parameter, private :: this_module = 'neklab_utils'
+         character(len=*), parameter, private :: this_module = 'neklab_nek_setup'
       
          integer, parameter :: lv = lx1*ly1*lz1*lelv
       !! Local number of grid points for the velocity mesh.
@@ -52,6 +52,7 @@
             logical, optional, intent(in) :: silent
             logical :: silent_
       ! internal
+            character(len=*), parameter :: nekfmt = '(5X,A)'
             real(dp) :: dt_old
             character(len=128) :: msg
             logical :: full_summary
@@ -107,12 +108,12 @@
                if (lpert /= npert) then
                   param(31) = lpert
                   npert = lpert
-                  write (msg, *) "Neklab requires lpert (SIZE) = npert (.par) to work reliably. Forcing npert=lpert."
+                  write (msg, '(A)') "Neklab requires lpert (SIZE) = npert (.par) to work reliably. Forcing npert=lpert."
                   call nek_log_message(msg, this_module, 'setup_nek')
                end if
       ! Deactivate OIFS.
                if (ifchar) then
-                  write (msg, *) "OIFS is not available for linearized solver. Turning it off."
+                  write (msg, '(A)') "OIFS is not available for linearized solver. Turning it off."
                   call nek_log_warning(msg, this_module, 'setup_nek')
                   ifchar = .false.
                end if
@@ -129,7 +130,8 @@
                call nek_end()
             end if
             param(10) = endtime_
-            if (nid == 0 .and. .not. silent_) print '(5X,A)', 'Set integration time.'
+            write (msg, '(A,F15.8)') padl('Set integration time: ', 30), param(10)
+            if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
       
       ! Force CFL to chosen limit
             if (cfl_limit_ < 0.0_dp .or. cfl_limit_ > 0.5_dp) then
@@ -140,7 +142,8 @@
                cfl_limit_ = 0.5_dp
             end if
             param(26) = cfl_limit_
-            if (nid == 0 .and. .not. silent_) print '(5X,A)', 'Set CFL limit.'
+            write (msg, '(A,F15.8)') padl('Set CFL limit: ', 30), param(26)
+            if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
       
       ! Recompute dt
             if (recompute_dt_) then
@@ -171,11 +174,15 @@
             param(22) = vtol_; TOLHDF = param(22); call bcast(TOLHDF,wdsize)
             restol(:) = param(22); call bcast(restol, (ldimt1+1)*wdsize)
             atol(:) = param(22); call bcast(atol, (ldimt1+1)*wdsize)
-            if (nid == 0 .and. .not. silent_) print '(5X,A)', 'Set velocity and pressure solver tolerances.'
-      
+            write (msg, '(A,E15.8)') padl('Set pressure tol: ', 30), param(21)
+            if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
+            write (msg, '(A,E15.8)') padl('Set velocity tol: ', 30), param(22)
+            if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
+
       ! Force constant timestep
             param(12) = -abs(param(12))
-            if (nid == 0 .and. .not. silent_) print '(5X,A)', 'Force a constant timestep.'
+            write (msg, '(A,E15.8)') padl('Force constant timestep: ', 30), -param(12)
+            if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
       
       ! Broadcast parameters
             call bcast(param, 200*wdsize)

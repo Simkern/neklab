@@ -1,0 +1,12 @@
+set multiplot layout 1,2
+
+set logscale y
+
+set title 'constant tolerance'
+p for [i=1:8:2] '0'.i.'_run_newton_test/rnorm.txt' u 8:10 w l t 'case '.i
+
+set title 'dynamic tolerance'
+p for [i=2:8:2] '0'.i.'_run_newton_test/rnorm.txt' u 8:10 w l t 'case '.i, \
+  for [i=2:8:2] '0'.i.'_run_newton_test/rnorm.txt' u 8:12 w l lt rgb "black" t "tol"
+
+unset multiplot

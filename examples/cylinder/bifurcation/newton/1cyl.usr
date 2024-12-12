@@ -11,10 +11,9 @@ c-----------------------------------------------------------------------
       type(nek_dvector) :: bf
       ! Tolerance for the Newton solver
       real(dp) :: tol
-		integer :: tol_mode
+      integer :: tol_mode
 
-		tol_mode = 1 ! constant
-		!tol_mode = 2 ! dynamic
+      tol_mode = 2
       
       if (istep.eq.0) then
          ! load initial guess

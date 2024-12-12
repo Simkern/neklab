@@ -18,24 +18,24 @@ def create_runfolder(step, base):
    new_folder= os.path.join(base, run_folder_base + f'{step:02d}')
    if not os.path.exists(new_folder):
       os.makedirs(new_folder)
-      print(f"\tCreated directory: {new_folder}")
+      print(f"  Created directory: {new_folder}")
       skip = False
    else:
-      print(f"\tDirectory exists: {new_folder}")
+      print(f"  Directory exists: {new_folder}")
       skip = True
       return new_folder, skip
  
    # Copy the input par file to the new folder
    par_file = os.path.join(base, '1cyl.par')
    shutil.copy(par_file, new_folder)
-   print(f"\tCopied {par_file} to {new_folder}")
+   print(f"  Copied {par_file} to {new_folder}")
    shutil.copy('run_nek.sh', new_folder)
  
    # Create symbolic links for the .re2 and nek5000 files in the new folder
    link_files = [ '1cyl.re2', '1cyl.ma2', 'nek5000' ]
    for file in link_files:
       os.symlink(os.path.join('..', file), os.path.join(new_folder, file))
-   print(f"\tCreated symbolic links in {new_folder}")
+   print(f"  Created symbolic links in {new_folder}")
 
    return new_folder, skip
 
@@ -47,9 +47,9 @@ def copy_from_to(from_file, to_file):
          skip = True
       else:
          shutil.copy(from_file, to_file)
-         print(f"\tCopied {from_file} to {to_file}")
+         print(f"  Copied {from_file} to {to_file}")
    else:
-      print(f"\tError: File {from_file} not found.")
+      print(f"  Error: File {from_file} not found.")
       sys.exit()
    return skip
 
@@ -128,6 +128,7 @@ if __name__ == "__main__":
 
    while (not unstable):
       step += 1
+      print(f'Step {step:d}:')
 
       if step > 1:
          Re  += Re_inc
@@ -141,6 +142,8 @@ if __name__ == "__main__":
 
       if data[:,0].max() > 0.0:
          unstable = True
+
+      sys.exit()
 
 Re_a, Re_b = Rev[-2:]
 Re_d = Re_b - Re_a
@@ -160,7 +163,7 @@ while Re_d > tol and step < max_iter:
 
    if do_a:
       step += 1
-      print(f'\n\tNext Re = {Re1}\n')
+      print(f'\n  Next Re = {Re1}\n')
      
       eig_file = compute_iteration(Re1, step)
       
@@ -170,7 +173,7 @@ while Re_d > tol and step < max_iter:
 
    if do_b:
       step += 1
-      print(f'\n\tNext Re = {Re2}\n')
+      print(f'\n  Next Re = {Re2}\n')
       
       eig_file = compute_iteration(Re2, step)
 

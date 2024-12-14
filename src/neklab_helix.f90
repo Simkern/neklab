@@ -700,7 +700,7 @@
                rdcode1(1)='X'
                ! and set of fields
                rdcode1(2)='U'
-               write(hdr,1) wdsizo,nxo,nyo,nzo,nelo,self%n2d_own,time,istep,
+               write(hdr,1) wdsizo,nxo,nyo,nzo,nelo,self%n2d_own,time,self%nsave,
      $              fid0, nfileoo,(rdcode1(il),il=1,10),lbuf,.false.
  1             format('#std',1x,i1,1x,i2,1x,i2,1x,i2,1x,i10,1x,i10,1x,
      $              e20.13,1x,i9,1x,i6,1x,i6,1x,10a,i15,1x,l1)

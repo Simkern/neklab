@@ -17,6 +17,7 @@
          include "SIZE"
          include "TOTAL"
          include "ADJOINT"
+         include 'RESTART'
          private
          character(len=*), parameter, private :: this_module = 'neklab_helix'
       
@@ -25,6 +26,9 @@
          integer, parameter :: lp = lx2*ly2*lz2*lelv
       !! Local number of grid points for the pressure mesh.
          integer, parameter :: nf = 3
+      !! Number of forcing components
+         integer, parameter :: lbuf = 100
+      !! Maximum number of 2d fields to save before outposting
 
          public :: pipe
          public :: helix_pipe ! constructor for the pipe instance of the helix type
@@ -66,6 +70,18 @@
             real(dp), dimension(lv) :: ox, oy
             ! cartesian coordinates in torus (without torsion!)
             real(dp), dimension(lv) :: xax, yax, zax
+            ! 2D data
+            integer :: n2d     ! global number of 2d elements
+            integer :: n2d_own ! number of 2d elements owned by current processor
+            integer :: nsave   ! buffer fill counter
+            integer :: noutc   ! number of data files in cartesian coordinates written to disk
+            integer :: noutt   ! number of data files in toroidal coordinates written to disk
+            logical :: save_2d_usrt = .true.! save us,ur,ut in addition to vx,vy,vz?
+            ! save 2D fields
+            integer, dimension(lelv,2)             :: id2d
+            real(dp), dimension(lbuf)              :: t2d
+            real(dp), dimension(lx1,ly1,lelv)      :: x2d, y2d
+            real(dp), dimension(lx1,ly1,lelv,lbuf) :: vx2d, vy2d, vz2d
          contains
             ! initialization
             procedure, pass(self), public :: init_geom
@@ -75,6 +91,11 @@
             procedure, pass(self), public :: compute_bf_forcing
             procedure, pass(self), public :: compute_usrt
             procedure, pass(self), public :: compute_ubar
+            ! saving 2D data
+            procedure, pass(self), public :: save_2d_fields
+            procedure, pass(self), public :: compute_2dusrt
+            procedure, pass(self), public :: outpost_2d_fields
+            procedure, pass(self), public :: load_2d_fields
             ! helper routines
             procedure, pass(self), public :: get_forcing
             procedure, pass(self), public :: get_period
@@ -120,6 +141,11 @@
             pipe%curv_radius = 1.0_dp/pipe%delta
             pipe%phi         = atan2(pipe%pitch_s,pipe%curv_radius)
             pipe%sweep       = pipe%length*cos(pipe%phi)/pipe%curv_radius ! sweep angle in radians
+
+            ! intialize geometry
+            call pipe%init_geom()
+            ! compute forcing distribution
+            call pipe%compute_fshape()
 
          end subroutine helix_pipe
 
@@ -167,8 +193,9 @@
             real(dp) :: xmin, xmax, helix_r, s_angle
             real(dp) :: x_torus, y_torus, z_torus
             real(dp), dimension(lv) :: tmp, pipe_r
-            integer :: ix, iy, iz, ie, i
+            integer :: ix, iy, iz, ie, i, iel
             real(dp), external :: glmax, glmin
+            integer, external :: iglsum
 
             if (self%is_initialized) call stop_error('Attempting to reinitialize the mesh', this_module, 'init_geom')
 
@@ -237,6 +264,35 @@
             ! Streamwise angle in the equatorial plane & angle within cross-sectional plane
             self%as    = atan2(self%xax, self%yax) ! clockwise from y axis
             self%alpha = atan2(self%zax, pipe_r)
+
+            ! 2D mesh
+            call izero(self%id2d, 2*nelv)
+            iel = 0
+		      do ie = 1, nelv
+		      	! find elements with one edge on the x axis on the positive side (first slice)
+		      	xmin = minval(abs(xc(:,ie)))
+		      	xmax = maxval(xc(:,ie))
+		      	if (xmin < 1e-6 .and. xmax > 0) then
+		      		iel = iel + 1
+		      		do i = 1, 2*ndim
+		      			if (cbc(i,ie,1)  ==  'P') then
+		      				call ftovec(self%x2d(1,1,iel), zm1, ie, i, nx1, ny1, nz1) ! z --> x
+		      				call ftovec(self%y2d(1,1,iel), ym1, ie, i, nx1, ny1, nz1)
+                        self%id2d(iel,1) = ie
+                        self%id2d(iel,2) = i
+                     end if
+		      		end do
+		      	end if
+		      end do
+            self%n2d_own = iel ! this is the number of elements that the current processor owns
+            call rzero(self%vx2d, nx1*ny1*nelv*lbuf)
+            call rzero(self%vy2d, nx1*ny1*nelv*lbuf)
+            call rzero(self%vz2d, nx1*ny1*nelv*lbuf)
+            call rzero(self%t2d,  lbuf)
+            self%nsave = 0
+            self%noutc = 0
+            self%noutt = 0
+            self%n2d   = iglsum(self%n2d_own,1)
 
             self%is_initialized = .true.
             
@@ -376,9 +432,10 @@
             real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: ur
             real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: ut
             ! internal
-            real(dp) :: x, y, z, alpha
+            real(dp) :: x, y, z, phi, a, s
             integer :: ix, iy, iz, ie, i
             real(dp) :: utmp, vtmp
+            phi = self%phi
             do ie = 1, nelv
             do iz = 1, lz1
             do iy = 1, ly1
@@ -387,21 +444,20 @@
                x = self%xax(i)
                y = self%yax(i)
                z = self%zax(i)
-               ! Compute fshape
-               us(ix,iy,iz,ie) = cos( self%phi ) * (
-     $                          + cos( self%as(i)   * u(ix,iy,iz,ie) )
-     $                          - sin( self%as(i)   * v(ix,iy,iz,ie) ))
-     $                          + sin( self%phi )   * w(ix,iy,iz,ie)
-               utmp            = sin( self%as(i) )  * u(ix,iy,iz,ie)
-     $                          + cos( self%as(i) ) * v(ix,iy,iz,ie)
-               vtmp            = sin( self%phi ) * (
-     $                          - cos( self%as(i) ) * u(ix,iy,iz,ie)
-     $                          - sin( self%as(i) ) * v(ix,iy,iz,ie) )
-     $                          + cos( self%phi ) * w(ix,iy,iz,ie)
-               ! angle within cross-sectional plane, zero at the outside edge of the helix
-               alpha = atan2(z,sqrt(x**2 + y**2) - self%curv_radius)
-               ur(ix,iy,iz,ie) = cos( self%alpha(i) ) * utmp + sin( self%alpha(i) ) * vtmp
-               ut(ix,iy,iz,ie) = sin( self%alpha(i) ) * utmp - cos( self%alpha(i) ) * vtmp
+               s = self%as(i)
+               a = self%alpha(i)
+               us(ix,iy,iz,ie) = cos(phi) * (
+     $                          + cos(s)   * u(ix,iy,iz,ie)
+     $                          - sin(s)   * v(ix,iy,iz,ie) )
+     $                          + sin(phi) * w(ix,iy,iz,ie)
+               utmp            = sin(s)    * u(ix,iy,iz,ie)
+     $                          + cos(s)   * v(ix,iy,iz,ie)
+               vtmp            = sin(phi) * (
+     $                          - cos(s)   * u(ix,iy,iz,ie)
+     $                          - sin(s)   * v(ix,iy,iz,ie) )
+     $                          + cos(phi) * w(ix,iy,iz,ie)
+               ur(ix,iy,iz,ie) = cos(a) * utmp + sin(a) * vtmp
+               ut(ix,iy,iz,ie) = sin(a) * utmp - cos(a) * vtmp
             end do
             end do
             end do
@@ -428,7 +484,6 @@
             do iy = 1, ly1
             do ix = 1, lx1
                i = i+1
-               ! Compute fshape
                us = cos(self%phi)*(
      $               cos( self%as(i) ) * u(ix,iy,iz,ie)
      $             - sin( self%as(i) ) * v(ix,iy,iz,ie))
@@ -445,6 +500,295 @@
             ubar = num/den  ! "1/r"-weighted volumetric average of streamwise velocity
             
          end function compute_ubar
+
+         subroutine save_2d_fields(self, u, v, w)
+            class(helix), intent(inout) :: self
+            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: u
+            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: v
+            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: w
+            ! internal
+            integer :: i, iel, ifc
+            self%nsave = self%nsave + 1
+            ! save data to buffer
+            do i = 1, self%n2d_own
+               iel = self%id2d(i, 1)
+               ifc = self%id2d(i, 2)
+               call ftovec(self%vx2d(1,1,i,self%nsave), u, iel, ifc, nx1, ny1, nz1)
+		      	call ftovec(self%vy2d(1,1,i,self%nsave), v, iel, ifc, nx1, ny1, nz1)
+		      	call ftovec(self%vz2d(1,1,i,self%nsave), w, iel, ifc, nx1, ny1, nz1)
+            end do
+            self%t2d(self%nsave) = time
+            ! save data to file when buffer is full
+            if (self%nsave == lbuf .or. lastep == 1) then
+               call self%outpost_2d_fields('c')
+               if (self%save_2d_usrt) then
+                  call self%compute_2dusrt() ! self%v[xyz]2d are overwritten
+                  call self%outpost_2d_fields('t')
+               end if
+               self%nsave = 0
+            end if
+         end subroutine save_2d_fields
+
+         subroutine compute_2dusrt(self)
+            ! this routine will overwrite self%v[xyz]2d
+            class(helix), intent(inout) :: self
+            ! internal
+            integer, parameter :: iz = 1
+            real(dp) :: x, y, z, phi, sweep, a, s
+            integer :: ix, iy, ie, iel, ibuf, i
+            real(dp) :: utmp, vtmp, ux, uy, uz
+            phi = self%phi
+            do iel = 1, self%n2d_own
+               ie = self%id2d(iel, 1)
+               ! add offset
+               i = (ie-1)*lx1*ly1*lz1
+               ! the xy plane corresponds to lz1 = 1 so nothing needs to be done for z
+               do iy = 1, ly1
+               do ix = 1, lx1
+                  i = i+1
+                  x = self%xax(i)
+                  y = self%yax(i)
+                  z = self%zax(i)
+                  s = self%as(i)
+                  a = self%alpha(i)
+                  ! iterate over buffer
+                  do ibuf = 1, lbuf
+                     ux = self%vx2d(ix,iy,iel,ibuf)
+                     uy = self%vy2d(ix,iy,iel,ibuf)
+                     uz = self%vz2d(ix,iy,iel,ibuf)
+                     ! overwrite v[xyz]2d with u[srt]2d
+                     self%vx2d(ix,iy,iel,ibuf) = cos(phi)*(
+     $                                          + cos(s) * ux 
+     $                                          - sin(s) * uy )
+     $                                          + sin(phi) * uz
+                     utmp                      = sin(s) * ux 
+     $                                          + cos(s) * uy
+                     vtmp                      = sin(phi) * (
+     $                                          - cos(s) * ux 
+     $                                          - sin(s) * uy )
+     $                                          + cos(phi) * uz
+                     self%vy2d(ix,iy,iel,ibuf) = cos(a)*utmp
+     $                                          + sin(a)*vtmp
+                     self%vz2d(ix,iy,iel,ibuf) = sin(a)*utmp
+     $                                          - cos(a)*vtmp
+                  end do ! lbuf
+               end do    ! lx1
+               end do    ! ly1
+            end do       ! self%n2d_own
+         end subroutine compute_2dusrt
+         
+         subroutine outpost_2d_fields(self, iname)
+            class(helix), intent(inout) :: self
+            character(len=1), intent(in) :: iname
+            
+            ! internals
+            real(dp) :: ur1(lx1,ly1,2*lelv)
+            real(dp) :: tiostart, tio        ! simple timing
+            integer  :: il, jl, kl, ll ! loop index
+            logical  :: ifface
+
+            integer wdsizol           ! store global wdsizo
+            integer nel2dB            ! running sum for owned 1D elements
+            integer nelBl             ! store global nelB
+            integer nxyzo             ! element size
+
+            character*3 prefix        ! file prefix
+            integer ierr              ! error mark
+            integer nelo              ! number of elements to write
+            integer nfileoo           ! number of files to create
+            integer idum, inelp
+            integer mtype             ! tag
+            real*4 test_pattern       ! byte key
+
+            character(len=132) :: hdr         ! header
+
+            integer*8 offs0, offs     ! offset      
+            integer*8 stride,strideB  ! stride
+
+            integer ioflds            ! fields count
+
+            real dnbyte               ! byte sum
+
+            ! functions
+            real, external :: glsum
+            integer, external :: igl_running_sum
+            !----------------------------------------------------------------------       
+
+            ! intialise I/O
+            ifdiro = .false.
+
+            ifmpiio = .false.
+            if (abs(param(65)) == 1 .and. abs(param(66)) == 6) ifmpiio=.true.
+#ifdef NOMPIIO
+            ifmpiio = .false.
+#endif
+
+            if (ifmpiio) then
+               nfileo  = np
+               nproc_o = 1
+               fid0    = 0
+               pid0    = nid
+               pid1    = 0
+            else
+               if(param(65).lt.0) ifdiro = .true. !  p65 < 0 --> multi subdirectories
+               nfileo  = abs(param(65))
+               if(nfileo == 0) nfileo = 1
+               if(np.lt.nfileo) nfileo=np   
+               nproc_o = np / nfileo              !  # processors pointing to pid0
+               fid0    = nid/nproc_o              !  file id
+               pid0    = nproc_o*fid0             !  my parent i/o node
+               pid1    = min(np-1,pid0+nproc_o-1) !  range of sending procs
+            end if
+
+            il = self%n2d_own
+            nel2dB = igl_running_sum(il) - self%n2d_own
+            ! replace value
+            nelBl = NELB
+            NELB = nel2dB
+
+            ! force double precission
+            wdsizol = WDSIZO
+            ! for testing
+            !WDSIZO = WDSIZE
+
+            ! set element size
+            NXO   = lx1
+            NYO   = 1
+            NZO   = 1
+            nxyzo = NXO*NYO*NZO
+      
+            ! open files on i/o nodes
+            if (iname == 'c') then
+               self%noutc = self%noutc + 1
+               write(prefix,'(A,I2.2)') iname, self%noutc
+            else
+               self%noutt = self%noutt + 1
+               write(prefix,'(A,I2.2)') iname, self%noutt
+            end if
+            ierr=0
+            if (nid == pid0) call mfo_open_files(prefix,ierr)
+      
+            ! master-slave communication
+            if (ifmpiio) then
+               nfileoo = 1            ! all data into one file
+               nelo = self%n2d
+            else
+               nfileoo = nfileo
+               if (nid == pid0) then   ! how many elements to dump
+                  nelo = self%n2d_own
+                  do jl = pid0+1,pid1
+                     mtype = jl
+                     call csend(mtype,idum,isize,jl,0) ! handshake
+                     call crecv(mtype,inelp,isize)
+                     nelo = nelo + inelp
+                  end do
+               else
+                  mtype = nid
+                  call crecv(mtype,idum,isize) ! hand-shake
+                  call csend(mtype,self%n2d_own,isize,pid0,0) ! u4 :=: u8
+               end if
+            end if
+
+            ! write header
+            ierr = 0
+            if(nid == pid0) then
+               call blank(hdr,132)
+            
+               call blank(rdcode1,10)
+            
+               ! we save coordinates
+               rdcode1(1)='X'
+               ! and set of fields
+               rdcode1(2)='U'
+               write(hdr,1) wdsizo,nxo,nyo,nzo,nelo,self%n2d_own,time,istep,
+     $              fid0, nfileoo,(rdcode1(il),il=1,10),lbuf,.false.
+ 1             format('#std',1x,i1,1x,i2,1x,i2,1x,i2,1x,i10,1x,i10,1x,
+     $              e20.13,1x,i9,1x,i6,1x,i6,1x,10a,i15,1x,l1)
+            
+               ! write test pattern for byte swap
+               test_pattern = 6.54321
+            
+               if(ifmpiio) then
+                  ! only rank0 (pid00) will write hdr + test_pattern + time stamps
+                  call byte_write_mpi(hdr,iHeaderSize/4,pid00,ifh_mbyte,ierr)
+                  call byte_write_mpi(test_pattern,1,pid00,ifh_mbyte,ierr)
+                  call byte_write_mpi(self%t2d,lbuf*wdsizo/4,pid00,
+     $                                ifh_mbyte,ierr)
+               else
+                  call byte_write(hdr,iHeaderSize/4,ierr)
+                  call byte_write(test_pattern,1,ierr)
+               end if
+            end if
+
+            ! initial offset: header, test pattern, time stamps
+            offs0 = iHeaderSize + 4 + lbuf*wdsizo
+            offs = offs0
+
+            ! stride
+            strideB = int(nelb,8)*nxyzo*wdsizo
+            stride  = int(self%n2d,8)*nxyzo*wdsizo
+
+            ! count fields
+            ioflds = 0
+
+            ! copy coordinates vector
+            do il=1,self%n2d_own
+               call copy(ur1(1,1,2*(il-1)+1),self%x2d(1,1,il),nxyzo)
+               call copy(ur1(1,1,2*(il-1)+2),self%y2d(1,1,il),nxyzo)
+            enddo
+
+            ! offset
+            offs = offs0 + stride*ioflds + 2*strideB
+            ! write coordinates
+            call byte_set_view(offs,ifh_mbyte)
+            call mfo_outs(ur1,2*self%n2d_own,nxo,nyo,nzo)
+            ioflds = ioflds + 2
+
+            ! write fields
+            do il=1,lbuf
+               ! offset
+               offs = offs0 + stride*ioflds + strideB
+               call byte_set_view(offs,ifh_mbyte)
+               call mfo_outs(self%vx2d(1,1,1,il),self%n2d_own,nxo,nyo,nzo)
+               call mfo_outs(self%vy2d(1,1,1,il),self%n2d_own,nxo,nyo,nzo)
+               call mfo_outs(self%vz2d(1,1,1,il),self%n2d_own,nxo,nyo,nzo)
+               ioflds = ioflds + 3
+            enddo
+
+            ! count bytes
+            dnbyte = 1.*ioflds*self%n2d_own*wdsizo*nxyzo
+      
+            ierr = 0
+            if (nid == pid0) then
+               if(ifmpiio) then
+                  call byte_close_mpi(ifh_mbyte,ierr)
+               else
+                  call byte_close(ierr)
+               endif
+            endif
+
+            if (tio <= 0) tio=1.
+
+            dnbyte = glsum(dnbyte,1)
+            dnbyte = dnbyte + iHeaderSize + 4
+            dnbyte = dnbyte/1024/1024
+            if(NIO == 0) write(6,7) ISTEP,TIME,dnbyte,dnbyte/tio,
+     &           NFILEO
+    7       format(/,i9,1pe12.4,' done :: Write checkpoint',/,
+     &           30X,'file size = ',3pG12.2,'MB',/,
+     &           30X,'avg data-throughput = ',0pf7.1,'MB/s',/,
+     &           30X,'io-nodes = ',i5,/)
+
+            ! set global IO variables back
+            WDSIZO = wdsizol
+            NELB = nelBl
+         end subroutine outpost_2d_fields
+
+         subroutine load_2d_fields(self)
+            ! only nid 0 will read
+            class(helix), intent(inout) :: self
+            continue
+         end subroutine load_2d_fields
 
          logical pure function is_steady(self) result(steady)
             class(helix), intent(in) :: self

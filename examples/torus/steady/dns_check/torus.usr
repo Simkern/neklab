@@ -45,8 +45,12 @@ c-----------------------------------------------------------------------
       ! flow parameters
       real, parameter :: womersley   = 35.0d0
       real, parameter :: dp0ds       = 7.9486896e-2 !7.945994987500288e-02
-      real(dp), dimension(n_forcing), parameter :: dpds = [ dp0ds ]
+      real(dp), dimension(1), parameter :: dpds = [ dp0ds ]
 		real(dp), dimension(lx1,ly1,lz1,lelv) :: fx, fy, fz
+		integer :: i, ix, iy, ie, iel
+		real(dp) :: xmin, xmax
+		real(dp) :: x2d(lx1,ly1,108)
+		real(dp) :: y2d(lx1,ly1,108)
       
       if (istep.eq.0) then
          call pipe%setup_summary()
@@ -61,9 +65,38 @@ c-----------------------------------------------------------------------
 		call outpost(fx, fy, fz, pr, t, 'fsh')
 		call get_neklab_forcing(fx, fy, fz, 0)
 		call outpost(fx, fy, fz, pr, t, 'fsh')
-      call load_fld('rsttorus0.f00001')
+		! get element owner and element number
+		call rzero(vz, lx1*ly1*lz1*lelv)
+		iel = 0
+		do ie = 1, nelv
+			call cfill(vx(1,1,1,ie), nid*1.0_dp, lx1*ly1*lz1)
+			call cfill(vy(1,1,1,ie), ie*1.0_dp,  lx1*ly1*lz1)
+			! find elements with one edge on the x axis on the positive side (first slice)
+			xmin = minval(abs(xc(:,ie)))
+			xmax = maxval(xc(:,ie))
+			if (xmin < 1e-6 .and. xmax > 0) then
+				iel = iel + 1
+				call cfill(vz(1,1,1,ie), nid*1.0_dp, lx1*ly1*lz1)
+				do i = 1, 2*ndim
+					if (cbc(i,ie,1) .eq. 'P') then
+						print *, 'nid', nid,'iface', i,'cbc: ',cbc(i, ie, 1)
+						call ftovec(x2d(1,1,iel), zm1, ie, i, nx1, ny1, nz1) ! z --> x
+						call ftovec(y2d(1,1,iel), ym1, ie, i, nx1, ny1, nz1)
+					end if
+				end do
+				do iy = 1, ly1
+					do ix = 1, lx1
+						vz(ix,iy,1,ie) = 20.0_dp
+					end do
+				end do
+			end if
+		end do
+      call outpost(vx, vy, vz, pr, t, 'nid')
+		call load_fld('rsttorus0.f00001')
 		ubar = pipe%compute_ubar(vx,vy,vz)
-		if (nid == 0) print *, 'UBAR: ', ubar 
+		if (nid == 0) print *, 'UBAR: ', ubar
+		lastep = 1
+		call pipe%save_2d_fields(vx,vy,vz)
 		call nek_end()
       return
       end
@@ -130,9 +163,9 @@ c-----------------------------------------------------------------------
          ! Initialize type
          call helix_pipe(delta, diameter, pitch_s, length, nslices, nelf)
          ! Set geometry
-         call pipe%init_geom()
+         !call pipe%init_geom()
          ! compute forcing distribution
-         call pipe%compute_fshape()
+         !call pipe%compute_fshape()
       endif
       end
 c-----------------------------------------------------------------------

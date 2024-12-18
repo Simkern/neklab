@@ -53,6 +53,8 @@ c-----------------------------------------------------------------------
 	real(dp) :: y2d(lx1,ly1,108)
       
       if (istep.eq.0) then
+         call logger_setup(nio=0, log_level=30, log_stdout=.false., log_timestamp=.true.)
+
          call pipe%setup_summary()
          ! Set flow parameters
          call pipe%init_flow(dpds)
@@ -161,12 +163,8 @@ c-----------------------------------------------------------------------
       integer,  parameter :: nslices = 5
       integer,  parameter :: nelf    = 108
       if (istep.eq.0) then
-         ! Initialize type
+         ! Initialize type, set geometry and compute forcing distribution
          call helix_pipe(delta, diameter, pitch_s, length, nslices, nelf)
-         ! Set geometry
-         !call pipe%init_geom()
-         ! compute forcing distribution
-         !call pipe%compute_fshape()
       endif
       end
 c-----------------------------------------------------------------------

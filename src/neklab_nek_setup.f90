@@ -1,6 +1,7 @@
       module neklab_nek_setup
          use stdlib_strings, only: padl
          use stdlib_optval, only: optval
+         use stdlib_logger, only: debug_level, warning_level, information_level
       !---------------------------------------
       !-----     LightKrylov Imports     -----
       !---------------------------------------
@@ -309,10 +310,12 @@
             character(len=*), optional, intent(in) :: procedure
             character(len=*), optional, intent(in) :: fmt
             ! internal
+            integer :: level
             character(len=128) :: fmt_
             fmt_ = optval(fmt,'(A,A)')
+            call logger%configuration(level=level)
             call logger%log_warning(msg, module=module, procedure=procedure)
-            if (nid == 0) print fmt_, "WARNING :", trim(msg)
+            if (nid == 0 .and. level == warning_level) print fmt_, "WARNING: ", trim(msg)
          end subroutine nek_log_warning
 
          subroutine nek_log_debug(msg, module, procedure, fmt)
@@ -321,10 +324,12 @@
             character(len=*), optional, intent(in) :: procedure
             character(len=*), optional, intent(in) :: fmt
             ! internal
+            integer :: level
             character(len=128) :: fmt_
-            fmt_ = optval(fmt,'(A)')
+            fmt_ = optval(fmt,'(A,A)')
+            call logger%configuration(level=level)
             call logger%log_debug(msg, module=module, procedure=procedure)
-            if (nid == 0) print fmt_, trim(msg)
+            if (nid == 0 .and. level == debug_level) print fmt_, "DEBUG: ", trim(msg)
          end subroutine nek_log_debug
 
          subroutine nek_log_information(msg, module, procedure, fmt)
@@ -333,10 +338,12 @@
             character(len=*), optional, intent(in) :: procedure
             character(len=*), optional, intent(in) :: fmt
             ! internal
+            integer :: level
             character(len=128) :: fmt_
-            fmt_ = optval(fmt,'(A)')
+            fmt_ = optval(fmt,'(A,A)')
+            call logger%configuration(level=level)
             call logger%log_information(msg, module=module, procedure=procedure)
-            if (nid == 0) print fmt_, trim(msg)
+            if (nid == 0 .and. level == information_level) print fmt_, "INFO: ", trim(msg)
          end subroutine nek_log_information
       
       end module neklab_nek_setup

@@ -12,7 +12,7 @@
       ! Extensions of the abstract vector types to nek data format.
          use neklab_vectors
          use neklab_nek_forcing, only: neklab_forcing, set_neklab_forcing
-         use neklab_nek_setup, only: nek_log_message, nek_log_warning
+         use neklab_nek_setup, only: nek_log_message, nek_log_warning, nek_log_debug
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -712,10 +712,7 @@
                   n2d_elmap(iel+1:iel+i_own) = isend(:i_own)
                   iel = iel + i_own
                enddo
-               if (iel /= self%nelf) then
-                  call stop_error('Not all elements in slice found!', this_module, 'outpost_2d_fields')
-               end if
-               !print '(A,*(1X,I0))', 'elmap:', n2d_elmap
+               if (iel /= self%nelf) call stop_error('Not all elements in slice found!', this_module, 'outpost_2d_fields')
                ! write it to file
                call byte_write(n2d_elmap,self%nelf*isl,ierr)
             else
@@ -727,33 +724,109 @@
                end do
                call csend(nid,isend(:len),len*isize,0,0)   ! send global element map
             endif
-            call bcast(n2d_own, np*isize) ! broadcast to all procs
+            call bcast(n2d_own, np*isize)          ! broadcast to all procs
             call bcast(n2d_elmap, self%nelf*isize) ! broadcast to all procs
 
-            !if (nid == 0) print *, 'nid', nid, ':', np
-            !print *, 'nid', nid, ':', self%n2d_own, n2d_own
-
             ! coordinates
-            call gather_and_write_slice(n2d_own, self%x2d)
-            call gather_and_write_slice(n2d_own, self%y2d)
+            call gather_and_write_slice(self%x2d, n2d_own)
+            call gather_and_write_slice(self%y2d, n2d_own)
             ! velocity data
-            do ibuf = 1, self%nsave
-               call gather_and_write_slice(n2d_own, self%vx2d(:,:,:,ibuf))
-               call gather_and_write_slice(n2d_own, self%vy2d(:,:,:,ibuf))
-               call gather_and_write_slice(n2d_own, self%vz2d(:,:,:,ibuf))
+            do i = 1, self%nsave
+               call gather_and_write_slice(self%vx2d(:,:,:,i), n2d_own)
+               call gather_and_write_slice(self%vy2d(:,:,:,i), n2d_own)
+               call gather_and_write_slice(self%vz2d(:,:,:,i), n2d_own)
             end do
             ! master closes the file
-            if (nid == 0) then
+            if (nid == 0) then 
                call byte_close(ierr)
-            endif
-            !call nek_end()
+               if (ierr /= 0) call stop_error('Error closing file '//trim(fname), procedure='outpost_2d_fields')
+            end if
          end subroutine outpost_2d_fields
 
-         subroutine gather_and_write_slice(n2d_own, slicedata)
-            integer, intent(in) :: n2d_own(:)
-            real(dp), intent(in) :: slicedata(:,:,:)
+         subroutine load_2d_fields(self, idx)
+            implicit none
+            ! only nid 0 will read
+            class(helix), intent(inout) :: self
+            integer, intent(in) :: idx
             ! internal
-            integer :: nxy, itmp, wdsl, isl, len, ierr, ip
+            integer ierr, hdrsize
+            real*4 test_pattern
+            integer :: nxr, nyr, nelfr, nsaver, lbufr, wdsizer
+            integer :: wdsl, isl, itmp, ip, nxy, i, ie, ieg, iel
+            real rtmpv(lx1*ly1)
+            integer, allocatable :: global_map(:)
+            real(dp) :: timer
+            real(dp) :: eldata(lx1,ly1)
+            character(len=132) :: hdr
+            character(len=132) :: fname
+            character(len=4)   :: sdummy
+            character(len=128) :: msg
+            common /CTMP1/ fldum(lx1*ly1*lelv)
+            real fldum
+            ! functions
+            logical, external :: if_byte_swap_test
+            write(fname,'("c2dtorus",I3.3,".fld")') idx
+            call nek_log_information('Load 2D data from file '//trim(fname), this_module, 'load_2d_fields')
+            hdrsize = 116
+            nxy = lx1*ly1
+            allocate(global_map(self%nelf))
+            if (nid == 0) then
+               call byte_open(fname,ierr)
+               ! read header
+               if (ierr == 0) then
+                  call blank     (hdr,hdrsize)
+                  call byte_read (hdr,hdrsize/4,ierr)
+               endif
+               if (ierr == 0) then
+                  call byte_read (test_pattern,1,ierr)
+                  if_byte_sw = if_byte_swap_test(test_pattern,ierr) ! determine endianess
+               endif
+               msg = 'header: '//trim(hdr)
+               call nek_log_debug(msg, this_module, 'load_2d_fields')
+               ! read wdsize from header
+               read(hdr,*) sdummy, wdsizer
+               wdsl = wdsizer/4
+               isl  = isize/4
+               ! read metadata
+               call byte_read(nxr,    isl, ierr)
+               call byte_read(nyr,    isl, ierr)
+               call byte_read(nelfr,  isl, ierr)
+               call byte_read(timer, wdsl, ierr)
+               call byte_read(nsaver, isl, ierr)
+               call byte_read(lbufr,  isl, ierr)
+               write(msg,'(A,3(1X,I0),1X,E15.7,2(1X,I0))') 'metadata: ', nxr, nyr, nelfr, timer, nsaver, lbufr
+               call nek_log_debug(msg, this_module, 'load_2d_fields')
+               ! read global element mapping
+               call byte_read(global_map, self%nelf*isl, ierr)
+               if (ierr /= 0) call stop_error('Error reading gloabl element map from file '//trim(fname), procedure='load_2d_fields')
+               ! read coords but skip them
+               call byte_read(fldum, nxy*self%nelf, ierr)
+               call byte_read(fldum, nxy*self%nelf, ierr)
+               if (ierr /= 0) call stop_error('Error reading coordinates from file '//trim(fname), procedure='load_2d_fields')
+            end if
+            call bcast(nsaver, isize)               ! broadcast number of saved snapshots
+            call bcast(global_map, self%nelf*isize) ! broadcast global element map
+            ! load data
+            do i = 1, nsaver
+               call nek_log_information('    Read vx2d ...', this_module, 'load_2d_fields')
+               call load_and_distribute_slice(self%vx2d(:,:,:,i), global_map, self%nelf, if_byte_sw)
+               call nek_log_information('    Read vy2d ...', this_module, 'load_2d_fields')
+               call load_and_distribute_slice(self%vy2d(:,:,:,i), global_map, self%nelf, if_byte_sw)
+               call nek_log_information('    Read vz2d ...', this_module, 'load_2d_fields')
+               call load_and_distribute_slice(self%vz2d(:,:,:,i), global_map, self%nelf, if_byte_sw)
+            end do ! 1, nsaver
+            ! master closes the file
+            if (nid == 0) then 
+               call byte_close(ierr)
+               if (ierr /= 0) call stop_error('Error closing file '//trim(fname), procedure='load_2d_fields')
+            end if
+         end subroutine load_2d_fields
+
+         subroutine gather_and_write_slice(slicedata, n2d_own)
+            real(dp), intent(in) :: slicedata(:,:,:)
+            integer, intent(in) :: n2d_own(:)
+            ! internal
+            integer :: nxy, idum, wdsl, isl, len, ierr, ip
             real rtmpv1(lx1*ly1*lelv), rtmpv(lx1*ly1*lelv)
             real*4 rtmpv2(2*lx1*ly1*lelv)
             equivalence (rtmpv1,rtmpv2)
@@ -773,7 +846,7 @@
                ! get data from other procs and write to file
                do ip = 1, np-1
                   len = nxy*n2d_own(ip+1)
-                  call csend(ip,itmp,isize,ip,0) ! hand shake
+                  call csend(ip,idum,isize,ip,0) ! hand shake
                   call crecv2(ip,rtmpv,len*wdsize,ip)
                   ! write data
                   if (wdsl.eq.2) then
@@ -784,161 +857,54 @@
                      call byte_write(rtmpv2,len,ierr)
                   endif
                end do
+               if (ierr /= 0) call stop_error('Error writing slice data', procedure='gather_and_write_slice')
             else 
                ! send data to master
-               call crecv2(nid,itmp,isize,0) ! hand shake
+               call crecv2(nid,idum,isize,0) ! hand shake
                len = nxy*n2d_own(nid+1)
                call csend(nid,slicedata,len*wdsize,0,itmp)
             end if
          end subroutine gather_and_write_slice
 
-         subroutine load_2d_fields(self, idx)
-            ! only nid 0 will read
-            class(helix), intent(inout) :: self
-            integer, intent(in) :: idx
+         subroutine load_and_distribute_slice(slicedata, global_map, nelf, if_byte_sw)
+            real(dp), intent(out) :: slicedata(:,:,:)
+            integer, intent(in) :: global_map(:)
+            integer, intent(in) :: nelf
+            logical, intent(in) :: if_byte_sw
             ! internal
-            integer ierr, hdrsize
-            real*4 test_pattern
-            integer :: nxr, nyr, nelfr, nsaver, lbufr, wdsizer
-            integer :: wdsl, isl, itmp, ip, nxy, len, i, lfield, ie, iel
-            real rtmpv1(lx1*ly1*lelv), rtmpv(lx1*ly1)
-            integer, allocatable :: global_map(:)
-            real(dp) :: timer
-            real(dp), allocatable :: fldata(:,:,:,:)
-            real(dp), allocatable :: eldata(:,:)
-            character(len=132) :: hdr
-            character(len=132) :: fname
-            character(len=4)   :: sdummy
-            character(len=10)  :: rdc
-            integer, allocatable :: n2d_own(:)
-            integer, allocatable :: n2d_elmap(:)
-            logical :: logend
-            ! functions
-            logical, external :: if_byte_swap_test
-            integer, external :: igl_running_sum
-            write(fname,'("c",I3.3,".fld")') idx
-            print *, nid, fname
-            hdrsize = 116
+            real(dp) :: eldata(lx1*ly1)
+            integer :: nxy, ierr, iel, ieg, ie, ip, mtype
+            real dummy, rtmpv(lx1*ly1)
+            character(len=128) :: msg
             nxy = lx1*ly1
-            allocate(global_map(self%nelf))
-            if (nid == 0) then
-               call byte_open(fname,ierr)
-               ! read header
-               if (ierr == 0) then
-                  call blank     (hdr,hdrsize)
-                  call byte_read (hdr,hdrsize/4,ierr)
-               endif
-               if (ierr == 0) then
-                  call byte_read (test_pattern,1,ierr)
-                  if_byte_sw = if_byte_swap_test(test_pattern,ierr) ! determine endianess
-               endif
-               print *, 'header:', hdr
-               read(hdr,*) sdummy, wdsizer
-               wdsl = wdsizer/4
-               isl  = isize/4
-               call byte_read(nxr, isl, ierr)
-               call byte_read(nyr, isl, ierr)
-               call byte_read(nelfr, isl, ierr)
-               call byte_read(timer, wdsl, ierr)
-               call byte_read(nsaver, isl, ierr)
-               call byte_read(lbufr, isl, ierr)
-               print *, 'data:', nxr, nyr, nelfr, timer, nsaver, lbufr
-               ! read global element mapping
-               call byte_read(global_map, self%nelf*isl, ierr)
-            end if
-            !call bcast(n2d_own, self%nelf*isize) ! broadcast to all procs
-            !print *, 'n2d_own:', n2d_own
-
-
-            !!!!! CHECK IF THIS IS THE INFO I NEED
-
-            ! gather information about elements on other procs  
-            !allocate(n2d_own(np))           ! number of elements owned by each proc
-            !call izero(n2d_own,np)
-            !allocate(n2d_elmap(self%nelf))  ! global element number of owned elements
-            !call izero(n2d_elmap,self%nelf)
-            !! determine how many elements to dump
-            !if (nid == 0) then
-            !   ! first for the master node 
-            !   n2d_own(1) = self%n2d_own
-            !   do i = 1, self%n2d_own
-            !      n2d_elmap(i) = lglel(self%id2d(i,1))     ! get global element number
-            !   end do 
-            !   iel = self%n2d_own
-            !   ! then gather info from other procs
-            !   do ip = 1, np-1
-            !      call csend(ip,itmp,isize,ip,0)           ! hand shake
-            !      call crecv(ip,i_own,isize)               ! recv number of elements
-            !      n2d_own(ip+1) = i_own
-            !      call crecv(ip,isend(:i_own),i_own*isize) ! recv global element map
-            !      n2d_elmap(iel+1:iel+i_own) = isend(:i_own)
-            !      iel = iel + i_own
-            !   enddo
-            !   if (iel /= self%nelf) then
-            !      call stop_error('Not all elements in slice found!', this_module, 'outpost_2d_fields')
-            !   end if
-            !   !print '(A,*(1X,I0))', 'elmap:', n2d_elmap
-            !   ! write it to file
-            !   call byte_write(n2d_elmap,self%nelf*isl,ierr)
-            !else
-            !   call crecv(nid,itmp,isize)                  ! hand shake
-            !   call csend(nid,self%n2d_own,isize,0,0)      ! send number of elements
-            !   len = self%n2d_own
-            !   do i = 1, self%n2d_own
-            !      isend(i) = lglel(self%id2d(i,1))       
-            !   end do
-            !   call csend(nid,isend(:len),len*isize,0,0)   ! send global element map
-            !endif
-            !call bcast(n2d_own, np*isize) ! broadcast to all procs
-            !call bcast(n2d_elmap, self%nelf*isize) ! broadcast to all procs
-
-            allocate(fldata(lx1,ly1,self%nelf,lbufr))
-            allocate(eldata(lx1,ly1))
-            lfield = nxy*self%nelf
-            if (nid == 0) then
-               ! read x
-               call byte_read(fldata, lfield, ierr)
-               ! read y
-               call byte_read(fldata, lfield, ierr)
-            end if
-            do i = 1, nsaver
-               do iel = 1, self%nelf
-                  ie = gllel(global_map(iel)) ! get local element number
-                  if (nid == 0) then
-                     ! read vx
-                     call byte_read(eldata, nxy, ierr)
-                  end if
-                  ! distribute
-                  if (nid == 0) then
-                     if (self%gowner(ie)) then
-                        print *, 'nid',nid, ': element ', iel, ', global:', global_map(iel), 'local:', ie
-                        call copy4r(self%vx2d(1,1,ie,i),eldata,nxy)
-                     else
-                        !
-                        ! send to owner
-                        !
-                        ! nid not correct: find better
-                        !
-                        call crecv(nid,itmp,isize) ! hand shake
-                        call csend(nid,eldata,nxy*wdsize,0,0)
-                     end if
-                  else 
-                     if (self%gowner(ie)) then
-                        ! get from master
-                        print *, 'nid',nid, ': element ', iel, ', global:', global_map(iel), 'local:', ie
-                        call csend(0,itmp,isize,ip,0) ! hand shake
-                        call crecv2(0,rtmpv,nxy*wdsize,0)
-                        call copy4r(self%vx2d(1,1,ie,i),rtmpv,nxy)
-                     end if
-                  end if
-               end do
-               ! vy
-               ! vz
-            end do ! 1, nsaver
-            ! close the file
-            if (nid == 0) call byte_close(ierr)
-            if (ierr /= 0) call stop_error('Error reading file '//trim(fname), procedure='load')
-         end subroutine load_2d_fields
+            do iel = 1, nelf
+               if (nid == 0) then
+                  call byte_read(eldata, nxy, ierr)
+                  if (ierr /= 0) call stop_error('Error reading element data', procedure='load_and_distribute_slice')
+               end if
+               ieg = global_map(iel) ! get global element number
+               ie  = gllel(ieg)      ! get local element number
+               ip  = gllnid(ieg)     ! get processor owning element
+               write(msg,'(*(A,1x,I3))') 'element ', iel, ', global:', ieg, ', local:', ie, ', owner:', ip
+               call nek_log_debug(msg, this_module, 'load_and_distribute_slice')
+               mtype = 5000+ie
+               if (if_byte_sw) call byte_reverse(eldata,nxy,ierr)
+               ! distribute
+               if (nid == 0 .and. ip /= 0) then ! send data from reader
+                  call csend (mtype,eldata,wdsize,ip,0)
+                  call crecv2(mtype,dummy,wdsize,ip) ! hand shake, sync procs
+                  call csend (mtype,eldata,nxy*wdsize,ip,0)
+               else if (nid /= 0 .and. ip == nid) then ! get data from reader
+                  call crecv2(mtype,dummy,wdsize,0)
+                  call csend (mtype,rtmpv,wdsize,0,0) ! hand shake, sync procs
+                  call crecv2(mtype,rtmpv,nxy*wdsize,0)
+                  call copy4r(slicedata(1,1,ie),rtmpv,nxy)
+               end if
+               if (ip == 0) then ! reader owns element
+                  call copy4r(slicedata(1,1,ie),eldata,nxy)
+               end if
+            end do
+         end subroutine load_and_distribute_slice
 
          logical pure function is_steady(self) result(steady)
             class(helix), intent(in) :: self

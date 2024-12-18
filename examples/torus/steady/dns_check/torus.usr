@@ -46,18 +46,18 @@ c-----------------------------------------------------------------------
       real, parameter :: womersley   = 35.0d0
       real, parameter :: dp0ds       = 7.9486896e-2 !7.945994987500288e-02
       real(dp), dimension(1), parameter :: dpds = [ dp0ds ]
-		real(dp), dimension(lx1,ly1,lz1,lelv) :: fx, fy, fz
-		integer :: i, ix, iy, ie, iel
-		real(dp) :: xmin, xmax
-		real(dp) :: x2d(lx1,ly1,108)
-		real(dp) :: y2d(lx1,ly1,108)
+	real(dp), dimension(lx1,ly1,lz1,lelv) :: fx, fy, fz
+	integer :: i, ix, iy, ie, iel, ieg
+	real(dp) :: xmin, xmax
+	real(dp) :: x2d(lx1,ly1,108)
+	real(dp) :: y2d(lx1,ly1,108)
       
       if (istep.eq.0) then
          call pipe%setup_summary()
          ! Set flow parameters
          call pipe%init_flow(dpds)
-			! Set forcing
-			call pipe%compute_bf_forcing(time)
+	      ! Set forcing
+	      call pipe%compute_bf_forcing(time)
       end if
       call pipe%get_fshape(fx)
       call pipe%get_angle_s(fy)
@@ -70,7 +70,7 @@ c-----------------------------------------------------------------------
 		iel = 0
 		do ie = 1, nelv
 			call cfill(vx(1,1,1,ie), nid*1.0_dp, lx1*ly1*lz1)
-			call cfill(vy(1,1,1,ie), ie*1.0_dp,  lx1*ly1*lz1)
+			call cfill(vy(1,1,1,ie), mod(lglel(ie),108)*1.0_dp,  lx1*ly1*lz1)
 			! find elements with one edge on the x axis on the positive side (first slice)
 			xmin = minval(abs(xc(:,ie)))
 			xmax = maxval(xc(:,ie))
@@ -79,7 +79,7 @@ c-----------------------------------------------------------------------
 				call cfill(vz(1,1,1,ie), nid*1.0_dp, lx1*ly1*lz1)
 				do i = 1, 2*ndim
 					if (cbc(i,ie,1) .eq. 'P') then
-						print *, 'nid', nid,'iface', i,'cbc: ',cbc(i, ie, 1)
+						!print *, 'nid', nid,'iface', i,'cbc: ',cbc(i, ie, 1)
 						call ftovec(x2d(1,1,iel), zm1, ie, i, nx1, ny1, nz1) ! z --> x
 						call ftovec(y2d(1,1,iel), ym1, ie, i, nx1, ny1, nz1)
 					end if
@@ -96,7 +96,8 @@ c-----------------------------------------------------------------------
 		ubar = pipe%compute_ubar(vx,vy,vz)
 		if (nid == 0) print *, 'UBAR: ', ubar
 		lastep = 1
-		call pipe%save_2d_fields(vx,vy,vz)
+      call pipe%save_2d_fields(vx,vy,vz)
+      call pipe%load_2d_fields(0)
 		call nek_end()
       return
       end

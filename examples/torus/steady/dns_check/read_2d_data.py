@@ -46,8 +46,10 @@ def read_binary_file(file_path):
         lbuf = read_int(f,emode,1)[0]
 
         elmap = read_int(f,emode,nelf)
+        dt2d = read_flt(f,emode,wdsize,nsave)
+
         idx = np.argsort(elmap)
-        #idx = range(nelf)
+        
         print(" ".join([f'{elmap[i]:d}' for i in idx]))
         nxy = lx1*ly1
         x = np.zeros((lx1,ly1,nelf))

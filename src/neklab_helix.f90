@@ -83,7 +83,7 @@
             logical, dimension(lelv), public               :: gowner
             integer, dimension(lelv,2)             :: id2d
             integer, dimension(lelv)               :: global2local
-            real(dp), dimension(lbuf)              :: t2d
+            real(dp), dimension(lbuf)              :: dt2d
             real(dp), dimension(lx1,ly1,lelv)      :: x2d, y2d
             real(dp), dimension(lx1,ly1,lelv,lbuf), public :: vx2d, vy2d, vz2d
          contains
@@ -197,7 +197,7 @@
             real(dp) :: xmin, xmax, helix_r, s_angle, invnv
             real(dp) :: x_torus, y_torus, z_torus
             real(dp), dimension(lv) :: tmp, pipe_r
-            integer :: ix, iy, iz, ie, i, iel, ieg, iseg, nseg, iface, isl, level
+            integer :: ix, iy, iz, ie, i, iel, ieg, iseg, nseg, iface, isl, level, nxy
             integer, dimension(lelv) :: islice, isegment
             integer, dimension(:), allocatable :: unique_segments, segment_owner, segment_count
             integer, allocatable :: idx(:) ! for findloc
@@ -211,6 +211,7 @@
          !  Geometry modification for helical pipe
 
             pi = 4.0_dp*atan(1.0_dp)
+            nxy = lx1*ly1
 
             call rescale_x(xm1,-self%radius,self%radius) ! x in [ -r, r ]
             call rescale_x(ym1,-self%radius,self%radius) ! y in [ -r, r ]
@@ -302,12 +303,12 @@
 		      	   		call ftovec(self%y2d(1,1,iel), ym1, ie, iface, nx1, ny1, nz1)
                         self%id2d(iel,1) = ie
                         self%id2d(iel,2) = iface
-                        self%global2local(lglel(ie)) = ie
+                        self%global2local(lglel(ie)) = iel
                      end if
 		      	   end do
                   if (level <= 20) then
                      print '(A,I3,A,3(1X,I4),A,3X,F17.8,3x,F17.8)', 'DEBUG 2dmap: ', nid, ' el', lglel(ie), ie, iel, ': ', 
-     &                           sum(self%x2d(:,:,iel))/(lx1*ly1), sum(self%y2d(:,:,iel))/(lx1*ly1)
+     &                           sum(self%x2d(:,:,iel))/nxy, sum(self%y2d(:,:,iel))/nxy
                   end if
                end if
 		      end do
@@ -319,7 +320,7 @@
             call rzero(self%vx2d, nx1*ny1*nelv*lbuf)
             call rzero(self%vy2d, nx1*ny1*nelv*lbuf)
             call rzero(self%vz2d, nx1*ny1*nelv*lbuf)
-            call rzero(self%t2d,  lbuf)
+            call rzero(self%dt2d, lbuf)
             self%nsave = 0
             self%noutc = 0
             self%noutt = 0
@@ -578,9 +579,10 @@
             real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: v
             real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: w
             ! internal
-            integer :: i, iel, ifc, level
+            integer :: i, iel, ifc, level, nxy
             character(len=128) :: msg
             real(dp) :: xavg, yavg, vxavg, vyavg, vzavg
+            nxy = lx1*ly1
             call logger%configuration(level=level)
             self%nsave = self%nsave + 1
             ! save data to buffer
@@ -593,15 +595,15 @@
 		      	call ftovec(self%vy2d(1,1,i,self%nsave), v, iel, ifc, nx1, ny1, nz1)
 		      	call ftovec(self%vz2d(1,1,i,self%nsave), w, iel, ifc, nx1, ny1, nz1)
                if (level <= 20) then
-                  xavg = sum(self%x2d(:,:,iel))/(lx1*ly1)
-                  yavg = sum(self%y2d(:,:,iel))/(lx1*ly1)
-                  vxavg = sum(self%vx2d(:,:,iel,self%nsave))/(lx1*ly1)
-                  vyavg = sum(self%vy2d(:,:,iel,self%nsave))/(lx1*ly1)
-                  vzavg = sum(self%vz2d(:,:,iel,self%nsave))/(lx1*ly1)
+                  xavg  = sum(self%x2d(:,:,iel))/nxy
+                  yavg  = sum(self%y2d(:,:,iel))/nxy
+                  vxavg = sum(self%vx2d(:,:,iel,self%nsave))/nxy
+                  vyavg = sum(self%vy2d(:,:,iel,self%nsave))/nxy
+                  vzavg = sum(self%vz2d(:,:,iel,self%nsave))/nxy
                   print '(A,I8,I8,A,5(3X,F16.8))', 'DEBUG: save el', i, iel, ': ', xavg, yavg, vxavg, vyavg, vzavg
                end if
             end do
-            self%t2d(self%nsave) = time
+            self%dt2d(self%nsave) = dt
             ! save data to file when buffer is full
             if (self%nsave == lbuf .or. lastep == 1) then
                self%noutc = self%noutc + 1
@@ -733,6 +735,8 @@
                if (iel /= self%nelf) call stop_error('Not all elements in slice found!', this_module, 'outpost_2d_fields')
                ! write it to file
                call byte_write(n2d_elmap,self%nelf*isl,ierr)
+               ! write timestep information to file
+               call byte_write(self%dt2d(:self%nsave),self%nsave*wdsl,ierr)
             else
                call crecv(nid,itmp,isize)                  ! hand shake
                call csend(nid,self%n2d_own,isize,0,0)      ! send number of elements
@@ -777,6 +781,7 @@
             integer :: wdsl, isl, itmp, ip, nxy, i, ie, ieg, iel, nelf
             real rtmpv(lx1*ly1)
             integer, allocatable :: global_map(:)
+            real(dp) :: dt2dr(lbuf)
             real(dp) :: timer
             real(dp) :: eldata(lx1,ly1)
             character(len=132) :: hdr
@@ -822,21 +827,24 @@
                ! read global element mapping
                call byte_read(global_map, nelf*isl, ierr)
                if (ierr /= 0) call stop_error('Error reading gloabl element map from file '//trim(fname), procedure='load_2d_fields')
+               ! read timestep information
+               call byte_read(dt2dr(:nsaver), nsaver*wdsl, ierr)
+               if (ierr /= 0) call stop_error('Error reading timestep information from file '//trim(fname), procedure='load_2d_fields')
                ! read coords but skip them
                call byte_read(fldum, nxy*nelf*wdsl, ierr)
                call byte_read(fldum, nxy*nelf*wdsl, ierr)
                if (ierr /= 0) call stop_error('Error reading coordinates from file '//trim(fname), procedure='load_2d_fields')
             end if
-            call bcast(nsaver, isize)               ! broadcast number of saved snapshots
+            call bcast(nsaver, isize)          ! broadcast number of saved snapshots
             call bcast(global_map, nelf*isize) ! broadcast global element map
-            call bcast(wdsizr, isize)               ! broadcast word size
+            call bcast(wdsizr, isize)          ! broadcast word size
             ! load data
             do i = 1, nsaver
-               call nek_log_information('    Read vx2d ...', this_module, 'load_2d_fields')
+               call nek_log_information('    Read vx2d', this_module, 'load_2d_fields')
                call load_and_distribute_slice(self%vx2d(:,:,:,i), global_map, self%global2local, nelf, if_byte_sw)
-               call nek_log_information('    Read vy2d ...', this_module, 'load_2d_fields')
+               call nek_log_information('    Read vy2d', this_module, 'load_2d_fields')
                call load_and_distribute_slice(self%vy2d(:,:,:,i), global_map, self%global2local, nelf, if_byte_sw)
-               call nek_log_information('    Read vz2d ...', this_module, 'load_2d_fields')
+               call nek_log_information('    Read vz2d', this_module, 'load_2d_fields')
                call load_and_distribute_slice(self%vz2d(:,:,:,i), global_map, self%global2local, nelf, if_byte_sw)
             end do ! 1, nsaver
             ! master closes the file

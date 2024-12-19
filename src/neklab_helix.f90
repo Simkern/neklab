@@ -4,6 +4,7 @@
       !---------------------------------------
          use stdlib_strings, only: padl
          use stdlib_optval, only: optval
+         use stdlib_logger, only: debug_level
       ! Default real kind.
          use LightKrylov, only: dp
          use LightKrylov_Constants, only: imag => one_im_cdp
@@ -81,6 +82,7 @@
             integer, dimension(lelv)               :: lowner
             logical, dimension(lelv), public               :: gowner
             integer, dimension(lelv,2)             :: id2d
+            integer, dimension(lelv)               :: global2local
             real(dp), dimension(lbuf)              :: t2d
             real(dp), dimension(lx1,ly1,lelv)      :: x2d, y2d
             real(dp), dimension(lx1,ly1,lelv,lbuf), public :: vx2d, vy2d, vz2d
@@ -195,7 +197,7 @@
             real(dp) :: xmin, xmax, helix_r, s_angle, invnv
             real(dp) :: x_torus, y_torus, z_torus
             real(dp), dimension(lv) :: tmp, pipe_r
-            integer :: ix, iy, iz, ie, i, iel, ieg, iseg, nseg, iface, isl
+            integer :: ix, iy, iz, ie, i, iel, ieg, iseg, nseg, iface, isl, level
             integer, dimension(lelv) :: islice, isegment
             integer, dimension(:), allocatable :: unique_segments, segment_owner, segment_count
             integer, allocatable :: idx(:) ! for findloc
@@ -268,22 +270,27 @@
                self%lowner(ie) = segment_owner(iseg)
             end do
       
-            print '(I2,1X,I3,1X,A,*(I3,1X))', nid, nseg, 'unique streamwise segments:  ', unique_segments(:nseg)
-            print '(I2,1X,I3,1X,A,*(I3,1X))', nid, nseg, '# of element in segment:     ', segment_count(:nseg)
-            print '(I2,1X,I3,1X,A,*(I3,1X))', nid, nseg, 'local element segment owner: ', segment_owner(:nseg)
-            print *, nid, nseg, 'owned: ', self%n2d_own
-
-            do ie = 1, nelv
-               call cfill(vz(1,1,1,ie), 1.0_dp*nid, lx1*ly1*lz1)
-               call cfill(vx(1,1,1,ie), 1.0_dp*islice(ie),lx1*ly1*lz1)
-               call cfill(vy(1,1,1,ie), 1.0_dp*isegment(ie),lx1*ly1*lz1)
-               if (self%lowner(ie) == ie) call cfill(vz(1,1,1,ie), -1.0_dp,lx1*ly1*lz1) 
-               if (self%gowner(ie)) call cfill(vz(1,1,1,ie), np*1.0_dp,lx1*ly1*lz1)
-            end do
-            call outpost(vx,vy,vz,pr,t,'tst')
+            call logger%configuration(level=level)
+            if (level <= 20) then
+               print '(A,2(I0,1X),A,*(1X,I0))', 'DEBUG 2dmap: ', nid, nseg, 'unique streamwise segments: ', unique_segments(:nseg)
+               print '(A,2(I0,1X),A,*(1X,I0))', 'DEBUG 2dmap: ', nid, nseg, '# of element in segment:    ', segment_count(:nseg)
+               print '(A,2(I0,1X),A,*(1X,I0))', 'DEBUG 2dmap: ', nid, nseg, 'local element segment owner:', segment_owner(:nseg)
+               print '(A,2(I0,1X),A,I0)'      , 'DEBUG 2dmap: ', nid, nseg, 'owned: ', self%n2d_own
+               call nekgsync()
+               do ie = 1, nelv
+                  call cfill(vz(1,1,1,ie), 1.0_dp*nid, lx1*ly1*lz1)
+                  call cfill(vx(1,1,1,ie), 1.0_dp*islice(ie),lx1*ly1*lz1)
+                  call cfill(vy(1,1,1,ie), 1.0_dp*isegment(ie),lx1*ly1*lz1)
+                  if (self%lowner(ie) == ie) call cfill(vz(1,1,1,ie), -1.0_dp,lx1*ly1*lz1) 
+                  if (self%gowner(ie)) call cfill(vz(1,1,1,ie), np*1.0_dp,lx1*ly1*lz1)
+               end do
+               call outpost(vx,vy,vz,pr,t,'m2d')
+               print '(A,A3,3X,3(A5),2X,2(A20))', 'DEBUG: 2dmap ', 'nid', 'glob', 'locl', 'l2d', 'xavg', 'yavg'
+            end if
 
             ! Extract 2D mesh
             call izero(self%id2d, 2*nelv)
+            call ifill(self%global2local, -1, nelv)
             iel = 0 
 		      do ie = 1, nelv
 		      	! extract boundary points from the global segment owners
@@ -295,11 +302,19 @@
 		      	   		call ftovec(self%y2d(1,1,iel), ym1, ie, iface, nx1, ny1, nz1)
                         self%id2d(iel,1) = ie
                         self%id2d(iel,2) = iface
+                        self%global2local(lglel(ie)) = ie
                      end if
 		      	   end do
-                  print '(A,I8,I8,A,3X,F16.8,3x,F16.8)', 'el', ie, iel, ': ', sum(self%x2d(:,:,iel))/(lx1*ly1), sum(self%y2d(:,:,iel))/(lx1*ly1)
+                  if (level <= 20) then
+                     print '(A,I3,A,3(1X,I4),A,3X,F17.8,3x,F17.8)', 'DEBUG 2dmap: ', nid, ' el', lglel(ie), ie, iel, ': ', 
+     &                           sum(self%x2d(:,:,iel))/(lx1*ly1), sum(self%y2d(:,:,iel))/(lx1*ly1)
+                  end if
                end if
 		      end do
+            if (level <= 20) then
+               call nekgsync()
+               print '(A,I3,A,*(1x,I0))', 'DEBUG 2dmap: ', nid, ', global2local: ', self%global2local(:nelv)
+            end if
             ! this is the number of elements that the current processor owns
             call rzero(self%vx2d, nx1*ny1*nelv*lbuf)
             call rzero(self%vy2d, nx1*ny1*nelv*lbuf)
@@ -563,9 +578,10 @@
             real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: v
             real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: w
             ! internal
-            integer :: i, iel, ifc
+            integer :: i, iel, ifc, level
             character(len=128) :: msg
-            !real(dp) :: xavg, yavg, vxavg, vyavg, vzavg
+            real(dp) :: xavg, yavg, vxavg, vyavg, vzavg
+            call logger%configuration(level=level)
             self%nsave = self%nsave + 1
             ! save data to buffer
             write(msg,'(A,I3,A,I3)') 'Save 2D data: ', self%nsave, '/', lbuf
@@ -576,12 +592,14 @@
                call ftovec(self%vx2d(1,1,i,self%nsave), u, iel, ifc, nx1, ny1, nz1)
 		      	call ftovec(self%vy2d(1,1,i,self%nsave), v, iel, ifc, nx1, ny1, nz1)
 		      	call ftovec(self%vz2d(1,1,i,self%nsave), w, iel, ifc, nx1, ny1, nz1)
-               !xavg = sum(self%x2d(:,:,iel))/(lx1*ly1)
-               !yavg = sum(self%y2d(:,:,iel))/(lx1*ly1)
-               !vxavg = sum(self%vx2d(:,:,iel,self%nsave))/(lx1*ly1)
-               !vyavg = sum(self%vy2d(:,:,iel,self%nsave))/(lx1*ly1)
-               !vzavg = sum(self%vz2d(:,:,iel,self%nsave))/(lx1*ly1)
-               !print '(A,I8,I8,A,5(3X,F16.8))', 'save el', i, iel, ': ', xavg, yavg, vxavg, vyavg, vzavg
+               if (level <= 20) then
+                  xavg = sum(self%x2d(:,:,iel))/(lx1*ly1)
+                  yavg = sum(self%y2d(:,:,iel))/(lx1*ly1)
+                  vxavg = sum(self%vx2d(:,:,iel,self%nsave))/(lx1*ly1)
+                  vyavg = sum(self%vy2d(:,:,iel,self%nsave))/(lx1*ly1)
+                  vzavg = sum(self%vz2d(:,:,iel,self%nsave))/(lx1*ly1)
+                  print '(A,I8,I8,A,5(3X,F16.8))', 'DEBUG: save el', i, iel, ': ', xavg, yavg, vxavg, vyavg, vzavg
+               end if
             end do
             self%t2d(self%nsave) = time
             ! save data to file when buffer is full
@@ -661,7 +679,6 @@
             integer :: wdsl, isl
             real*4 test
             parameter (test=6.54321)
-            !real(dp) :: xavg, yavg, vxavg, vyavg, vzavg
             nxy = lx1*ly1
             wdsl = wdsize/4
             isl  = isize/4
@@ -673,10 +690,7 @@
                if (ierr /= 0) call stop_error('Error opening file '//trim(fname), procedure='outpost_2d_fields')
 
                ! write file's header
-               ftm="('#tor',1x,i1,1x,'(lx1, ly1 =',2i9,"//          ! 18 + 18
-     $         "') (nelf =',i9,"//             ! 9 + 9
-     $         "') (time =',e17.9,"//          ! 9 + 17
-     $         "') (nsave, lbuf =', 2i9,')')"  ! 16 + 18 + 1(1) = 116
+               ftm="('#tor',1x,i1,1x,'(lx1, ly1 =',2i9,') (nelf =',i9,') (time =',e17.9,') (nsave, lbuf =', 2i9,')')"
                write(head,ftm) wdsize,lx1,ly1,self%nelf,time,self%nsave,lbuf
                call byte_write(head,116/4,ierr)
                if (ierr /= 0) call stop_error('Error writing header in file '//trim(fname), procedure='outpost_2d_fields')  
@@ -744,15 +758,6 @@
                call gather_and_write_slice(self%vy2d(:,:,:,i), n2d_own)
                call gather_and_write_slice(self%vz2d(:,:,:,i), n2d_own)
             end do
-            !do i = 1, self%n2d_own
-            !   iel = self%id2d(i, 1)
-            !   xavg = sum(self%x2d(:,:,iel))/(lx1*ly1)
-            !   yavg = sum(self%y2d(:,:,iel))/(lx1*ly1)
-            !   vxavg = sum(self%vx2d(:,:,iel,self%nsave))/(lx1*ly1)
-            !   vyavg = sum(self%vy2d(:,:,iel,self%nsave))/(lx1*ly1)
-            !   vzavg = sum(self%vz2d(:,:,iel,self%nsave))/(lx1*ly1)
-            !   print '(A,A,I8,I8,A,5(3X,F16.8))', iname, 'outpost el', i, iel, ': ', xavg, yavg, vxavg, vyavg, vzavg
-            !end do
             ! master closes the file
             if (nid == 0) then 
                call byte_close(ierr)
@@ -769,7 +774,7 @@
             integer ierr, hdrsize
             real*4 test_pattern
             integer :: nxr, nyr, nelfr, nsaver, lbufr, wdsizr
-            integer :: wdsl, isl, itmp, ip, nxy, i, ie, ieg, iel
+            integer :: wdsl, isl, itmp, ip, nxy, i, ie, ieg, iel, nelf
             real rtmpv(lx1*ly1)
             integer, allocatable :: global_map(:)
             real(dp) :: timer
@@ -786,7 +791,8 @@
             call nek_log_information('Load 2D data from file '//trim(fname), this_module, 'load_2d_fields')
             hdrsize = 116
             nxy = lx1*ly1
-            allocate(global_map(self%nelf))
+            nelf = self%nelf
+            allocate(global_map(nelf))
             if (nid == 0) then
                call byte_open(fname,ierr)
                if (ierr /= 0) call stop_error('Error opening file '//trim(fname), procedure='load_2d_fields')
@@ -814,24 +820,24 @@
                write(msg,'(A,3(1X,I0),1X,E15.7,2(1X,I0))') 'metadata: ', nxr, nyr, nelfr, timer, nsaver, lbufr
                call nek_log_debug(msg, this_module, 'load_2d_fields')
                ! read global element mapping
-               call byte_read(global_map, self%nelf*isl, ierr)
+               call byte_read(global_map, nelf*isl, ierr)
                if (ierr /= 0) call stop_error('Error reading gloabl element map from file '//trim(fname), procedure='load_2d_fields')
                ! read coords but skip them
-               call byte_read(fldum, nxy*self%nelf*wdsl, ierr)
-               call byte_read(fldum, nxy*self%nelf*wdsl, ierr)
+               call byte_read(fldum, nxy*nelf*wdsl, ierr)
+               call byte_read(fldum, nxy*nelf*wdsl, ierr)
                if (ierr /= 0) call stop_error('Error reading coordinates from file '//trim(fname), procedure='load_2d_fields')
             end if
             call bcast(nsaver, isize)               ! broadcast number of saved snapshots
-            call bcast(global_map, self%nelf*isize) ! broadcast global element map
+            call bcast(global_map, nelf*isize) ! broadcast global element map
             call bcast(wdsizr, isize)               ! broadcast word size
             ! load data
             do i = 1, nsaver
                call nek_log_information('    Read vx2d ...', this_module, 'load_2d_fields')
-               call load_and_distribute_slice(self%vx2d(:,:,:,i), global_map, self%nelf, if_byte_sw)
+               call load_and_distribute_slice(self%vx2d(:,:,:,i), global_map, self%global2local, nelf, if_byte_sw)
                call nek_log_information('    Read vy2d ...', this_module, 'load_2d_fields')
-               call load_and_distribute_slice(self%vy2d(:,:,:,i), global_map, self%nelf, if_byte_sw)
+               call load_and_distribute_slice(self%vy2d(:,:,:,i), global_map, self%global2local, nelf, if_byte_sw)
                call nek_log_information('    Read vz2d ...', this_module, 'load_2d_fields')
-               call load_and_distribute_slice(self%vz2d(:,:,:,i), global_map, self%nelf, if_byte_sw)
+               call load_and_distribute_slice(self%vz2d(:,:,:,i), global_map, self%global2local, nelf, if_byte_sw)
             end do ! 1, nsaver
             ! master closes the file
             if (nid == 0) then 
@@ -939,16 +945,18 @@
             end if
          end subroutine gather_and_write_slice
 
-         subroutine load_and_distribute_slice(slicedata, global_map, nelf, if_byte_sw)
+         subroutine load_and_distribute_slice(slicedata, global_map, global2local, nelf, if_byte_sw)
             real(dp), intent(out) :: slicedata(:,:,:)
             integer, intent(in) :: global_map(:)
+            integer, intent(in) :: global2local(:)
             integer, intent(in) :: nelf
             logical, intent(in) :: if_byte_sw
             ! internal
             real(dp) :: eldata(lx1,ly1)
-            integer :: nxy, ierr, iel, ieg, ie, ip, mtype, wdsl
-            real dummy, rtmpv(lx1*ly1)
+            integer :: nxy, ierr, iel, iel_local, ieg, ie, ip, mtype, wdsl
+            real dummy, rtmpv(lx1,ly1)
             character(len=128) :: msg
+            real(dp) :: elavg
             nxy = lx1*ly1
             wdsl = wdsize/4
             do iel = 1, nelf
@@ -956,27 +964,41 @@
                   call byte_read(eldata, nxy*wdsl, ierr)
                   if (if_byte_sw) call byte_reverse(eldata, nxy, ierr)
                   if (ierr /= 0) call stop_error('Error reading element data', procedure='load_and_distribute_slice')
-                  print *, iel, maxval(eldata), minval(eldata)
                end if
                ieg = global_map(iel) ! get global element number
                ie  = gllel(ieg)      ! get local element number
                ip  = gllnid(ieg)     ! get processor owning element
-               write(msg,'(*(A,1x,I3))') 'element ', iel, ', global:', ieg, ', local:', ie, ', owner:', ip
-               call nek_log_debug(msg, this_module, 'load_and_distribute_slice')
+               iel_local = global2local(ieg) ! local iel for global element
                mtype = 5000+ie
                ! distribute
                if (nid == 0 .and. ip /= 0) then ! send data from reader
-                  call csend (mtype,eldata,wdsize,ip,0)
-                  call crecv2(mtype,dummy,wdsize,ip) ! hand shake, sync procs
-                  call csend (mtype,eldata,nxy*wdsize,ip,0)
+                  call csend (mtype,eldata,isize,ip,nullpid)
+                  call crecv2(mtype,dummy,isize,ip) ! hand shake, sync procs
+                  call csend (mtype,eldata,wdsize*nxy,ip,nullpid)
                else if (nid /= 0 .and. ip == nid) then ! get data from reader
-                  call crecv2(mtype,dummy,wdsize,0)
-                  call csend (mtype,rtmpv,wdsize,0,0) ! hand shake, sync procs
+                  call crecv2(mtype,dummy,isize,0)
+                  call csend (mtype,rtmpv,isize,0,nullpid) ! hand shake, sync procs
                   call crecv2(mtype,rtmpv,nxy*wdsize,0)
-                  call copy(slicedata(1,1,iel),rtmpv,nxy)
+                  if (iel_local /= -1) then
+                     call copy(slicedata(1,1,iel_local),rtmpv,nxy)
+                  else
+                     write(msg, '(A,I0,A,I0)') 'Inconsistent global2local mapping for el ', ieg, ' on nid ', ip
+                     call stop_error(msg, this_module, 'load_and_distribute_slice')
+                  end if
                end if
-               if (ip == 0) then ! reader owns element
-                  call copy(slicedata(1,1,iel),eldata,nxy)
+               if (nid == 0) then
+                  elavg = sum(eldata)/nxy
+                  write(msg,'(5(A,1x,I3),1X,A,1X,E15.7)') 'element ', iel, ', global:', ieg, ', local:', ie, ', iel2d:', 
+     &                     iel_local,', own:', ip, ', elavg:', elavg
+                  call nek_log_debug(msg, this_module, 'load_and_distribute_slice')
+                  if (ip == 0) then ! reader owns element
+                     if (iel_local /= -1) then
+                        call copy(slicedata(1,1,iel_local),eldata,nxy)
+                     else
+                        write(msg, '(A,I0,A,I0)') 'Inconsistent global2local mapping for el ', ieg, ' on nid ', ip
+                        call stop_error(msg, this_module, 'load_and_distribute_slice')
+                     end if
+                  end if
                end if
             end do
          end subroutine load_and_distribute_slice

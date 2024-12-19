@@ -94,13 +94,22 @@ c-----------------------------------------------------------------------
 			end if
 		end do
       call outpost(vx, vy, vz, pr, t, 'nid')
-		call load_fld('rsttorus0.f00001')
-		ubar = pipe%compute_ubar(vx,vy,vz)
-		if (nid == 0) print *, 'UBAR: ', ubar
-		lastep = 1
+	call load_fld('rsttorus0.f00001')
+	ubar = pipe%compute_ubar(vx,vy,vz)
+	if (nid == 0) print *, 'UBAR: ', ubar
+	lastep = 1
       call pipe%save_2d_fields(vx,vy,vz)
-      call pipe%load_2d_fields(0)
-		call nek_end()
+      call rzero(vx, lx1*ly1*lz1*lelv)
+      call pipe%load_2d_fields(1)
+      do ie = 1, nelv
+            if (pipe%gowner(ie)) then
+                  !print *, 'nid:', nid, ' owner of element', ie, ', global:', lglel(ie)
+                  !print *, 'nid:', nid, pipe%vx2d(:,:,ie,1)
+                  call copy(vx(1,1,1,ie), pipe%vx2d(1,1,ie,1), lx1*ly1)
+            end if
+      end do
+      call outpost(vx, vy, vz, pr, t, 'nt2')
+	call nek_end()
       return
       end
 c----------------------------------------------------------------------------------

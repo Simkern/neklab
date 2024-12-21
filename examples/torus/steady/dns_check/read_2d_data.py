@@ -47,28 +47,36 @@ def read_binary_file(file_path):
 
         elmap = read_int(f,emode,nelf)
         dt2d = read_flt(f,emode,wdsize,nsave)
-
         idx = np.argsort(elmap)
         
         print(" ".join([f'{elmap[i]:d}' for i in idx]))
         nxy = lx1*ly1
+        print('read x')
         x = np.zeros((lx1,ly1,nelf))
+        xavg = np.zeros(nelf,)
         for i in idx:
             xel = read_flt(f,emode,wdsize,nxy)
             x[:,:,i] = xel.reshape((lx1,ly1), order='F')
+            xavg[i] = np.mean(xel)
+        print('read y')
         y = np.zeros((lx1,ly1,nelf))
+        yavg = np.zeros(nelf,)
         for i in idx:
             yel = read_flt(f,emode,wdsize,nxy)
             y[:,:,i] = yel.reshape((lx1,ly1), order='F')
+            yavg[i] = np.mean(yel)
         vx, vy, vz = np.empty((lx1,ly1,nelf,nsave)), np.empty((lx1,ly1,nelf,nsave)), np.empty((lx1,ly1,nelf,nsave))
         for ibuf in range(nsave):
-            for i in idx:
+            print('read vx')
+            for id, i in enumerate(idx):
                 eldata = read_flt(f,emode,wdsize,nxy)
                 vx[:,:,i,ibuf] = eldata.reshape((lx1,ly1), order='F')
-            for i in idx:
+            print('read vy')
+            for id, i in enumerate(idx):
                 eldata = read_flt(f,emode,wdsize,nxy)
                 vy[:,:,i,ibuf] = eldata.reshape((lx1,ly1), order='F')
-            for i in idx:
+            print('read vz')
+            for id, i in enumerate(idx):
                 eldata = read_flt(f,emode,wdsize,nxy)
                 vz[:,:,i,ibuf] = eldata.reshape((lx1,ly1), order='F')
 
@@ -76,7 +84,7 @@ def read_binary_file(file_path):
         return header, emode, lx1, ly1, nelf, elmap, x, y, vx, vy, vz
 
 # Example usage:
-file_path = '01run/c2dtorus000.fld'
+file_path = '01run/c2dtorus001.fld'
 header, endian_test_string, lx1, ly1, nelf, elmap, x, y, vx, vy, vz = read_binary_file(file_path)
 
 ir = 4

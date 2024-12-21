@@ -47,19 +47,17 @@ c-----------------------------------------------------------------------
       real, parameter :: dp0ds       = 7.9486896e-2 !7.945994987500288e-02
       real(dp), dimension(1), parameter :: dpds = [ dp0ds ]
 	real(dp), dimension(lx1,ly1,lz1,lelv) :: fx, fy, fz
-	integer :: i, ix, iy, ie, iel, ieg
+	integer :: i, ix, iy, ie, iel, ieg, iseg, isegg
 	real(dp) :: xmin, xmax
 	real(dp) :: x2d(lx1,ly1,108)
 	real(dp) :: y2d(lx1,ly1,108)
       
       if (istep.eq.0) then
-         call logger_setup(nio=0, log_level=10, log_stdout=.false., log_timestamp=.true.)
-
          call pipe%setup_summary()
          ! Set flow parameters
          call pipe%init_flow(dpds)
-	      ! Set forcing
-	      call pipe%compute_bf_forcing(time)
+	   ! Set forcing
+	   call pipe%compute_bf_forcing(time)
       end if
       call pipe%get_fshape(fx)
       call pipe%get_angle_s(fy)
@@ -102,10 +100,15 @@ c-----------------------------------------------------------------------
       call rzero(vx, lx1*ly1*lz1*lelv)
       call pipe%load_2d_fields(1)
       do ie = 1, nelv
+            iseg = pipe%lsegment(ie)
             if (pipe%gowner(ie)) then
-                  !print *, 'nid:', nid, ' owner of element', ie, ', global:', lglel(ie)
-                  !print *, 'nid:', nid, pipe%vx2d(:,:,ie,1)
-                  call copy(vx(1,1,1,ie), pipe%vx2d(1,1,ie,1), lx1*ly1)
+                  print *, 'nid:', nid, ' owner of element', ie, ' global owner of segment', iseg
+                  call copy(vx(1,1,1,ie), pipe%vx2d(1,1,iseg,1), lx1*ly1)
+                  print *, 'maxval', maxval(pipe%vx2d(:,:,iseg,1))
+            else if (pipe%lowner(ie)) then
+                  print *, 'nid:', nid, ' owner of element', ie, ' local owner of segment', iseg
+                  call cfill(vx(1,1,1,ie), -1.0_dp, lx1*ly1*lz1)
+                  call copy(vx(1,1,1,ie), pipe%vx2d(1,1,iseg,1), lx1*ly1)
             end if
       end do
       call outpost(vx, vy, vz, pr, t, 'nt2')
@@ -160,6 +163,7 @@ c-----------------------------------------------------------------------
 c-----------------------------------------------------------------------
       subroutine usrdat2
       use neklab_helix
+      use LightKrylov_Logger
       implicit none
       include 'SIZE'
       include 'TOTAL'
@@ -172,6 +176,7 @@ c-----------------------------------------------------------------------
       integer,  parameter :: nslices = 5
       integer,  parameter :: nelf    = 108
       if (istep.eq.0) then
+         call logger_setup(nio=0, log_level=10, log_stdout=.false., log_timestamp=.true.)
          ! Initialize type, set geometry and compute forcing distribution
          call helix_pipe(delta, diameter, pitch_s, length, nslices, nelf)
       endif

@@ -22,6 +22,7 @@ def read_flt(f,emode,wdsize,nvar):
 
 def read_binary_file(file_path):
     # Open the file in binary mode
+    print(f'Reading {file_path:s}:')
     with open(file_path, 'rb') as f:
         # Step 1: Read the header (assuming a fixed size of 128 bytes for example)
         header = f.read(116).split()
@@ -38,6 +39,7 @@ def read_binary_file(file_path):
         elif (etagB == 6.54321):
            emode = '>'
 
+        print(f'\tread metadata')
         lx1 = read_int(f,emode,1)[0]
         ly1 = read_int(f,emode,1)[0]
         nelf = read_int(f,emode,1)[0]
@@ -45,20 +47,22 @@ def read_binary_file(file_path):
         nsave = read_int(f,emode,1)[0]
         lbuf = read_int(f,emode,1)[0]
 
+        print(f'\tread elmap')
         elmap = read_int(f,emode,nelf)
+        print(f'\tdt information')
         dt2d = read_flt(f,emode,wdsize,nsave)
         idx = np.argsort(elmap)
         
-        print(" ".join([f'{elmap[i]:d}' for i in idx]))
+        #print(" ".join([f'{elmap[i]:d}' for i in idx]))
         nxy = lx1*ly1
-        print('read x')
+        print(f'\tread x')
         x = np.zeros((lx1,ly1,nelf))
         xavg = np.zeros(nelf,)
         for i in idx:
             xel = read_flt(f,emode,wdsize,nxy)
             x[:,:,i] = xel.reshape((lx1,ly1), order='F')
             xavg[i] = np.mean(xel)
-        print('read y')
+        print(f'\tread y')
         y = np.zeros((lx1,ly1,nelf))
         yavg = np.zeros(nelf,)
         for i in idx:
@@ -67,15 +71,15 @@ def read_binary_file(file_path):
             yavg[i] = np.mean(yel)
         vx, vy, vz = np.empty((lx1,ly1,nelf,nsave)), np.empty((lx1,ly1,nelf,nsave)), np.empty((lx1,ly1,nelf,nsave))
         for ibuf in range(nsave):
-            print('read vx')
+            print(f'\tread vx')
             for id, i in enumerate(idx):
                 eldata = read_flt(f,emode,wdsize,nxy)
                 vx[:,:,i,ibuf] = eldata.reshape((lx1,ly1), order='F')
-            print('read vy')
+            print(f'\tread vy')
             for id, i in enumerate(idx):
                 eldata = read_flt(f,emode,wdsize,nxy)
                 vy[:,:,i,ibuf] = eldata.reshape((lx1,ly1), order='F')
-            print('read vz')
+            print(f'\tread vz')
             for id, i in enumerate(idx):
                 eldata = read_flt(f,emode,wdsize,nxy)
                 vz[:,:,i,ibuf] = eldata.reshape((lx1,ly1), order='F')
@@ -87,26 +91,10 @@ def read_binary_file(file_path):
 file_path = '01run/c2dtorus001.fld'
 header, endian_test_string, lx1, ly1, nelf, elmap, x, y, vx, vy, vz = read_binary_file(file_path)
 
-ir = 4
-ic = int(nelf/ir)
-for i in range(ir):
-    print(" ".join([ f'{el:d}' for el in elmap[i*ic:(i+1)*ic]]))
-
-nxy = lx1*ly1
-idx = 1
-
-print('x2d')
-print(f'   el {idx:3d}:')
-for i in range(lx1):
-    print(" ".join([f'{i:3d}:'] + [f'{dat:9.6f}' for dat in x[:,i,idx]]))
-print('y2d')
-print(f'   el {idx:3d}:')
-for i in range(lx1):
-    print(" ".join([f'{i:3d}:'] + [f'{dat:9.6f}' for dat in y[:,i,idx]]))
-print('vx2d')
-print(f'   el {idx:3d}:')
-for i in range(lx1):
-    print(" ".join([f'{i:3d}:'] + [f'{dat:9.6f}' for dat in vx[:,i,idx,0]]))
+#ir = 4
+#ic = int(nelf/ir)
+#for i in range(ir):
+#    print(" ".join([ f'{el:d}' for el in elmap[i*ic:(i+1)*ic]]))
 
 plt.figure()
 plt.scatter(x.ravel(),y.ravel(),10,'k')
@@ -114,11 +102,11 @@ cmap = plt.cm.viridis
 colors = [cmap(i / nelf) for i in range(nelf)]
 for i in range(nelf):
     plt.scatter(x[:,:,i].ravel(),y[:,:,i].ravel(),20,color=colors[i])
-    #plt.scatter(x[:,:,i].ravel(),y[:,:,i].ravel(),20,c=vx[:,:,i].ravel())
     plt.plot(x[:,0,i],y[:,0,i],color='r')
 
 plt.colorbar()
 
+'''
 plt.figure()
 plt.plot(np.mean(x,axis = (0,1)).ravel())
 plt.plot(np.mean(y,axis = (0,1)).ravel())
@@ -127,11 +115,7 @@ plt.figure()
 plt.plot(np.mean(vx,axis = (0,1)).ravel())
 plt.plot(np.mean(vy,axis = (0,1)).ravel())
 plt.plot(np.mean(vz,axis = (0,1)).ravel())
-#plt.scatter(x,y,50,'k')
-
-#plt.figure()
-#plt.plot(x)
-#plt.plot(y)
+'''
 
 centers = np.ones((lx1,ly1), dtype=bool)
 centers[1:-1,1:-1] = False

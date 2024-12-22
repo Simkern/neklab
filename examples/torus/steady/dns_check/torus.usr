@@ -56,8 +56,8 @@ c-----------------------------------------------------------------------
          call pipe%setup_summary()
          ! Set flow parameters
          call pipe%init_flow(dpds)
-	   ! Set forcing
-	   call pipe%compute_bf_forcing(time)
+	   	! Set forcing
+	   	call pipe%compute_bf_forcing(time)
       end if
       call pipe%get_fshape(fx)
       call pipe%get_angle_s(fy)
@@ -84,11 +84,6 @@ c-----------------------------------------------------------------------
 						call ftovec(y2d(1,1,iel), ym1, ie, i, nx1, ny1, nz1)
 					end if
 				end do
-				do iy = 1, ly1
-					do ix = 1, lx1
-						vz(ix,iy,1,ie) = 20.0_dp
-					end do
-				end do
 			end if
 		end do
       call outpost(vx, vy, vz, pr, t, 'nid')
@@ -100,17 +95,26 @@ c-----------------------------------------------------------------------
       call rzero(vx, lx1*ly1*lz1*lelv)
       call pipe%load_2d_fields(1)
       do ie = 1, nelv
-            iseg = pipe%lsegment(ie)
-            if (pipe%gowner(ie)) then
-                  print *, 'nid:', nid, ' owner of element', ie, ' global owner of segment', iseg
-                  call copy(vx(1,1,1,ie), pipe%vx2d(1,1,iseg,1), lx1*ly1)
-                  print *, 'maxval', maxval(pipe%vx2d(:,:,iseg,1))
-            else if (pipe%lowner(ie)) then
-                  print *, 'nid:', nid, ' owner of element', ie, ' local owner of segment', iseg
-                  call cfill(vx(1,1,1,ie), -1.0_dp, lx1*ly1*lz1)
-                  call copy(vx(1,1,1,ie), pipe%vx2d(1,1,iseg,1), lx1*ly1)
-            end if
+         iseg = pipe%get_lsegment(ie)
+         if (pipe%is_gowner(ie)) then
+            print *, 'nid:', nid, ' owner of element', ie, ' global owner of segment', iseg
+				do iy = 1, ly1
+					do ix = 1, lx1
+			   		vx(ix,iy,1,ie) = pipe%get_v2d(ix,iy,iseg,1,1)
+					end do
+				end do
+         else if (pipe%is_lowner(ie)) then
+            print *, 'nid:', nid, ' owner of element', ie, ' local owner of segment', iseg
+            call cfill(vx(1,1,1,ie), -1.0_dp, lx1*ly1*lz1)
+				do iy = 1, ly1
+					do ix = 1, lx1
+						vx(ix,iy,1,ie) = pipe%get_v2d(ix,iy,iseg,1,1)
+					end do
+				end do
+         end if
       end do
+      call outpost(vx, vy, vz, pr, t, 'nt2')
+      call pipe%set_baseflow(vx, vy, vz, 1)
       call outpost(vx, vy, vz, pr, t, 'nt2')
 	call nek_end()
       return
@@ -176,7 +180,7 @@ c-----------------------------------------------------------------------
       integer,  parameter :: nslices = 5
       integer,  parameter :: nelf    = 108
       if (istep.eq.0) then
-         call logger_setup(nio=0, log_level=10, log_stdout=.false., log_timestamp=.true.)
+         call logger_setup(nio=0, log_level=30, log_stdout=.false., log_timestamp=.true.)
          ! Initialize type, set geometry and compute forcing distribution
          call helix_pipe(delta, diameter, pitch_s, length, nslices, nelf)
       endif

@@ -54,8 +54,8 @@
             real(dp) :: omega
             real(dp) :: womersley
             ! forcing
-            real(dp), dimension(lv) :: fshape
             real(dp), dimension(nf) :: dpds
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: fshape
             ! mesh inputs
             integer :: nslices
             integer :: nelf
@@ -63,37 +63,33 @@
             logical :: is_initialized = .false.
             ! data
             ! Sweep angle (radians)
-            real(dp), dimension(lv) :: sweep_angle
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: sweep_angle
             ! Angle of the cross-sectional plane around the helix, clockwise from the (positive) y axis
-            real(dp), dimension(lv) :: as
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: as
             ! Angle within the cross-sectional plane, from the inside to the outside of the helix starting from the negative z axis
-            real(dp), dimension(lv) :: alpha 
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: alpha 
             ! cylindrical coordinates w.r.t the equatorial plane of the helix (with zax)
-            real(dp), dimension(lv) :: ox, oy
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: ox, oy
             ! cartesian coordinates in torus (without torsion!)
-            real(dp), dimension(lv) :: xax, yax, zax
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: xax, yax, zax
             ! 2D data
-            integer :: n2d     ! global number of 2d elements
+            integer :: n2d      ! global number of 2d elements
             integer :: n2d_gown ! number of 2d elements globally owned by current processor
             integer :: n2d_lown ! number of 2d elements locally  owned by current processor
-            integer :: nsave   ! buffer fill counter
-            integer :: noutc   ! number of data files in cartesian coordinates written to disk
-            integer :: noutt   ! number of data files in toroidal coordinates written to disk
+            integer :: nsave    ! buffer fill counter
+            integer :: noutc    ! number of data files in cartesian coordinates written to disk
+            integer :: noutt    ! number of data files in toroidal coordinates written to disk
+            integer :: nload    ! number of loaded 2D baseflow fields
             logical :: save_2d_usrt = .true.! save us,ur,ut in addition to vx,vy,vz?
-            integer :: nseg    ! number of local segments
             ! save 2D fields
-            logical, dimension(lelv), public               :: lowner
-            logical, dimension(lelv), public               :: gowner
-            integer, dimension(lelv,3), public            :: id2d
-            integer, dimension(lelv), public               :: gsegment
-            integer, dimension(lelv), public              :: lsegment
-            !logical, dimension(:), allocatable, public              :: lowner
-            !logical, dimension(:), allocatable, public               :: gowner
-            !integer, dimension(:), allocatable               :: global2local
-            !integer, dimension(:,:), allocatable             :: id2d
-            real(dp), dimension(lbuf)              :: dt2d
-            real(dp), dimension(lx1,ly1,lelv)      :: x2d, y2d
-            real(dp), dimension(lx1,ly1,lelv,lbuf), public :: vx2d, vy2d, vz2d
+            logical, dimension(lelv)   :: lowner   ! is the local element the local segment owner?
+            logical, dimension(lelv)   :: gowner   ! is the local element the global segmet owner? (first slice)
+            integer, dimension(lelv)   :: lsegment ! pointer to the local  segment the element belongs to
+            integer, dimension(lelv)   :: gsegment ! pointer to the global segment the element belongs to
+            integer, dimension(lelv,3) :: id2d     ! characterisation f the locally owned segments
+            real(dp), dimension(lbuf)              :: dt2d ! timestep information for the saved 2d snapshots
+            real(dp), dimension(lx1,ly1,lelv)      :: x2d, y2d ! coordinates of the reference 2d slice
+            real(dp), dimension(lx1,ly1,lelv,lbuf) :: vx2d, vy2d, vz2d ! 2D velocity fields
          contains
             ! initialization
             procedure, pass(self), public :: init_geom
@@ -103,11 +99,12 @@
             procedure, pass(self), public :: compute_bf_forcing
             procedure, pass(self), public :: compute_usrt
             procedure, pass(self), public :: compute_ubar
-            ! saving 2D data
+            ! 2D data manipulation
             procedure, pass(self), public :: save_2d_fields
             procedure, pass(self), public :: compute_2dusrt
             procedure, pass(self), public :: outpost_2d_fields
             procedure, pass(self), public :: load_2d_fields
+            procedure, pass(self), public :: set_baseflow
             ! helper routines
             procedure, pass(self), public :: get_forcing
             procedure, pass(self), public :: get_period
@@ -117,6 +114,11 @@
             procedure, pass(self), public :: get_fshape
             procedure, pass(self), public :: get_angle_s
             procedure, pass(self), public :: get_alpha
+            procedure, pass(self), public :: is_lowner
+            procedure, pass(self), public :: is_gowner
+            procedure, pass(self), public :: get_lsegment
+            procedure, pass(self), public :: get_gsegment
+            procedure, pass(self), public :: get_v2d
             ! getter/setter for dpds
             procedure, pass(self), public :: get_dpds_all
             procedure, pass(self), public :: get_dpds
@@ -203,15 +205,15 @@
             class(helix), intent(inout) :: self
             ! internal
             real(dp) :: xmin, xmax, helix_r, s_angle, invnv
-            real(dp) :: x_torus, y_torus, z_torus
-            real(dp), dimension(lv) :: tmp, pipe_r
-            integer :: ix, iy, iz, ie, i, iel, ieg, iseg, nseg, iface, isl, level, nxy
-            integer :: itmp
+            real(dp) :: x_torus, y_torus, z_torus, sweep, r
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: tmp, pipe_r
+            integer :: ix, iy, iz, ie, iel, ieg, iseg, iface, isl, level, nxy
+            integer :: fileid
             integer, dimension(lelv) :: islice
             integer, dimension(:), allocatable :: unique_segments, segment_owner, segment_count
-            integer, allocatable :: idx(:) ! for findloc
-            logical, allocatable :: segment_found(:)
-            character(len=3) :: fileid
+            integer, dimension(:), allocatable :: idx ! for findloc
+            logical, dimension(:), allocatable :: segment_found
+            character(len=3) :: fid
             ! functions
             real(dp), external :: glmax, glmin
             integer, external :: iglsum
@@ -247,35 +249,34 @@
             allocate(segment_count  (self%nelf)); call izero(segment_count,   self%nelf)
             allocate(segment_owner  (self%nelf)); call izero(segment_owner,   self%nelf)
             allocate(segment_found  (self%nelf), source=.false.)
-            call izero(self%id2d, 2*nelv)
-            nseg = 0
+            call izero(islice, nelv)
+            call izero(self%id2d, 3*nelv)
             self%n2d_lown = 0
             self%n2d_gown = 0
             do ie = 1, nelv
                ieg = lglel(ie)
                isl = ieg/self%nelf + 1
                if (mod(ieg,self%nelf)==0) isl = isl - 1
-               islice(ie) = isl ! global numbering fills up slices in order
+               islice(ie) = isl
                self%gsegment(ie) = ieg - (isl-1)*self%nelf
                if (isl == 1) then
                   ! the element in the first slice is the global segment owner
                   self%gowner(ie) = .true.
                   self%n2d_gown = self%n2d_gown + 1
                end if
+               ! gather all unique segments on proc
                if (.not. segment_found(self%gsegment(ie))) then
                   self%n2d_lown = self%n2d_lown + 1
                   segment_owner(self%n2d_lown) = ie
                   unique_segments(self%n2d_lown) = self%gsegment(ie)
-                  segment_owner(self%n2d_lown) = ie
                   segment_found(self%gsegment(ie)) = .true.
                   self%id2d(self%n2d_lown,1) = ie
                   self%id2d(self%n2d_lown,3) = self%gsegment(ie)
                   self%lowner(ie) = .true.
                end if
                idx = findloc(unique_segments, self%gsegment(ie))
-               iseg = idx(1)
-               segment_count(iseg) = segment_count(iseg) + 1
-               self%lsegment(ie) = iseg
+               segment_count(idx(1)) = segment_count(idx(1)) + 1
+               self%lsegment(ie) = idx(1)
             end do
       
             call logger%configuration(level=level)
@@ -319,7 +320,7 @@
                end if
 		      end do
             
-            ! this is the number of elements that the current processor owns
+            ! initialize data
             call rzero(self%vx2d, nx1*ny1*nelv*lbuf)
             call rzero(self%vy2d, nx1*ny1*nelv*lbuf)
             call rzero(self%vz2d, nx1*ny1*nelv*lbuf)
@@ -328,40 +329,41 @@
             self%noutc = 0
             self%noutt = 0
             self%n2d   = iglsum(self%n2d_gown,1)
+            self%nload = 0
             if (self%n2d /= self%nelf) call stop_error('Inconsistent elements in 2D mesh!', module=this_module, procedure='init_geom')
             if (level <= 20) then
                call nekgsync()
                print '(A,I3,A,*(1x,I0))', 'DEBUG 2dmap: ', nid, ', nelv2iseg: ', self%lsegment(:nelv)
-               write(fileid,'(I3.3)') nid
-               itmp = 2000+nid
-               open (itmp, file='torus_map'//fileid//'.txt', status='replace', action='write')
-               write(itmp, *) 'nelv = ', nelv
-               write(itmp, '(6(1X,A11),2(1X,A7),A12)') 'ie','ieg','islice','self%gsegment','gllel','gllnid','s%lowner','s%gowner','s%n2iseg'
+               write(fid,'(I3.3)') nid
+               fileid = 2000+nid
+               open (fileid, file='torus_map'//fid//'.txt', status='replace', action='write')
+               write(fileid, *) 'nelv = ', nelv
+               write(fileid, '(6(1X,A11),2(1X,A7),A12)') 'ie','ieg','slice','self%gsegment','gllel','gllnid','s%lowner','s%gowner','s%n2iseg'
                do ie = 1, nelv
                   ieg = lglel(ie)
-                  write(itmp, '(6(I12),2(1X,L7),I12)') ie, ieg, islice(ie), self%gsegment(ie), gllel(ieg), gllnid(ieg), self%lowner(ie), self%gowner(ie), self%lsegment(ie)
+                  write(fileid, '(6(I12),2(1X,L7),I12)') ie, ieg, islice(ie), self%gsegment(ie), gllel(ieg), gllnid(ieg), self%lowner(ie), self%gowner(ie), self%lsegment(ie)
                end do
-               write(itmp, *) 'n2d_lown = ', self%n2d_lown
-               write(itmp, '(*(1X,A11))') 'iel','ieg','s%id2d:ie', 's%id2d:ifc', 's%id2d%iseg'
+               write(fileid, *) 'n2d_lown = ', self%n2d_lown
+               write(fileid, '(*(1X,A11))') 'iel','ieg','s%id2d:ie', 's%id2d:ifc', 's%id2d%iseg'
                do ie = 1, self%n2d_lown
-                  write(itmp, *) ie, lglel(self%id2d(ie,1)), self%id2d(ie,:)
+                  write(fileid, *) ie, lglel(self%id2d(ie,1)), self%id2d(ie,:)
                end do
-               close (itmp)
+               close (fileid)
                call nekgsync()
             end if
 
             ! Morph the mesh into a torus
-            i = 0
             helix_r = self%curv_radius
             do ie = 1, nelv
             do iz = 1, lz1
             do iy = 1, ly1
             do ix = 1, lx1
-               i = i + 1
-               self%ox(i)       = helix_r   * sin(self%sweep_angle(i))
-               self%oy(i)       = helix_r   * cos(self%sweep_angle(i))
-               xm1(ix,iy,iz,ie) = pipe_r(i) * sin(self%sweep_angle(i)) + self%ox(i)
-               ym1(ix,iy,iz,ie) = pipe_r(i) * cos(self%sweep_angle(i)) + self%oy(i)
+               r     = pipe_r(ix,iy,iz,ie)
+               sweep = self%sweep_angle(ix,iy,iz,ie)
+               self%ox(ix,iy,iz,ie) = helix_r * sin(sweep)
+               self%oy(ix,iy,iz,ie) = helix_r * cos(sweep)
+               xm1(ix,iy,iz,ie)     = r * sin(sweep) + self%ox(ix,iy,iz,ie)
+               ym1(ix,iy,iz,ie)     = r * cos(sweep) + self%oy(ix,iy,iz,ie)
             end do
             end do
             end do
@@ -371,19 +373,17 @@
 
             ! Morph the torus into a helix
             if (self%phi /= 0.0_dp) then
-               i = 0
                do ie = 1, nelv
                do iz = 1, lz1
                do iy = 1, ly1
                do ix = 1, lx1
-                  i = i + 1
                   x_torus = xm1(ix,iy,iz,ie)
                   y_torus = ym1(ix,iy,iz,ie)
-                  z_torus = self%zax(i)
-                  s_angle = self%sweep_angle(i)
-                  xm1(ix,iy,iz,ie) = x_torus - z_torus*sin(self%phi)*cos(s_angle)
-                  ym1(ix,iy,iz,ie) = y_torus + z_torus*sin(self%phi)*sin(s_angle)
-                  zm1(ix,iy,iz,ie) = s_angle*self%pitch_s + z_torus*cos(self%phi)
+                  z_torus = self%zax(ix,iy,iz,ie)
+                  sweep   = self%sweep_angle(ix,iy,iz,ie)
+                  xm1(ix,iy,iz,ie) = x_torus - z_torus*sin(self%phi)*cos(sweep)
+                  ym1(ix,iy,iz,ie) = y_torus + z_torus*sin(self%phi)*sin(sweep)
+                  zm1(ix,iy,iz,ie) = sweep*self%pitch_s + z_torus*cos(self%phi)
                enddo
                enddo
                enddo
@@ -450,25 +450,23 @@
          subroutine compute_fshape(self)
             class(helix), intent(inout) :: self
             ! internals
-            integer :: i, ix, iy, iz, ie
+            integer :: ix, iy, iz, ie
             real(dp) :: helix_r2, r, rr, alpha
             self%fshape = 0.0_dp
-            i = 0
             do ie = 1, lelv
             do iz = 1, lz1
             do iy = 1, ly1
             do ix = 1, lx1
-               i = i+1
                ! Distance from the origin in the equatorial plane
-               helix_r2 = self%xax(i)**2 + self%yax(i)**2
+               helix_r2 = self%xax(ix,iy,iz,ie)**2 + self%yax(ix,iy,iz,ie)**2
                ! Distance from the pipe center in the equatorial plane
                r = sqrt(helix_r2) - self%curv_radius
                ! Azimuthal angle in the cross-sectional plane
-               alpha = atan2(r, self%zax(i))
+               alpha = atan2(r, self%zax(ix,iy,iz,ie))
                ! Radial position in the cross-sectional plane
-               rr = sqrt(r**2 + self%zax(i)**2)
+               rr = sqrt(r**2 + self%zax(ix,iy,iz,ie)**2)
                ! Compute fshape
-               self%fshape(i) = 1.0_dp / abs(1.0_dp + self%delta * rr * sin(alpha))
+               self%fshape(ix,iy,iz,ie) = 1.0_dp / abs(1.0_dp + self%delta * rr * sin(alpha))
             end do
             end do
             end do
@@ -503,15 +501,22 @@
             real(dp) :: t
             !! time
             ! internal
-            integer :: i
-            real(dp) :: fs
-            real(dp), dimension(lv) :: ffx, ffy, ffz
+            integer :: ix, iy, iz, ie
+            real(dp) :: fs, phi
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: ffx, ffy, ffz
             fs = self%get_forcing(t) / self%curv_radius
 
-            do i = 1, lv
-               ffx(i) =  fs * self%fshape(i) * cos(self%phi) * cos(self%as(i))
-               ffy(i) = -fs * self%fshape(i) * cos(self%phi) * sin(self%as(i))
-               ffz(i) =  fs * self%fshape(i) * sin(self%phi)
+            phi = self%phi
+            do ie = 1, nelv
+            do iz = 1, lz1
+            do iy = 1, ly1
+            do ix = 1, lx1
+               ffx(ix,iy,iz,ie) =  fs * self%fshape(ix,iy,iz,ie) * cos(phi) * cos(self%as(ix,iy,iz,ie))
+               ffy(ix,iy,iz,ie) = -fs * self%fshape(ix,iy,iz,ie) * cos(phi) * sin(self%as(ix,iy,iz,ie))
+               ffz(ix,iy,iz,ie) =  fs * self%fshape(ix,iy,iz,ie) * sin(phi)
+            end do
+            end do
+            end do
             end do
 
             ! set baseflow forcing
@@ -528,30 +533,21 @@
             real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: ur
             real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: ut
             ! internal
-            real(dp) :: x, y, z, phi, a, s
-            integer :: ix, iy, iz, ie, i
-            real(dp) :: utmp, vtmp
+            integer :: ix, iy, iz, ie
+            real(dp) :: phi, a, s, ux, uy, uz, utmp, vtmp
             phi = self%phi
             do ie = 1, nelv
             do iz = 1, lz1
             do iy = 1, ly1
             do ix = 1, lx1
-               i = i+1
-               x = self%xax(i)
-               y = self%yax(i)
-               z = self%zax(i)
-               s = self%as(i)
-               a = self%alpha(i)
-               us(ix,iy,iz,ie) = cos(phi) * (
-     $                          + cos(s)   * u(ix,iy,iz,ie)
-     $                          - sin(s)   * v(ix,iy,iz,ie) )
-     $                          + sin(phi) * w(ix,iy,iz,ie)
-               utmp            = sin(s)    * u(ix,iy,iz,ie)
-     $                          + cos(s)   * v(ix,iy,iz,ie)
-               vtmp            = sin(phi) * (
-     $                          - cos(s)   * u(ix,iy,iz,ie)
-     $                          - sin(s)   * v(ix,iy,iz,ie) )
-     $                          + cos(phi) * w(ix,iy,iz,ie)
+               s  = self%as(ix,iy,iy,ie)
+               a  = self%alpha(ix,iy,iy,ie)
+               ux = u(ix,iy,iy,ie)
+               uy = v(ix,iy,iy,ie)
+               uz = w(ix,iy,iy,ie)
+               utmp            = sin(s)*ux + cos(s)*uy
+               vtmp            = sin(phi) * (-cos(s)*ux - sin(s)*uy) + cos(phi)*uz
+               us(ix,iy,iz,ie) = cos(phi) * ( cos(s)*ux - sin(s)*uy) + sin(phi)*uz
                ur(ix,iy,iz,ie) = cos(a) * utmp + sin(a) * vtmp
                ut(ix,iy,iz,ie) = sin(a) * utmp - cos(a) * vtmp
             end do
@@ -566,27 +562,26 @@
             real(dp), dimension(lx1,ly1,lz1,lelv) :: v
             real(dp), dimension(lx1,ly1,lz1,lelv) :: w
             ! internal
-            integer :: ix, iy, iz, ie, i
-            real(dp) :: num, den, us, us_r
+            integer :: ix, iy, iz, ie
+            real(dp) :: num, den, us, us_r, ux, uy, uz, phi, s, a, fs
             real(dp), external :: glsum
-
-            pi = atan(1.0_dp)*4.0_dp
-
-            i = 0
             num = 0.0_dp
             den = 0.0_dp
+            phi = self%phi
             do ie = 1, nelv
             do iz = 1, lz1
             do iy = 1, ly1
             do ix = 1, lx1
-               i = i+1
-               us = cos(self%phi)*(
-     $               cos( self%as(i) ) * u(ix,iy,iz,ie)
-     $             - sin( self%as(i) ) * v(ix,iy,iz,ie))
-     $             + sin( self%phi ) * w(ix,iy,iz,ie)
-               us_r = us * self%fshape(i) ! u/r
+               ux = u(ix,iy,iz,ie)
+               uy = v(ix,iy,iz,ie)
+               uz = w(ix,iy,iz,ie)
+               s  = self%as(ix,iy,iz,ie)
+               a  = self%alpha(ix,iy,iz,ie)
+               fs = self%fshape(ix,iy,iz,ie)
+               us = cos(phi)*(cos(s)*ux - sin(s)*uy) + sin(phi)*uz
+               us_r = us * fs ! u/r
                num = num + us_r*bm1(ix,iy,iz,ie)
-               den = den + self%fshape(i)*bm1(ix,iy,iz,ie)
+               den = den + fs  *bm1(ix,iy,iz,ie)
             end do
             end do
             end do
@@ -603,8 +598,8 @@
             real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: w
             ! internal
             integer :: iseg, ie, ifc, level, nxy
-            character(len=128) :: msg
             real(dp) :: xavg, yavg, vxavg, vyavg, vzavg
+            character(len=128) :: msg
             nxy = lx1*ly1
             call logger%configuration(level=level)
             self%nsave = self%nsave + 1
@@ -645,43 +640,27 @@
             class(helix), intent(inout) :: self
             ! internal
             integer, parameter :: iz = 1
-            real(dp) :: x, y, z, phi, sweep, a, s
-            integer :: ix, iy, ie, iseg, ibuf, i
+            integer :: ix, iy, ie, is, ib
+            real(dp) :: phi, sweep, a, s
             real(dp) :: utmp, vtmp, ux, uy, uz
             phi = self%phi
-            do iseg = 1, self%n2d_gown
-               ie = self%id2d(iseg, 1)
-               ! add offset
-               i = (ie-1)*lx1*ly1*lz1
-               ! the xy plane corresponds to lz1 = 1 so nothing needs to be done for z
+            do is = 1, self%n2d_gown ! only for the first slice
+               ie = self%id2d(is, 1)
                do iy = 1, ly1
                do ix = 1, lx1
-                  i = i+1
-                  x = self%xax(i)
-                  y = self%yax(i)
-                  z = self%zax(i)
-                  s = self%as(i)
-                  a = self%alpha(i)
+                  s = self%as(ix,iy,iz,ie)
+                  a = self%alpha(ix,iy,iz,ie)
                   ! iterate over buffer
-                  do ibuf = 1, lbuf
-                     ux = self%vx2d(ix,iy,iseg,ibuf)
-                     uy = self%vy2d(ix,iy,iseg,ibuf)
-                     uz = self%vz2d(ix,iy,iseg,ibuf)
+                  do ib = 1, lbuf
+                     ux = self%vx2d(ix,iy,is,ib)
+                     uy = self%vy2d(ix,iy,is,ib)
+                     uz = self%vz2d(ix,iy,is,ib)
                      ! overwrite v[xyz]2d with u[srt]2d
-                     self%vx2d(ix,iy,iseg,ibuf) = cos(phi)*(
-     $                                          + cos(s) * ux 
-     $                                          - sin(s) * uy )
-     $                                          + sin(phi) * uz
-                     utmp                      = sin(s) * ux 
-     $                                          + cos(s) * uy
-                     vtmp                      = sin(phi) * (
-     $                                          - cos(s) * ux 
-     $                                          - sin(s) * uy )
-     $                                          + cos(phi) * uz
-                     self%vy2d(ix,iy,iseg,ibuf) = cos(a)*utmp
-     $                                          + sin(a)*vtmp
-                     self%vz2d(ix,iy,iseg,ibuf) = sin(a)*utmp
-     $                                          - cos(a)*vtmp
+                     self%vx2d(ix,iy,is,ib) = cos(phi)*( cos(s)*ux -sin(s)*uy) + sin(phi)*uz
+                     utmp                   = sin(s)*ux + cos(s)*uy
+                     vtmp                   = sin(phi)*(-cos(s)*ux -sin(s)*uy) + cos(phi)*uz
+                     self%vy2d(ix,iy,is,ib) = cos(a)*utmp + sin(a)*vtmp
+                     self%vz2d(ix,iy,is,ib) = sin(a)*utmp - cos(a)*vtmp
                   end do ! lbuf
                end do    ! lx1
                end do    ! ly1
@@ -692,16 +671,15 @@
             class(helix), intent(inout) :: self
             character(len=1), intent(in) :: iname
             ! internals
+            integer, allocatable :: n2d_gown(:)
+            integer, allocatable :: n2d_elmap(:)
+            integer :: ierr, itmp, i, nxy, ip, ibuf, iseg, len, i_own
+            integer :: wdsl, isl, isend(lelv)
             character(len=128)  :: fname, msg
             character(len=1024) :: head, ftm
             real rtmpv1(lx1*ly1*lelv), rtmpv(lx1*ly1*lelv)
             real*4 rtmpv2(2*lx1*ly1*lelv)
             equivalence (rtmpv1,rtmpv2)
-            integer :: ierr, itmp, i, nxy, ip, ibuf, iseg, len, i_own
-            integer, allocatable :: n2d_gown(:)
-            integer, allocatable :: n2d_elmap(:)
-            integer :: isend(lelv)
-            integer :: wdsl, isl
             real*4 test
             parameter (test=6.54321)
             nxy = lx1*ly1
@@ -801,20 +779,16 @@
             integer ierr, hdrsize
             real*4 test_pattern
             integer :: nxr, nyr, nelfr, nsaver, lbufr, wdsizr, len
-            integer :: wdsl, isl, itmp, ip, nxy, i, ie, ieg, iel, iseg, isegg, isegl, isegr, nelf
-            integer :: iel_local, gseg
+            integer :: wdsl, isl, itmp, ip, nxy, i, ie, ieg, iel, iseg, gseg, nelf
             real rtmpv(lx1*ly1)
             integer, allocatable :: global_map(:)
-            integer, allocatable :: scratch(:)
-            integer, allocatable :: sidx(:)
+            integer, allocatable :: gmap_index(:)
+            real(dp), allocatable :: slicedata(:,:,:,:)
             real(dp) :: dt2dr(lbuf)
             real(dp) :: timer
-            real(dp), allocatable :: slicedata(:,:,:,:)
-            character(len=132) :: hdr
-            character(len=132) :: fname
+            character(len=132) :: hdr, fname, msg
             character(len=4)   :: sdummy
-            character(len=128) :: msg
-            character(len=3) :: fid
+            character(len=3)   :: fid
             common /CTMP1/ fldum(lx1*ly1*lelv)
             real fldum
             ! functions
@@ -825,8 +799,7 @@
             nxy = lx1*ly1
             nelf = self%nelf
             allocate(global_map(nelf))
-            allocate(scratch(nelf))
-            allocate(sidx(nelf))
+            allocate(gmap_index(nelf))
             if (nid == 0) then
                call byte_open(fname,ierr)
                if (ierr /= 0) call stop_error('Error opening file '//trim(fname), procedure='load_2d_fields')
@@ -866,8 +839,7 @@
             end if
             call bcast(nsaver, isize)          ! broadcast number of saved snapshots
             call bcast(global_map, nelf*isize) ! broadcast global element map
-            call bcast(wdsizr, isize)          ! broadcast word size
-            call sort_index(global_map, sidx)
+            call sort_index(global_map, gmap_index)
             ! load data one timestep at a time
             allocate(slicedata(lx1,ly1,nelf,3))
             call rzero(self%vx2d, nxy*nelv)
@@ -882,7 +854,7 @@
                ! distribute to local segment owners
                do iseg = 1, self%n2d_lown
                   gseg = self%id2d(iseg,3)  ! global segment
-                  iel  = sidx(gseg)         ! get element that is read
+                  iel  = gmap_index(gseg)   ! get element that is read
                   call copy(self%vx2d(1,1,iseg,i), slicedata(1,1,iel,1), nxy)
                   call copy(self%vy2d(1,1,iseg,i), slicedata(1,1,iel,2), nxy)
                   call copy(self%vz2d(1,1,iseg,i), slicedata(1,1,iel,3), nxy)
@@ -893,7 +865,38 @@
                call byte_close(ierr)
                if (ierr /= 0) call stop_error('Error closing file '//trim(fname), procedure='load_2d_fields')
             end if
+            self%nload = nsaver
          end subroutine load_2d_fields
+
+         subroutine set_baseflow(self, basex, basey, basez, ifld)
+            class(helix), intent(in) :: self
+            real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: basex
+            real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: basey
+            real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: basez
+            integer, intent(in) :: ifld
+            ! internal
+            integer  :: ie, ix, iy, iz, iseg
+            real(dp) :: a, s, phi, u, v, w
+            phi = self%phi
+            if (ifld > self%nload) call stop_error('Inconsistent ifld!', this_module, 'set_baseflow')
+            do ie = 1, nelv
+            iseg = self%lsegment(ie) ! local segment
+            do iz = 1, lz1
+            do ix = 1, ly1
+            do iy = 1, lx1
+               u = self%vx2d(ix,iy,iseg,ifld)
+               v = self%vy2d(ix,iy,iseg,ifld)
+               w = self%vz2d(ix,iy,iseg,ifld)
+               s = self%as(ix,iy,iz,ie)
+               a = self%alpha(ix,iy,iz,ie)
+               basex(ix,iy,iz,ie) = cos(phi)*( cos(s)*u - sin(s)*v) + sin(phi)*w
+               basey(ix,iy,iz,ie) =            sin(s)*u + cos(s)*v
+               basez(ix,iy,iz,ie) = sin(phi)*(-cos(s)*u - sin(s)*v) + cos(phi)*w
+            end do
+            end do
+            end do
+            end do
+         end subroutine set_baseflow
 
          logical pure function is_steady(self) result(steady)
             class(helix), intent(in) :: self
@@ -948,13 +951,66 @@
             call copy(alpha, self%alpha, lv)
          end subroutine get_alpha
 
+         logical pure function is_lowner(self, ie) result(is_owner)
+            class(helix), intent(in) :: self
+            integer, intent(in) :: ie
+            is_owner = .false.
+            if (ie <= nelv) is_owner = self%lowner(ie)
+         end function is_lowner
+
+         logical pure function is_gowner(self, ie) result(is_owner)
+            class(helix), intent(in) :: self
+            integer, intent(in) :: ie
+            is_owner = .false.
+            if (ie <= nelv) is_owner = self%gowner(ie)
+         end function is_gowner
+         
+         integer pure function get_lsegment(self, ie) result(local_segment)
+            class(helix), intent(in) :: self
+            integer, intent(in) :: ie
+            local_segment = 0
+            if (ie <= nelv) local_segment = self%lsegment(ie)
+         end function get_lsegment
+      
+         integer pure function get_gsegment(self, ie) result(global_segment)
+            class(helix), intent(in) :: self
+            integer, intent(in) :: ie
+            global_segment = 0
+            if (ie <= nelv) global_segment = self%gsegment(ie)
+         end function get_gsegment
+
+         real(dp) pure function get_v2d(self,ix,iy,iseg,ifld,icomp) result(v2d)
+            class(helix), intent(in) :: self
+            integer, intent(in) :: ix
+            integer, intent(in) :: iy
+            integer, intent(in) :: iseg
+            integer, intent(in) :: ifld
+            integer, intent(in) :: icomp
+            v2d = 0.0_dp
+            if (ix <= lx1) then
+               if (iy <= ly1) then
+                  if (iseg <= self%n2d_lown) then
+                     if (ifld <= self%nload) then
+                        if (icomp == 1) then
+                           v2d = self%vx2d(ix,iy,iseg,ifld)
+                        else if (icomp == 2) then
+                           v2d = self%vy2d(ix,iy,iseg,ifld)
+                        else if (icomp == 2) then
+                           v2d = self%vz2d(ix,iy,iseg,ifld)
+                        end if
+                     end if
+                  end if
+               end if
+            end if
+         end function get_v2d
+
       ! Helper functions
 
          subroutine gather_and_write_slice(slicedata, n2d_gown)
             real(dp), intent(in) :: slicedata(:,:,:)
             integer, intent(in) :: n2d_gown(:)
             ! internal
-            integer :: nxy, idum, wdsl, isl, len, ierr, ip, idump
+            integer :: nxy, idum, wdsl, isl, len, ierr, ip
             real rtmpv1(lx1*ly1*lelv), rtmpv(lx1*ly1*lelv)
             real*4 rtmpv2(2*lx1*ly1*lelv)
             equivalence (rtmpv1,rtmpv2)
@@ -971,8 +1027,6 @@
                   call copyX4(rtmpv2,slicedata,len)
                   call byte_write(rtmpv2,len,ierr)
                end if
-               print *, 'wrote to file:', nid, len/nxy
-               idump = len/nxy
                ! get data from other procs and write to file
                do ip = 1, np-1
                   len = nxy*n2d_gown(ip+1)
@@ -986,10 +1040,7 @@
                      call copyX4(rtmpv2,rtmpv,len)
                      call byte_write(rtmpv2,len,ierr)
                   endif
-                  print *, 'wrote to file:', ip, len/nxy
-                  idump = idump + len/nxy
                end do
-               print *, 'wrote to file total:', idump
                if (ierr /= 0) call stop_error('Error writing slice data', procedure='gather_and_write_slice')
             else 
                ! send data to master
@@ -998,63 +1049,5 @@
                call csend(nid,slicedata,len*wdsize,0,0)
             end if
          end subroutine gather_and_write_slice
-
-         subroutine load_and_distribute_slice(slicedata, global_map, global2local, nelf, if_byte_sw)
-            real(dp), intent(out) :: slicedata(:,:,:)
-            integer, intent(in) :: global_map(:)
-            integer, intent(in) :: global2local(:)
-            integer, intent(in) :: nelf
-            logical, intent(in) :: if_byte_sw
-            ! internal
-            real(dp) :: eldata(lx1,ly1)
-            integer :: nxy, ierr, iseg, iel_local, ieg, ie, ip, mtype, wdsl
-            real dummy, rtmpv(lx1,ly1)
-            character(len=128) :: msg
-            real(dp) :: elavg
-            nxy = lx1*ly1
-            wdsl = wdsize/4
-            do iseg = 1, nelf
-               if (nid == 0) then
-                  call byte_read(eldata, nxy*wdsl, ierr)
-                  if (if_byte_sw) call byte_reverse(eldata, nxy, ierr)
-                  if (ierr /= 0) call stop_error('Error reading element data', procedure='load_and_distribute_slice')
-               end if
-               ieg = global_map(iseg) ! get global element number
-               ie  = gllel(ieg)      ! get local element number
-               ip  = gllnid(ieg)     ! get processor owning element
-               iel_local = global2local(ieg) ! local iel for global element
-               mtype = 5000+ie
-               ! distribute
-               if (nid == 0 .and. ip /= 0) then ! send data from reader
-                  call csend (mtype,eldata,isize,ip,nullpid)
-                  call crecv2(mtype,dummy,isize,ip) ! hand shake, sync procs
-                  call csend (mtype,eldata,wdsize*nxy,ip,nullpid)
-               else if (nid /= 0 .and. ip == nid) then ! get data from reader
-                  call crecv2(mtype,dummy,isize,0)
-                  call csend (mtype,rtmpv,isize,0,nullpid) ! hand shake, sync procs
-                  call crecv2(mtype,rtmpv,nxy*wdsize,0)
-                  if (iel_local /= -1) then
-                     call copy(slicedata(1,1,iel_local),rtmpv,nxy)
-                  else
-                     write(msg, '(A,I0,A,I0)') 'Inconsistent global2local mapping for el ', ieg, ' on nid ', ip
-                     call stop_error(msg, this_module, 'load_and_distribute_slice')
-                  end if
-               end if
-               if (nid == 0) then
-                  elavg = sum(eldata)/nxy
-                  write(msg,'(5(A,1x,I3),1X,A,1X,E15.7)') 'element ', iseg, ', global:', ieg, ', local:', ie, ', iel2d:', 
-     &                     iel_local,', own:', ip, ', elavg:', elavg
-                  call nek_log_debug(msg, this_module, 'load_and_distribute_slice')
-                  if (ip == 0) then ! reader owns element
-                     if (iel_local /= -1) then
-                        call copy(slicedata(1,1,iel_local),eldata,nxy)
-                     else
-                        write(msg, '(A,I0,A,I0)') 'Inconsistent global2local mapping for el ', ieg, ' on nid ', ip
-                        call stop_error(msg, this_module, 'load_and_distribute_slice')
-                     end if
-                  end if
-               end if
-            end do
-         end subroutine load_and_distribute_slice
       
       end module neklab_helix

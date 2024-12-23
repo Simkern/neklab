@@ -30,6 +30,9 @@ c-----------------------------------------------------------------------
 c-----------------------------------------------------------------------
       subroutine userchk
       use neklab
+      use LightKrylov_Constants
+      use LightKrylov_Timing, only: timer => global_lightkrylov_timer
+      use neklab_nek_setup
       use neklab_helix
       use LightKrylov_Logger
       implicit none     

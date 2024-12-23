@@ -44,31 +44,33 @@ c-----------------------------------------------------------------------
       real(dp) :: tol, ubar_old, ubar_new, deltaf
       real(dp) :: df
       ! flow parameters
-      !real, parameter :: womersley   = 35.0d0
+      real, parameter :: womersley   = 35.0d0
       ! corresponds to Q = 1%
-      !real, parameter :: dp0ds       = 7.946035446259826e-02
-      !real, parameter :: dp1dsr      = 6.088015703926612e-04
-      !real, parameter :: dp1dsi      = 1.210241163576931e-02
-		real, parameter :: womersley   = 100.0d0
+      real, parameter :: dp0ds       = 7.946035446259826e-02
+      real, parameter :: dp1dsr      = 6.088015703926612e-04
+      real, parameter :: dp1dsi      = 1.210241163576931e-02
+		!real, parameter :: womersley   = 100.0d0
       ! corresponds to Q = 20%
-      real, parameter :: dp0ds       = 7.948934241227328e-02
-      real, parameter :: dp1dsr      = 2.842725203120692e-02
-      real, parameter :: dp1dsi      = 1.942304584125990e+00
+      !real, parameter :: dp0ds       = 7.948934241227328e-02
+      !real, parameter :: dp1dsr      = 2.842725203120692e-02
+      !real, parameter :: dp1dsi      = 1.942304584125990e+00
 		real(dp), dimension(3) :: dpds
-      integer :: tol_mode
+      integer :: tol_mode, inwt, log_level
       character(len=128) :: msg
+      character(len=3) :: fid
+
+      log_level = 40
       
+      inwt = 0
       if (istep.eq.0) then
-         ! Set up logging
-			call logger_setup(nio=0, log_stdout=.true., log_timestamp=.true.)
-      
-			call pipe%setup_summary()
+         call pipe%setup_summary()
 			! Set flow parameters
          dpds = [ dp0ds, dp1dsr, dp1dsi ]
 			call pipe%init_flow(dpds, womersley)
          call pipe%compute_bf_forcing(0.0_dp) ! --> set neklab_forcing data
 			
 			call load_fld('rsttorus0.f00001')
+         call bf%zero()
          call nek2vec(bf, vx, vy, vz, pr, t)
 			
 		   ! parameters
@@ -80,18 +82,27 @@ c-----------------------------------------------------------------------
          sys = nek_system_torus()
          sys%jacobian = nek_jacobian_torus()
          sys%jacobian%X = bf
-
 			ubar_old = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
-
          write(msg,'(A,E15.8)') 'u_bar_old= ', ubar_old
          call logger%log_message(msg, procedure='userchk')
 
+         ! Set up logging & timing
+         call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
+         call timer%initialize()
+         write(msg,'(A,*(E15.8,1X))') 'forcing= ', dpds
+         call nek_log_message(msg, procedure='userchk')
+         ! Run Newton
+         inwt = inwt + 1
          call newton_forced_periodic_orbit_torus(sys, bf, tol, tol_mode)
          call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
          ubar_new = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
-
+         ! Finalize system timings
+         call sys%finalize_timer()
+         call timer%finalize()
          write(msg,'(A,E15.8)') 'u_bar_new= ', ubar_new
-         call logger%log_message(msg, procedure='userchk')
+         call nek_log_message(msg, procedure='userchk')
+         write(fid,'(I3.3)') inwt
+         call rename('lightkrylov.log','lightkrylov_nwt'//fid//'.log')
 
          call nek_end()
       end if
@@ -159,12 +170,10 @@ c-----------------------------------------------------------------------
       integer, parameter :: nslices  = 5
       integer, parameter :: nelf     = 108
       if (istep.eq.0) then
-         ! Initialize type
+         ! Setup logger
+         call logger_setup(nio=0, log_level=30, log_stdout=.false., log_timestamp=.true.)
+         ! Initialize type, set geometry and compute forcing distribution
          call helix_pipe(delta, diameter, pitch_s, length, nslices, nelf)
-         ! Set geometry
-         call pipe%init_geom()
-         ! compute forcing distribution
-         call pipe%compute_fshape()
       endif
       end
 c-----------------------------------------------------------------------

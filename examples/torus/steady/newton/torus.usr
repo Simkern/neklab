@@ -30,6 +30,8 @@ c-----------------------------------------------------------------------
 c-----------------------------------------------------------------------
       subroutine userchk
       use neklab
+      use LightKrylov_Constants
+      use LightKrylov_Timing, only: timer => global_lightkrylov_timer
       use neklab_nek_setup
       use neklab_helix
       use LightKrylov_Logger
@@ -44,52 +46,79 @@ c-----------------------------------------------------------------------
       ! Tolerance for the Newton solver
       real(dp) :: tol, ubar_old, ubar_new, deltaf, df
       ! flow parameters
-      real, parameter :: womersley   = 35.0d0
+      !real, parameter :: womersley   = 35.0d0
       real, parameter :: dp0ds       = 7.9486896e-2 !7.945994987500288e-02
       real(dp), dimension(1) :: dpds
-      integer :: tol_mode
+      integer :: tol_mode, inwt, log_level
       character(len=128) :: msg
+      character(len=3) :: fid
       
+      log_level = 40
+
+      inwt = 0
       if (istep.eq.0) then
-         ! Set up logging
-         call logger_setup(nio=0, log_stdout=.true., log_timestamp=.true.)
-      
-	 call pipe%setup_summary()
-	 ! Set flow parameters
+         call pipe%setup_summary()
+	   ! Set flow parameters
          dpds = [ dp0ds ]
-	 call pipe%init_flow(dpds)
+	   call pipe%init_flow(dpds)
          call pipe%compute_bf_forcing(0.0_dp) ! --> set neklab_forcing data
 			
-	 call load_fld('rsttorus0.f00001')
+	   call load_fld('rsttorus0.f00001')
+         call bf%zero()
          call nek2vec(bf, vx, vy, vz, pr, t)
 
          ! parameters
-         tol = 1e-10_dp
+         tol = 1e-8_dp
          tol_mode = 2
          df = 100*tol
-
+         
          ! define system
          sys = nek_system()
          sys%jacobian = nek_jacobian()
          sys%jacobian%X = bf
-
-         call newton_fixed_point_iteration(sys, bf, tol, tol_mode)
-         call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
          ubar_old = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
-
          write(msg,'(A,E15.8)') 'u_bar_old= ', ubar_old
          call nek_log_message(msg, procedure='userchk')
-
+         
+         ! Set up logging & timing
+         call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
+         call timer%initialize()
+         write(msg,'(A,*(E15.8,1X))') 'forcing= ', dpds
+         call nek_log_message(msg, procedure='userchk')
+         ! Run Newton
+         inwt = inwt + 1
+         call newton_fixed_point_iteration(sys, bf, tol, tol_mode)
+         call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
+         ubar_new = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
+         ! Finalize system timings
+         call sys%finalize_timer()
+         call timer%finalize()
+         write(msg,'(A,E15.8)') 'u_bar_new= ', ubar_new
+         call nek_log_message(msg, procedure='userchk')
+         write(fid,'(I3.3)') inwt
+         call rename('lightkrylov.log','lightkrylov_nwt'//fid//'.log')
+         
          dpds = [ dp0ds + df ]
          call pipe%init_flow(dpds) !, womersley)
          call pipe%compute_bf_forcing(0.0_dp) ! --> set neklab_forcing data
 
+         ! Set up logging & timing
+         call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
+         call timer%initialize()
+         write(msg,'(A,*(E15.8,1X))') 'forcing= ', dpds
+         call nek_log_message(msg, procedure='userchk')
+         ! Run Newton
+         inwt = inwt + 1
          call newton_fixed_point_iteration(sys, bf, tol, tol_mode)
          call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
          ubar_new = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
-
+         ! Finalize system timings
+         call sys%finalize_timer()
+         call timer%finalize()
          write(msg,'(A,E15.8)') 'u_bar_new= ', ubar_new
          call nek_log_message(msg, procedure='userchk')
+         write(fid,'(I3.3)') inwt
+         call rename('lightkrylov.log','lightkrylov_nwt'//fid//'.log')
 
          if (abs(ubar_new - ubar_new) > tol) then
             deltaf = df/(ubar_new - ubar_old)*(1.0_dp - ubar_old)
@@ -101,13 +130,28 @@ c-----------------------------------------------------------------------
             call pipe%init_flow(dpds) !, womersley)
             call pipe%compute_bf_forcing(0.0_dp) ! --> set neklab_forcing data
 
+            ! Set up logging & timing
+            write(msg,'(A,*(E15.8,1X))') 'forcing= ', dpds
+            call nek_log_message(msg, procedure='userchk')
+            call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
+            call timer%initialize()
+            ! Run Newton
+            inwt = inwt + 1
             call newton_fixed_point_iteration(sys, bf, tol, tol_mode)
             call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
             ubar_new = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
-
-            write(msg,'(A,E15.8)') 'u_bar_final= ', ubar_new
+            ! Finalize system timings
+            call sys%finalize_timer()
+            call timer%finalize()
+            write(msg,'(A,E15.8)') 'u_bar_new= ', ubar_new
             call nek_log_message(msg, procedure='userchk')
+            write(fid,'(I3.3)') inwt
+            call rename('lightkrylov.log','lightkrylov_nwt'//fid//'.log')
          end if
+
+         lastep = 1
+         call vec2nek(vx, vy, vz, pr, t, bf)
+         call pipe%save_2d_fields(vx,vy,vz)
 
          call nek_end()
       end if
@@ -163,6 +207,7 @@ c-----------------------------------------------------------------------
 c-----------------------------------------------------------------------
       subroutine usrdat2
       use neklab_helix
+      use LightKrylov_Logger
       implicit none
       include 'SIZE'
       include 'TOTAL'
@@ -175,12 +220,10 @@ c-----------------------------------------------------------------------
       integer,  parameter :: nslices = 5
       integer,  parameter :: nelf    = 108
       if (istep.eq.0) then
-         ! Initialize type
+         ! Setup logger
+         call logger_setup(nio=0, log_level=30, log_stdout=.false., log_timestamp=.true.)
+         ! Initialize type, set geometry and compute forcing distribution
          call helix_pipe(delta, diameter, pitch_s, length, nslices, nelf)
-         ! Set geometry
-         call pipe%init_geom()
-         ! compute forcing distribution
-         call pipe%compute_fshape()
       endif
       end
 c-----------------------------------------------------------------------

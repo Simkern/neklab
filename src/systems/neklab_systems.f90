@@ -247,6 +247,11 @@
 
             tol_old = tol
             tol = max(0.1*rnorm, target_tol_)
+            if (tol < 10*target_tol_) then
+               write(msg,'(A,E9.2)') 'Residual is close to target. Setting tolerance to input target= ', target_tol_
+               call nek_log_information(msg, module=this_module, procedure='nek_dynamic_tol')
+               tol = target_tol_
+            end if
             if (tol > maxtol) then
                write(msg,'(A,E9.2)') 'Residual is large. Setting tolerance to tol= ', maxtol
                call nek_log_information(msg, module=this_module, procedure='nek_dynamic_tol')

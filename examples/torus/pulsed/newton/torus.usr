@@ -161,6 +161,7 @@ c-----------------------------------------------------------------------
 c-----------------------------------------------------------------------
       subroutine usrdat2
       use neklab_helix
+      use LightKrylov_Logger
       implicit none
       include 'SIZE'
       include 'TOTAL'

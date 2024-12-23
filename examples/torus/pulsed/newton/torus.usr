@@ -29,12 +29,13 @@ c-----------------------------------------------------------------------
       end
 c-----------------------------------------------------------------------
       subroutine userchk
-      use neklab
+      use stdlib_logger, only: debug_level, information_level
       use LightKrylov_Constants
       use LightKrylov_Timing, only: timer => global_lightkrylov_timer
-      use neklab_nek_setup
-      use neklab_helix
       use LightKrylov_Logger
+      use neklab
+      use neklab_helix
+      use neklab_nek_setup
       implicit none     
       include "SIZE"
       include "TOTAL"
@@ -62,7 +63,7 @@ c-----------------------------------------------------------------------
       character(len=128) :: msg
       character(len=3) :: fid
 
-      log_level = 40
+      log_level = information_level
       
       inwt = 0
       if (istep.eq.0) then
@@ -160,8 +161,9 @@ c-----------------------------------------------------------------------
       end
 c-----------------------------------------------------------------------
       subroutine usrdat2
-      use neklab_helix
+      use stdlib_logger, only: debug_level, information_level
       use LightKrylov_Logger
+      use neklab_helix
       implicit none
       include 'SIZE'
       include 'TOTAL'
@@ -175,7 +177,7 @@ c-----------------------------------------------------------------------
       integer, parameter :: nelf     = 108
       if (istep.eq.0) then
          ! Setup logger
-         call logger_setup(nio=0, log_level=30, log_stdout=.false., log_timestamp=.true.)
+         call logger_setup(nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
          ! Initialize type, set geometry and compute forcing distribution
          call helix_pipe(delta, diameter, pitch_s, length, nslices, nelf)
       endif

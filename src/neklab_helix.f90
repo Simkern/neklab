@@ -5,7 +5,7 @@
          use stdlib_strings, only: padl
          use stdlib_optval, only: optval
          use stdlib_sorting, only: sort_index
-         use stdlib_logger, only: debug_level
+         use stdlib_logger, only: debug_level, information_level
       ! Default real kind.
          use LightKrylov, only: dp
          use LightKrylov_Constants, only: imag => one_im_cdp
@@ -280,7 +280,7 @@
             end do
       
             call logger%configuration(level=level)
-            if (level <= 20) then
+            if (level <= debug_level) then
                print '(A,2(I0,1X),A,*(1X,I3))', 'DEBUG 2dmap: ', nid, self%n2d_lown, 'unique streamwise segments:   ', unique_segments(:self%n2d_lown)
                print '(A,2(I0,1X),A,*(1X,I3))', 'DEBUG 2dmap: ', nid, self%n2d_lown, '# of elements in segment:     ', segment_count(:self%n2d_lown)
                print '(A,2(I0,1X),A,*(1X,I3))', 'DEBUG 2dmap: ', nid, self%n2d_lown, 'local element local  s. owner:', segment_owner(:self%n2d_lown)
@@ -313,7 +313,7 @@
                        end if
 		      	      end do
                   end if
-                  if (level <= 20) then
+                  if (level <= debug_level) then
                      print '(A,I3,A,4(1X,I4),A,3X,F17.8,3x,F17.8)', 'DEBUG 2dmap: ', nid, ' el', lglel(ie), ie, iseg, self%gsegment(ie),  
      &                           ': ', sum(self%x2d(:,:,iseg))/nxy, sum(self%y2d(:,:,iseg))/nxy
                   end if
@@ -331,7 +331,7 @@
             self%n2d   = iglsum(self%n2d_gown,1)
             self%nload = 0
             if (self%n2d /= self%nelf) call stop_error('Inconsistent elements in 2D mesh!', module=this_module, procedure='init_geom')
-            if (level <= 20) then
+            if (level <= debug_level) then
                call nekgsync()
                print '(A,I3,A,*(1x,I0))', 'DEBUG 2dmap: ', nid, ', nelv2iseg: ', self%lsegment(:nelv)
                write(fid,'(I3.3)') nid
@@ -612,7 +612,7 @@
                call ftovec(self%vx2d(1,1,iseg,self%nsave), u, ie, ifc, nx1, ny1, nz1)
 		      	call ftovec(self%vy2d(1,1,iseg,self%nsave), v, ie, ifc, nx1, ny1, nz1)
 		      	call ftovec(self%vz2d(1,1,iseg,self%nsave), w, ie, ifc, nx1, ny1, nz1)
-               if (level <= 20) then
+               if (level <= debug_level) then
                   xavg  = sum(self%x2d (:,:,iseg))/nxy
                   yavg  = sum(self%y2d (:,:,iseg))/nxy
                   vxavg = sum(self%vx2d(:,:,iseg,self%nsave))/nxy

@@ -779,7 +779,7 @@
             call nek_log_message('   '//trim(fname)//': write y2d ...', this_module, 'outpost_2d_fields')
             call gather_and_write_slice(self%y2d, n2d_gown)
             ! velocity data
-            write(msg,'(3X,A,A,1X,I3)') trim(fname),': write v[xyz]2d', self%nsave
+            write(msg,'(3X,A,A,1X,I5)') trim(fname),': write v[xyz]2d', self%nsave
             call nek_log_message(msg, this_module, 'outpost_2d_fields')
             do i = 1, self%nsave
                call gather_and_write_slice(self%vx2d(:,:,:,i), n2d_gown)

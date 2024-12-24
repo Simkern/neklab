@@ -15,10 +15,13 @@
      $   cfl_limit = 0.4_dp, vtol = atol/10.0, ptol = atol/10.0)
       ! Intgrate the nonlinear equations forward
                time = 0.0_dp
+               call pipe%reset_newton()         ! reset output counter to overwrite output files
                do istep = 1, nsteps
                   call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
+                  call pipe%save_2d_fields(vx,vy,vz)
                   call nek_advance()
                end do
+               call pipe%outpost_2d()                   ! output even if buffer is not full
       ! Copy the final solution to vector.
                call nek2vec(vec_out, vx, vy, vz, pr, t)
       ! Evaluate residual F(X) - X.
@@ -38,15 +41,15 @@
       ! Set the baseflow initial condition
                call abs_vec2nek(vx, vy, vz, pr, t, self%X)
       ! Ensure correct nek status
-               call setup_linear_solver(solve_baseflow=.true.,
-     $   recompute_dt = .true., cfl_limit = 0.5_dp, 
-     $   vtol = atol/2.0, ptol = atol/2.0)
+               call setup_linear_solver(solve_baseflow=.false.,
+     $   recompute_dt = .false., vtol = atol/2.0, ptol = atol/2.0)
       ! Set the initial condition for Nek5000's linearized solver.
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
       ! Integrate the equations forward in time.
                time = 0.0_dp
+               call pipe%reset_newton()         ! reset output counter to load output files in order
                do istep = 1, nsteps
-                  call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
+                  call pipe%set_baseflow(vx, vy, vz, istep)
                   call nek_advance()
                end do
       ! Extract the final solution to vector.
@@ -69,15 +72,15 @@
       ! Set the baseflow initial condition
                call abs_vec2nek(vx, vy, vz, pr, t, self%X)
       ! Ensure correct nek status
-               call setup_linear_solver(transpose=.true., solve_baseflow=.true.,
-     $   recompute_dt = .true., cfl_limit = 0.5_dp, 
-     $   vtol = atol/2.0, ptol = atol/2.0)
+               call setup_linear_solver(transpose=.true., solve_baseflow=.false.,
+     $   recompute_dt = .false., vtol = atol/2.0, ptol = atol/2.0)
       ! Set the initial condition for Nek5000's linearized solver.
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
       ! Integrate the equations forward in time.
                time = 0.0_dp
+               call pipe%reset_newton()         ! reset output counter to load output files in order
                do istep = 1, nsteps
-                  call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
+                  call pipe%set_baseflow(vx, vy, vz, istep)
                   call nek_advance()
                end do
       ! Extract the final solution to vector.

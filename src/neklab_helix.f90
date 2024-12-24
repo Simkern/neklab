@@ -29,7 +29,7 @@
       !! Local number of grid points for the pressure mesh.
          integer, parameter :: nf = 3
       !! Number of forcing components
-         integer, parameter :: lbuf = 1
+         integer, parameter :: lbuf = 1000
       !! Maximum number of 2d fields to save before outposting
 
          public :: pipe
@@ -73,14 +73,17 @@
             ! cartesian coordinates in torus (without torsion!)
             real(dp), dimension(lx1,ly1,lz1,lelv) :: xax, yax, zax
             ! 2D data
-            integer :: n2d      ! global number of 2d elements
-            integer :: n2d_gown ! number of 2d elements globally owned by current processor
-            integer :: n2d_lown ! number of 2d elements locally  owned by current processor
-            integer :: nsave    ! buffer fill counter
-            integer :: noutc    ! number of data files in cartesian coordinates written to disk
-            integer :: noutt    ! number of data files in toroidal coordinates written to disk
-            integer :: nload    ! number of loaded 2D baseflow fields
+            integer :: n2d       ! global number of 2d elements
+            integer :: n2d_gown  ! number of 2d elements globally owned by current processor
+            integer :: n2d_lown  ! number of 2d elements locally  owned by current processor
+            integer :: nsave = 0 ! buffer fill counter
+            integer :: noutc = 0 ! number of data files in cartesian coordinates written to disk
+            integer :: noutt = 0 ! number of data files in toroidal coordinates written to disk
+            integer :: noutn = 0 ! number of data files for newton
+            integer :: nload = 0 ! number of loaded 2D baseflow fields
             logical :: save_2d_usrt = .true.! save us,ur,ut in addition to vx,vy,vz?
+            logical :: save_2d_base = .false.
+            logical :: if_newton    = .false. ! are we in newton mode?
             ! save 2D fields
             logical, dimension(lelv)   :: lowner   ! is the local element the local segment owner?
             logical, dimension(lelv)   :: gowner   ! is the local element the global segmet owner? (first slice)
@@ -101,10 +104,13 @@
             procedure, pass(self), public :: compute_ubar
             ! 2D data manipulation
             procedure, pass(self), public :: save_2d_fields
-            procedure, pass(self), public :: compute_2dusrt
+            procedure, pass(self), public :: compute_2d_usrt
+            procedure, pass(self), public :: outpost_2d
             procedure, pass(self), public :: outpost_2d_fields
             procedure, pass(self), public :: load_2d_fields
             procedure, pass(self), public :: set_baseflow
+            procedure, pass(self), public :: save_base
+            procedure, pass(self), public :: reset_newton
             ! helper routines
             procedure, pass(self), public :: get_forcing
             procedure, pass(self), public :: get_period
@@ -602,40 +608,56 @@
             character(len=128) :: msg
             nxy = lx1*ly1
             call logger%configuration(level=level)
-            self%nsave = self%nsave + 1
-            ! save data to buffer
-            write(msg,'(A,I3,A,I3)') 'Save 2D data: ', self%nsave, '/', lbuf
-            call nek_log_message(msg, this_module, 'save_2d_fields')
-            do iseg = 1, self%n2d_gown
-               ie  = self%id2d(iseg, 1)
-               ifc = self%id2d(iseg, 2)
-               call ftovec(self%vx2d(1,1,iseg,self%nsave), u, ie, ifc, nx1, ny1, nz1)
-		      	call ftovec(self%vy2d(1,1,iseg,self%nsave), v, ie, ifc, nx1, ny1, nz1)
-		      	call ftovec(self%vz2d(1,1,iseg,self%nsave), w, ie, ifc, nx1, ny1, nz1)
-               if (level <= debug_level) then
-                  xavg  = sum(self%x2d (:,:,iseg))/nxy
-                  yavg  = sum(self%y2d (:,:,iseg))/nxy
-                  vxavg = sum(self%vx2d(:,:,iseg,self%nsave))/nxy
-                  vyavg = sum(self%vy2d(:,:,iseg,self%nsave))/nxy
-                  vzavg = sum(self%vz2d(:,:,iseg,self%nsave))/nxy
-                  print '(A,I8,I8,A,5(3X,F16.8))', 'DEBUG: save el', ie, iseg, ': ', xavg, yavg, vxavg, vyavg, vzavg
-               end if
-            end do
-            self%dt2d(self%nsave) = dt
-            ! save data to file when buffer is full
-            if (self%nsave == lbuf .or. lastep == 1) then
-               self%noutc = self%noutc + 1
-               call self%outpost_2d_fields('c')
-               if (self%save_2d_usrt) then
-                  call self%compute_2dusrt() ! self%v[xyz]2d are overwritten
-                  self%noutt = self%noutt + 1
-                  call self%outpost_2d_fields('t')
-               end if
-               self%nsave = 0
+            if (self%save_2d_base) then
+               self%nsave = self%nsave + 1
+               ! save data to buffer
+               write(msg,'(A,I5,A,I5)') 'Save 2D data: ', self%nsave, '/', lbuf
+               call nek_log_message(msg, this_module, 'save_2d_fields')
+               do iseg = 1, self%n2d_gown
+                  ie  = self%id2d(iseg, 1)
+                  ifc = self%id2d(iseg, 2)
+                  call ftovec(self%vx2d(1,1,iseg,self%nsave), u, ie, ifc, nx1, ny1, nz1)
+		         	call ftovec(self%vy2d(1,1,iseg,self%nsave), v, ie, ifc, nx1, ny1, nz1)
+		         	call ftovec(self%vz2d(1,1,iseg,self%nsave), w, ie, ifc, nx1, ny1, nz1)
+                  if (level <= debug_level) then
+                     xavg  = sum(self%x2d (:,:,iseg))/nxy
+                     yavg  = sum(self%y2d (:,:,iseg))/nxy
+                     vxavg = sum(self%vx2d(:,:,iseg,self%nsave))/nxy
+                     vyavg = sum(self%vy2d(:,:,iseg,self%nsave))/nxy
+                     vzavg = sum(self%vz2d(:,:,iseg,self%nsave))/nxy
+                     print '(A,I8,I8,A,5(3X,F16.8))', 'DEBUG: save el', ie, iseg, ': ', xavg, yavg, vxavg, vyavg, vzavg
+                  end if
+               end do
+               self%dt2d(self%nsave) = dt
+               ! save data to file when buffer is full
+               if (self%nsave == lbuf .or. lastep == 1) call self%outpost_2d()
+            else
+               call nek_log_message('Baseflow saving turned off', this_module, 'save_2d_fields')
             end if
          end subroutine save_2d_fields
+         
+         subroutine outpost_2d(self)
+            class(helix), intent(inout) :: self
+            if (self%nsave > 0) then
+               if (self%if_newton) then
+                  self%noutn = self%noutn + 1
+                  call self%outpost_2d_fields(iname='n', iout=self%noutn)
+               else
+                  self%noutc = self%noutc + 1
+                  call self%outpost_2d_fields(iname='c', iout=self%noutc)
+                  if (self%save_2d_usrt) then
+                     call self%compute_2d_usrt() ! self%v[xyz]2d are overwritten
+                     self%noutt = self%noutt + 1
+                     call self%outpost_2d_fields(iname='t', iout=self%noutt)
+                  end if
+               end if
+               self%nsave = 0
+            else
+               call nek_log_message('No 2D data to outpost.', this_module, 'outpost')
+            end if
+         end subroutine outpost_2d
 
-         subroutine compute_2dusrt(self)
+         subroutine compute_2d_usrt(self)
             ! this routine will overwrite self%v[xyz]2d
             class(helix), intent(inout) :: self
             ! internal
@@ -665,11 +687,12 @@
                end do    ! lx1
                end do    ! ly1
             end do       ! self%n2d_gown
-         end subroutine compute_2dusrt
+         end subroutine compute_2d_usrt
          
-         subroutine outpost_2d_fields(self, iname)
+         subroutine outpost_2d_fields(self, iname, iout)
             class(helix), intent(inout) :: self
             character(len=1), intent(in) :: iname
+            integer, intent(in) :: iout
             ! internals
             integer, allocatable :: n2d_gown(:)
             integer, allocatable :: n2d_elmap(:)
@@ -685,7 +708,7 @@
             nxy = lx1*ly1
             wdsl = wdsize/4
             isl  = isize/4
-            write(fname,'(A,A,I3.3,A)') iname, '2dtorus', self%noutc, '.fld'
+            write(fname,'(A,A,I3.3,A)') iname, '2dtorus', iout, '.fld'
             write(msg,'(A,I3,4X,A,A)') 'Outpost 2D data: ', self%nsave, 'fname: ', trim(fname)
             call nek_log_message(msg, this_module, 'outpost_2d_fields')
             if (nid == 0) then
@@ -756,9 +779,9 @@
             call nek_log_message('   '//trim(fname)//': write y2d ...', this_module, 'outpost_2d_fields')
             call gather_and_write_slice(self%y2d, n2d_gown)
             ! velocity data
+            write(msg,'(3X,A,A,1X,I3)') trim(fname),': write v[xyz]2d', self%nsave
+            call nek_log_message(msg, this_module, 'outpost_2d_fields')
             do i = 1, self%nsave
-               write(msg,'(3X,A,A,1X,I3)') trim(fname),': write v[xyz]2d', i
-               call nek_log_message(msg, this_module, 'outpost_2d_fields')
                call gather_and_write_slice(self%vx2d(:,:,:,i), n2d_gown)
                call gather_and_write_slice(self%vy2d(:,:,:,i), n2d_gown)
                call gather_and_write_slice(self%vz2d(:,:,:,i), n2d_gown)
@@ -771,7 +794,6 @@
          end subroutine outpost_2d_fields
 
          subroutine load_2d_fields(self, idx)
-            implicit none
             ! only nid 0 will read
             class(helix), intent(inout) :: self
             integer, intent(in) :: idx
@@ -793,7 +815,11 @@
             real fldum
             ! functions
             logical, external :: if_byte_swap_test
-            write(fname,'("c2dtorus",I3.3,".fld")') idx
+            if (self%if_newton) then
+               write(fname,'("n2dtorus",I3.3,".fld")') idx
+            else
+               write(fname,'("c2dtorus",I3.3,".fld")') idx
+            end if
             call nek_log_information('Load 2D data from file '//trim(fname), this_module, 'load_2d_fields')
             hdrsize = 116
             nxy = lx1*ly1
@@ -869,16 +895,31 @@
          end subroutine load_2d_fields
 
          subroutine set_baseflow(self, basex, basey, basez, ifld)
-            class(helix), intent(in) :: self
+            class(helix), intent(inout) :: self
             real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: basex
             real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: basey
             real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: basez
             integer, intent(in) :: ifld
             ! internal
-            integer  :: ie, ix, iy, iz, iseg
+            integer  :: ie, ix, iy, iz, iseg, ifld_
             real(dp) :: a, s, phi, u, v, w
+            character(len=128) :: msg
             phi = self%phi
-            if (ifld > self%nload) call stop_error('Inconsistent ifld!', this_module, 'set_baseflow')
+            ifld_ = ifld
+            if (self%if_newton) then
+               ifld_ = ifld_ - self%noutn*lbuf
+               if (ifld_ > self%nload) then
+                  ! load next file
+                  self%noutn = self%noutn + 1
+                  write(msg,'(A,I5)') 'Load file: ', self%noutn
+                  call nek_log_message(msg, this_module, 'set_baseflow')
+                  call self%load_2d_fields(self%noutn)
+               end if
+            else
+               if (ifld_ > self%nload) call stop_error('Inconsistent ifld!', this_module, 'set_baseflow')
+            end if
+            write(msg,'(A,I5,"/",I5,A,I5,A)') 'Set field ', ifld, lbuf, ' (', ifld, ')'
+            call nek_log_message(msg, this_module, 'set_baseflow')
             do ie = 1, nelv
             iseg = self%lsegment(ie) ! local segment
             do iz = 1, lz1
@@ -897,6 +938,20 @@
             end do
             end do
          end subroutine set_baseflow
+
+         subroutine save_base(self, ifsave)
+            class(helix), intent(inout) :: self
+            logical, intent(in) :: ifsave
+            self%save_2d_base = ifsave
+         end subroutine save_base
+         
+         subroutine reset_newton(self)
+            class(helix), intent(inout) :: self
+            self%noutn = 0
+            self%nload = 0
+            self%save_2d_base = .true.
+            self%if_newton = .true.
+         end subroutine
 
          logical pure function is_steady(self) result(steady)
             class(helix), intent(in) :: self

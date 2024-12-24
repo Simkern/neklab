@@ -16,6 +16,7 @@
          use neklab_nek_setup
          use neklab_otd
          use neklab_systems
+         use neklab_helix
       
          implicit none
          include "SIZE"
@@ -225,7 +226,6 @@
       ! Misc
             integer :: info, tol_mode_
             type(newton_dp_opts) :: opts
-      !type(gmres_dp_opts)  :: gmres_opts
             character(len=3) :: file_prefix
       
 		tol_mode_ = optval(tol_mode, 1)

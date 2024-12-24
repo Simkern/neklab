@@ -29,13 +29,9 @@ c-----------------------------------------------------------------------
       end
 c-----------------------------------------------------------------------
       subroutine userchk
-      use stdlib_logger, only: debug_level, information_level
-      use LightKrylov_Constants
-      use LightKrylov_Timing, only: timer => global_lightkrylov_timer
-      use LightKrylov_Logger
       use neklab
       use neklab_helix
-      use neklab_nek_setup
+      use LightKrylov_Logger
       implicit none     
       include "SIZE"
       include "TOTAL"
@@ -43,82 +39,68 @@ c-----------------------------------------------------------------------
       ! System for which we seek a fixed point
       type(nek_system_torus), allocatable :: sys
       ! State vectors
-      type(nek_dvector) :: bf, test
+      type(nek_dvector) :: bf
       ! Tolerance for the Newton solver
-      real(dp) :: tol, ubar_old, ubar_new, deltaf
-      real(dp) :: df
+      real(dp) :: tol, ubar, norm, period
       ! flow parameters
-      real, parameter :: womersley   = 35.0d0
+      !real, parameter :: womersley   = 35.0d0
       ! corresponds to Q = 1%
-      real, parameter :: dp0ds       = 7.946035446259826e-02
-      real, parameter :: dp1dsr      = 6.088015703926612e-04
-      real, parameter :: dp1dsi      = 1.210241163576931e-02
-		!real, parameter :: womersley   = 100.0d0
+      !real, parameter :: dp0ds       = 7.946035446259826e-02
+      !real, parameter :: dp1dsr      = 6.088015703926612e-04
+      !real, parameter :: dp1dsi      = 1.210241163576931e-02
+      real, parameter :: womersley   = 100.0d0
       ! corresponds to Q = 20%
-      !real, parameter :: dp0ds       = 7.948934241227328e-02
-      !real, parameter :: dp1dsr      = 2.842725203120692e-02
-      !real, parameter :: dp1dsi      = 1.942304584125990e+00
-		real(dp), dimension(3) :: dpds
-      integer :: tol_mode, inwt, log_level
-      character(len=128) :: msg
-      character(len=3) :: fid
+      real, parameter :: dp0ds       = 7.948934241227328e-02
+      real, parameter :: dp1dsr      = 2.842725203120692e-02
+      real, parameter :: dp1dsi      = 1.942304584125990e+00
+      real(dp), dimension(3), parameter :: dpds = [ dp0ds, sqrt(dp1dsr**2 + dp1dsi**2), 0.0_dp ]
+      integer :: i, j, outpost_step, tol_mode
+		character(len=128) :: msg
 
-      log_level = information_level
-      
-      inwt = 0
-      if (istep.eq.0) then
-			! Set flow parameters
-         dpds = [ dp0ds, dp1dsr, dp1dsi ]
-			call pipe%init_flow(dpds, womersley)
-         call pipe%compute_bf_forcing(0.0_dp) ! --> set neklab_forcing data
-			
-			call load_fld('rsttorus0.f00001')
-         call bf%zero()
+
+      if (istep == 0) then
+         call pipe%setup_summary()
+         ! Set flow parameters
+         call pipe%init_flow(dpds, womersley)
+         call load_fld('rsttorus0.f00001')
          call nek2vec(bf, vx, vy, vz, pr, t)
-			
-		   ! parameters
-         tol = 1e-8_dp
+
+         ! parameters
+         tol = 1e-6_dp
          tol_mode = 2
-         df = 100*tol
+			period = pipe%get_period()
+         !df = 100*tol
          
          ! define system
          sys = nek_system_torus()
          sys%jacobian = nek_jacobian_torus()
          sys%jacobian%X = bf
-			ubar_old = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
-         write(msg,'(A,E15.8)') 'u_bar_old= ', ubar_old
+	   	ubar = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
+         write(msg,'(A,E15.8)') 'u_bar_old= ', ubar
          call logger%log_message(msg, procedure='userchk')
-         
-         ! Set up logging & timing
-         call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
-         call timer%initialize()
-         call pipe%setup_summary()
-         write(msg,'(A,*(E15.8,1X))') 'forcing= ', dpds
-         call nek_log_message(msg, procedure='userchk')
-         ! Run Newton
-         inwt = inwt + 1
-         call newton_forced_periodic_orbit_torus(sys, bf, tol, tol_mode)
-         call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
-         ubar_new = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
-         ! Finalize system timings
-         call sys%finalize_timer()
-         call timer%finalize()
-         write(msg,'(A,E15.8)') 'u_bar_new= ', ubar_new
-         call nek_log_message(msg, procedure='userchk')
-         
-         call setup_nonlinear_solver(recompute_dt=.true.,cfl_limit = 0.4_dp)
-         ! Intgrate the nonlinear equations forward
+
+         call setup_nonlinear_solver(recompute_dt=.true.,cfl_limit=0.4_dp,endtime=period)
+      ! Intgrate the nonlinear equations forward
          time = 0.0_dp
-         call pipe%save_2d_fields(vx,vy,vy)
+         call pipe%reset_newton()               ! reset output counter to overwrite output files
          do istep = 1, nsteps
-            if (istep == nsteps) lastep = 1
-            call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
+            call pipe%compute_bf_forcing(time)  ! --> set neklab_forcing data
+            call pipe%save_2d_fields(vx,vy,vz)
             call nek_advance()
-            call pipe%save_2d_fields(vx,vy,vy)
+				if (mod(istep,20)==0) call outpost(vx,vy,vz,pr,t,'bs1')
          end do
-         write(fid,'(I3.3)') inwt
-         call rename('lightkrylov.log','lightkrylov_nwt'//fid//'.log')
-         call nek_end()
+         call pipe%outpost_2d()                 ! output even if buffer is not full
+			
+         call setup_linear_solver(solve_baseflow=.false.,recompute_dt = .false.)
+			! Integrate the equations forward in time.
+         time = 0.0_dp
+         call pipe%reset_newton()         		! reset output counter to load output files in order
+         do istep = 1, nsteps
+            call pipe%set_baseflow(vx, vy, vz, istep)
+            call nek_advance()
+				if (mod(istep,20)==0) call outpost(vx,vy,vz,pr,t,'bs2')				
+         end do
+			call nek_end()
       end if
 
       return
@@ -171,8 +153,7 @@ c-----------------------------------------------------------------------
       end
 c-----------------------------------------------------------------------
       subroutine usrdat2
-      use stdlib_logger, only: debug_level, information_level
-      use LightKrylov_Logger
+		use LightKrylov_Logger
       use neklab_helix
       implicit none
       include 'SIZE'
@@ -186,10 +167,10 @@ c-----------------------------------------------------------------------
       integer, parameter :: nslices  = 5
       integer, parameter :: nelf     = 108
       if (istep.eq.0) then
-         ! Setup logger
-         call logger_setup(nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
-         ! Initialize type, set geometry and compute forcing distribution
-         call helix_pipe(delta, diameter, pitch_s, length, nslices, nelf)
+            ! Setup logger
+            call logger_setup(nio=0, log_level=40, log_stdout=.false., log_timestamp=.true.)
+            ! Initialize type, set geometry and compute forcing distribution
+            call helix_pipe(delta, diameter, pitch_s, length, nslices, nelf)
       endif
       end
 c-----------------------------------------------------------------------

@@ -1,5 +1,4 @@
 import struct
-import sys
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -70,16 +69,17 @@ def read_binary_file(file_path):
             y[:,:,i] = yel.reshape((lx1,ly1), order='F')
             yavg[i] = np.mean(yel)
         vx, vy, vz = np.empty((lx1,ly1,nelf,nsave)), np.empty((lx1,ly1,nelf,nsave)), np.empty((lx1,ly1,nelf,nsave))
+        print(f'\tread vxyz for {nsave:d} snapshots.')
         for ibuf in range(nsave):
-            print(f'\tread vx')
+            #print(f'\tread vx')
             for id, i in enumerate(idx):
                 eldata = read_flt(f,emode,wdsize,nxy)
                 vx[:,:,i,ibuf] = eldata.reshape((lx1,ly1), order='F')
-            print(f'\tread vy')
+            #print(f'\tread vy')
             for id, i in enumerate(idx):
                 eldata = read_flt(f,emode,wdsize,nxy)
                 vy[:,:,i,ibuf] = eldata.reshape((lx1,ly1), order='F')
-            print(f'\tread vz')
+            #print(f'\tread vz')
             for id, i in enumerate(idx):
                 eldata = read_flt(f,emode,wdsize,nxy)
                 vz[:,:,i,ibuf] = eldata.reshape((lx1,ly1), order='F')
@@ -88,7 +88,7 @@ def read_binary_file(file_path):
         return header, emode, lx1, ly1, nelf, elmap, x, y, vx, vy, vz
 
 # Example usage:
-file_path = '01run/c2dtorus001.fld'
+file_path = 'pulsed/newton/calc03_01/c2dtorus001.fld'
 header, endian_test_string, lx1, ly1, nelf, elmap, x, y, vx, vy, vz = read_binary_file(file_path)
 
 #ir = 4
@@ -121,14 +121,22 @@ centers = np.ones((lx1,ly1), dtype=bool)
 centers[1:-1,1:-1] = False
 idx = centers.ravel()
 
-plt.figure()
-ax = plt.gca()
-vmin=vx.min()
-vmax=vx.max()
-for i in range(nelf):
-    xi = np.squeeze(x[:,:,i])
-    yi = np.squeeze(y[:,:,i])
-    vxi = np.squeeze(vx[:,:,i])
-    plt.contourf(xi,yi,vxi, vmin=vmin, vmax=vmax)
-plt.colorbar()
+for j in range(0,1000,200):
+    plt.figure()
+    ax = plt.gca()
+    vmin=vx[:,:,:,j].min()
+    vmax=vx[:,:,:,j].max()
+    dvmin = 1000
+    dvmax = 0
+    for i in range(nelf):
+        dvmin = min(dvmin, (vx[:,:,i,j] - vx[:,:,i,0]).min())
+        dvmax = max(dvmax, (vx[:,:,i,j] - vx[:,:,i,0]).max())
+    for i in range(nelf):
+        xi = np.squeeze(x[:,:,i])
+        yi = np.squeeze(y[:,:,i])
+        vxi = np.squeeze(vx[:,:,i,j])
+        dvxi = np.squeeze(vx[:,:,i,j] - vx[:,:,i,0])
+        #plt.contourf(xi,yi,vxi, vmin=vmin, vmax=vmax)
+        plt.contourf(xi,yi,dvxi, vmin=dvmin, vmax=dvmax)
+    plt.colorbar()
 plt.show()

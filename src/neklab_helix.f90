@@ -612,7 +612,8 @@
                self%nsave = self%nsave + 1
                ! save data to buffer
                write(msg,'(A,I5,A,I5)') 'Save 2D data: ', self%nsave, '/', lbuf
-               call nek_log_message(msg, this_module, 'save_2d_fields')
+               call logger%log_debug(msg, this_module, 'save_2d_fields')
+               if (nid == 0) print *, msg
                do iseg = 1, self%n2d_gown
                   ie  = self%id2d(iseg, 1)
                   ifc = self%id2d(iseg, 2)
@@ -632,7 +633,7 @@
                ! save data to file when buffer is full
                if (self%nsave == lbuf .or. lastep == 1) call self%outpost_2d()
             else
-               call nek_log_message('Baseflow saving turned off', this_module, 'save_2d_fields')
+               call nek_log_information('Baseflow saving turned off', this_module, 'save_2d_fields')
             end if
          end subroutine save_2d_fields
          
@@ -902,7 +903,7 @@
             integer, intent(in) :: ifld
             ! internal
             integer  :: ie, ix, iy, iz, iseg, ifld_
-            real(dp) :: a, s, phi, u, v, w
+            real(dp) :: s, phi, u, v, w
             character(len=128) :: msg
             phi = self%phi
             ifld_ = ifld
@@ -919,19 +920,19 @@
                if (ifld_ > self%nload) call stop_error('Inconsistent ifld!', this_module, 'set_baseflow')
             end if
             write(msg,'(A,I5,"/",I5,A,I5,A)') 'Set field ', ifld, lbuf, ' (', ifld, ')'
-            call nek_log_message(msg, this_module, 'set_baseflow')
+            call logger%log_debug(msg, this_module, 'set_baseflow')
+            if (nid == 0) print *, msg
             do ie = 1, nelv
             iseg = self%lsegment(ie) ! local segment
             do iz = 1, lz1
-            do ix = 1, ly1
-            do iy = 1, lx1
+            do iy = 1, ly1
+            do ix = 1, lx1
+                  s = self%as(ix,iy,iz,ie)
                u = self%vx2d(ix,iy,iseg,ifld)
                v = self%vy2d(ix,iy,iseg,ifld)
                w = self%vz2d(ix,iy,iseg,ifld)
-               s = self%as(ix,iy,iz,ie)
-               a = self%alpha(ix,iy,iz,ie)
-               basex(ix,iy,iz,ie) = cos(phi)*( cos(s)*u - sin(s)*v) + sin(phi)*w
-               basey(ix,iy,iz,ie) =            sin(s)*u + cos(s)*v
+               basex(ix,iy,iz,ie) = cos(phi)*( cos(s)*u + sin(s)*v) + sin(phi)*w
+               basey(ix,iy,iz,ie) =           -sin(s)*u + cos(s)*v
                basez(ix,iy,iz,ie) = sin(phi)*(-cos(s)*u - sin(s)*v) + cos(phi)*w
             end do
             end do

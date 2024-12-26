@@ -230,7 +230,8 @@
          subroutine parameter_summary(self)
             class(helix), intent(in) :: self
             ! internal
-            character(len=128) :: msg
+            integer :: i
+            character(len=128) :: msg, fmt
             if (self%is_initialized) then
                call nek_log_message('##  HELIX PARAMETERS ##', module=this_module)
                write (msg, '(A,L8)') padl('steady:', 20), self%if_steady
@@ -243,7 +244,7 @@
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
                write (msg, '(A,F15.8,1X,F15.8)') padl('dpds_00:', 20), self%dpds(1), 0.0_dp
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               do i = 2, n, 2
+               do i = 2, nf, 2
                   write(fmt,'("dpds_",I2.2)') i/2
                   print *, fmt
                   write (msg, '(A,F15.8,1X,F15.8)') padl(trim(fmt), 20), self%dpds(i), self%dpds(i+1)
@@ -482,24 +483,7 @@
                   call stop_error('Steady case requires only one forcing component',module=this_module,procedure='init_flow')
                end if
             end if
-            self%dpds = dpds
-            call nek_log_message('Flow parameter initialization:', module=this_module)
-            write (msg, '(A,L8)') padl('steady:', 20), self%if_steady
-            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            write (msg, '(A,F15.8)') padl('Wo:', 20), self%womersley
-            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            write (msg, '(A,F15.8)') padl('omega:', 20), self%omega
-            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            write (msg, '(A,F15.8)') padl('T:', 20), self%pulse_T
-            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            write (msg, '(A,F15.8,1X,F15.8)') padl('dpds_00:', 20), self%dpds(1), 0.0_dp
-            call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            do i = 2, n, 2
-               write(fmt,'("dpds_",I2.2)') i/2
-               print *, fmt
-               write (msg, '(A,F15.8,1X,F15.8)') padl(trim(fmt), 20), self%dpds(i), self%dpds(i+1)
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            end do
+            call self%parameter_summary()
          end subroutine init_flow
 
          subroutine compute_fshape(self)

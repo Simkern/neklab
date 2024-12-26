@@ -710,7 +710,7 @@
             wdsl = wdsize/4
             isl  = isize/4
             write(fname,'(A,A,I3.3,A)') iname, '2dtorus', iout, '.fld'
-            write(msg,'(A,I3,4X,A,A)') 'Outpost 2D data: ', self%nsave, 'fname: ', trim(fname)
+            write(msg,'(A,I5,4X,A,A)') 'Outpost 2D data: ', self%nsave, 'fname: ', trim(fname)
             call nek_log_message(msg, this_module, 'outpost_2d_fields')
             if (nid == 0) then
                call byte_open(fname, ierr)

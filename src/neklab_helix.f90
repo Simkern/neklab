@@ -247,7 +247,6 @@
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
                do i = 2, nf, 2
                   write(fmt,'("dpds_",I2.2)') i/2
-                  print *, fmt
                   dpds_norm = sqrt(self%dpds(i)**2 + self%dpds(i+1)**2)
                   write (msg, '(3(A,F15.8))') padl(trim(fmt), 20), self%dpds(i), ' ', self%dpds(i+1), ' | ', dpds_norm
                   call nek_log_message(msg, module=this_module, fmt='(5X,A)')

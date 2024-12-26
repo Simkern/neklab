@@ -906,9 +906,8 @@
             real(dp) :: s, phi, u, v, w
             character(len=128) :: msg
             phi = self%phi
-            ifld_ = ifld
             if (self%if_newton) then
-               ifld_ = ifld_ - (self%noutn-1)*lbuf
+               ifld_ = ifld - (self%noutn-1)*lbuf
                if (ifld_ > self%nload) then
                   ! load next file
                   self%noutn = self%noutn + 1
@@ -916,8 +915,9 @@
                   call nek_log_message(msg, this_module, 'set_baseflow')
                   call self%load_2d_fields(self%noutn)
                end if
-               ifld_ = ifld_ - (self%noutn-1)*lbuf
+               ifld_ = ifld - (self%noutn-1)*lbuf
             else
+               ifld_ = ifld
                if (ifld_ > self%nload) call stop_error('Inconsistent ifld!', this_module, 'set_baseflow')
             end if
             write(msg,'(A,I5,"/",I5,A,I5,A)') 'Set field ', ifld_, lbuf, ' (', ifld, ')'

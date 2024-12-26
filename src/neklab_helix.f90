@@ -9,8 +9,9 @@
       ! Default real kind.
          use LightKrylov, only: dp
          use LightKrylov_Constants, only: imag => one_im_cdp
-      ! Logging
+      ! Logging & timing
          use LightKrylov_Logger
+         use LightKrylov_Timing, only: lk_timer => global_lightkrylov_timer
       ! Extensions of the abstract vector types to nek data format.
          use neklab_vectors
          use neklab_nek_forcing, only: neklab_forcing, set_neklab_forcing
@@ -31,6 +32,8 @@
       !! Number of forcing components
          integer, parameter :: lbuf = 1000
       !! Maximum number of 2d fields to save before outposting
+         integer, parameter :: nfft = 16
+      !! Number of FFT components to compute
 
          public :: pipe
          public :: helix_pipe ! constructor for the pipe instance of the helix type
@@ -84,6 +87,8 @@
             logical :: save_2d_usrt = .true.! save us,ur,ut in addition to vx,vy,vz?
             logical :: save_2d_base = .false.
             logical :: if_newton    = .false. ! are we in newton mode?
+            logical :: if_fft       = .false. ! compute an fft of us on the fly
+            real(dp), dimension(2*nfft + 1) :: fftv ! temporary array for FFT computation
             ! save 2D fields
             logical, dimension(lelv)   :: lowner   ! is the local element the local segment owner?
             logical, dimension(lelv)   :: gowner   ! is the local element the global segmet owner? (first slice)
@@ -109,8 +114,7 @@
             procedure, pass(self), public :: outpost_2d_fields
             procedure, pass(self), public :: load_2d_fields
             procedure, pass(self), public :: set_baseflow
-            procedure, pass(self), public :: save_base
-            procedure, pass(self), public :: reset_newton
+            procedure, pass(self), public :: compute_fft
             ! helper routines
             procedure, pass(self), public :: get_forcing
             procedure, pass(self), public :: get_period
@@ -125,6 +129,8 @@
             procedure, pass(self), public :: get_lsegment
             procedure, pass(self), public :: get_gsegment
             procedure, pass(self), public :: get_v2d
+            procedure, pass(self), public :: reset_newton
+            procedure, pass(self), public :: save_base
             ! getter/setter for dpds
             procedure, pass(self), public :: get_dpds_all
             procedure, pass(self), public :: get_dpds
@@ -166,6 +172,19 @@
             call pipe%init_geom()
             ! compute forcing distribution
             call pipe%compute_fshape()
+
+            ! switch on FFT in the unsteady case
+            if (nf > 1) pipe%if_fft = .true.
+
+            ! add timers
+            call lk_timer%initialize() ! in case it has not been done
+            call lk_timer%add_timer('neklab_helix_init_geom', start=.false.)
+            call lk_timer%add_timer('neklab_helix_save_2d', start=.false.)
+            call lk_timer%add_timer('neklab_helix_load_2d', start=.false.)
+            call lk_timer%add_timer('neklab_helix_outpost_2d', start=.false.)
+            call lk_timer%add_timer('neklab_helix_set_baseflow', start=.false.)
+            call lk_timer%add_timer('neklab_helix_compute_fft', start=.false.)           
+            call lk_timer%add_timer('neklab_helix_compute_ubar', start=.false.)           
 
          end subroutine helix_pipe
 
@@ -225,6 +244,7 @@
             integer, external :: iglsum
 
             if (self%is_initialized) call stop_error('Attempting to reinitialize the mesh', this_module, 'init_geom')
+            call lk_timer%start('neklab_helix_init_geom')
 
          !  Geometry modification for helical pipe
 
@@ -402,6 +422,7 @@
             self%alpha = atan2(self%zax, pipe_r)
 
             self%is_initialized = .true.
+            call lk_timer%stop('neklab_helix_init_geom')
             
          end subroutine init_geom
 
@@ -571,6 +592,7 @@
             integer :: ix, iy, iz, ie
             real(dp) :: num, den, us, us_r, ux, uy, uz, phi, s, a, fs
             real(dp), external :: glsum
+            call lk_timer%start('neklab_helix_compute_ubar')
             num = 0.0_dp
             den = 0.0_dp
             phi = self%phi
@@ -595,6 +617,7 @@
             num = glsum(num,1)
             den = glsum(den,1)
             ubar = num/den  ! "1/r"-weighted volumetric average of streamwise velocity
+            call lk_timer%stop('neklab_helix_compute_ubar')
          end function compute_ubar
 
          subroutine save_2d_fields(self, u, v, w)
@@ -609,6 +632,7 @@
             nxy = lx1*ly1
             call logger%configuration(level=level)
             if (self%save_2d_base) then
+               call lk_timer%start('neklab_helix_save_2d')
                self%nsave = self%nsave + 1
                ! save data to buffer
                write(msg,'(A,I5,A,I5)') 'Save 2D data: ', self%nsave, '/', lbuf
@@ -628,6 +652,7 @@
                      vzavg = sum(self%vz2d(:,:,iseg,self%nsave))/nxy
                      print '(A,I8,I8,A,5(3X,F16.8))', 'DEBUG: save el', ie, iseg, ': ', xavg, yavg, vxavg, vyavg, vzavg
                   end if
+                  call lk_timer%stop('neklab_helix_save_2d')
                end do
                self%dt2d(self%nsave) = dt
                ! save data to file when buffer is full
@@ -640,6 +665,7 @@
          subroutine outpost_2d(self)
             class(helix), intent(inout) :: self
             if (self%nsave > 0) then
+               call lk_timer%start('neklab_helix_outpost_2d')
                if (self%if_newton) then
                   self%noutn = self%noutn + 1
                   call self%outpost_2d_fields(iname='n', iout=self%noutn)
@@ -653,6 +679,7 @@
                   end if
                end if
                self%nsave = 0
+               call lk_timer%stop('neklab_helix_outpost_2d')
             else
                call nek_log_message('No 2D data to outpost.', this_module, 'outpost')
             end if
@@ -775,13 +802,13 @@
             call bcast(n2d_elmap, self%nelf*isize) ! broadcast to all procs
 
             ! coordinates
-            call nek_log_message('   '//trim(fname)//': write x2d ...', this_module, 'outpost_2d_fields')
+            call nek_log_debug('   '//trim(fname)//': write x2d ...', this_module, 'outpost_2d_fields')
             call gather_and_write_slice(self%x2d, n2d_gown)
-            call nek_log_message('   '//trim(fname)//': write y2d ...', this_module, 'outpost_2d_fields')
+            call nek_log_debug('   '//trim(fname)//': write y2d ...', this_module, 'outpost_2d_fields')
             call gather_and_write_slice(self%y2d, n2d_gown)
             ! velocity data
             write(msg,'(3X,A,A,1X,I5)') trim(fname),': write v[xyz]2d', self%nsave
-            call nek_log_message(msg, this_module, 'outpost_2d_fields')
+            call nek_log_debug(msg, this_module, 'outpost_2d_fields')
             do i = 1, self%nsave
                call gather_and_write_slice(self%vx2d(:,:,:,i), n2d_gown)
                call gather_and_write_slice(self%vy2d(:,:,:,i), n2d_gown)
@@ -816,12 +843,12 @@
             real fldum
             ! functions
             logical, external :: if_byte_swap_test
+            call lk_timer%start('neklab_helix_load_2d')
             if (self%if_newton) then
                write(fname,'("n2dtorus",I3.3,".fld")') idx
             else
                write(fname,'("c2dtorus",I3.3,".fld")') idx
             end if
-            call nek_log_information('Load 2D data from file '//trim(fname), this_module, 'load_2d_fields')
             hdrsize = 116
             nxy = lx1*ly1
             nelf = self%nelf
@@ -867,10 +894,15 @@
             call bcast(nsaver, isize)          ! broadcast number of saved snapshots
             call bcast(global_map, nelf*isize) ! broadcast global element map
             call sort_index(global_map, gmap_index)
-            ! load data one timestep at a time
+            ! initialize data and prepare arrays
+            len = nxy*nelf
+            call rzero(self%vx2d, len*lbuf)
+            call rzero(self%vy2d, len*lbuf)
+            call rzero(self%vz2d, len*lbuf)
             allocate(slicedata(lx1,ly1,nelf,3))
-            call rzero(self%vx2d, nxy*nelv)
-            len = 3*nxy*nelf
+            len = 3*len
+            call rzero(slicedata, len)
+            ! load data one timestep at a time
             do i = 1, nsaver
                if (nid == 0) then ! read v[xyz]2d for all elements at the current timestep
                   call byte_read(slicedata, len*wdsl, ierr)
@@ -893,6 +925,9 @@
                if (ierr /= 0) call stop_error('Error closing file '//trim(fname), procedure='load_2d_fields')
             end if
             self%nload = nsaver
+            write(msg,'(A,A,A,I0)') 'Loaded 2D data from file ', trim(fname), ': ', self%nload
+            call nek_log_information(msg, this_module, 'load_2d_fields')
+            call lk_timer%stop('neklab_helix_load_2d')
          end subroutine load_2d_fields
 
          subroutine set_baseflow(self, basex, basey, basez, ifld)
@@ -912,7 +947,7 @@
                   ! load next file
                   self%noutn = self%noutn + 1
                   write(msg,'(A,I5)') 'Load file: ', self%noutn
-                  call nek_log_message(msg, this_module, 'set_baseflow')
+                  call nek_log_debug(msg, this_module, 'set_baseflow')
                   call self%load_2d_fields(self%noutn)
                end if
                ifld_ = ifld - (self%noutn-1)*lbuf
@@ -920,6 +955,7 @@
                ifld_ = ifld
                if (ifld_ > self%nload) call stop_error('Inconsistent ifld!', this_module, 'set_baseflow')
             end if
+            call lk_timer%start('neklab_helix_set_baseflow')
             write(msg,'(A,I5,"/",I5,A,I5,A)') 'Set field ', ifld_, lbuf, ' (', ifld, ')'
             call logger%log_debug(msg, this_module, 'set_baseflow')
             if (nid == 0) print *, msg
@@ -939,7 +975,44 @@
             end do
             end do
             end do
+            call lk_timer%stop('neklab_helix_set_baseflow')
          end subroutine set_baseflow
+
+         subroutine compute_fft(self)
+            ! only for constant dt
+            class(helix), intent(inout) :: self
+            ! internal
+            integer :: i, j, nperiod
+            real(dp) :: ubar, tau, dtau, twopi
+            real(dp), dimension(nfft+1) :: fftr
+            character(len=1024) :: msg
+            call lk_timer%start('neklab_helix_compute_fft')
+            twopi = 8.0_dp*atan(1.0_dp)
+            ! compute period, current ubar and time constants
+            ubar = self%compute_ubar(vx,vy,vz)
+            tau  = time/self%pulse_T
+            dtau = dt/self%pulse_T
+            ! fill up fft array
+            self%fftv(1) = self%fftv(1) + ubar*dtau
+            j = 1
+            do i = 2, 2*nfft, 2
+               self%fftv(i)   = self%fftv(i)   + ubar*cos(j*twopi*tau)*dtau
+               self%fftv(i+1) = self%fftv(i+1) + ubar*sin(j*twopi*tau)*dtau
+               j = j + 1
+            end do
+            nperiod = nint(tau)
+            if (abs(time - nperiod*self%pulse_T) < dt/10.0_dp) then ! at period
+               j = 1
+               fftr(1) = self%fftv(1)
+               do i = 2, 2*nfft,2
+                  j = j + 1
+                  fftr(j) = sqrt(self%fftv(i)**2 + self%fftv(i+1)**2)
+               end do
+               write(msg,'(A,2(1X,F16.8),1X,A,*(1X,E15.8))') 'Period',time,tau,'FFT',fftr
+               if (self%if_fft) call nek_log_message(msg, this_module, 'compute_fft')
+            end if
+            call lk_timer%stop('neklab_helix_compute_fft')
+         end subroutine compute_fft
 
          subroutine save_base(self, ifsave)
             class(helix), intent(inout) :: self

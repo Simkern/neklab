@@ -169,14 +169,6 @@
             pipe%phi         = atan2(pipe%pitch_s,pipe%curv_radius)
             pipe%sweep       = pipe%length*cos(pipe%phi)/pipe%curv_radius ! sweep angle in radians
 
-            ! intialize geometry
-            call pipe%init_geom()
-            ! compute forcing distribution
-            call pipe%compute_fshape()
-
-            ! switch on FFT in the unsteady case
-            if (nf > 1) pipe%if_fft = .true.
-
             ! add timers
             call lk_timer%initialize() ! in case it has not been done
             call lk_timer%add_timer('neklab_helix_init_geom', start=.false.)
@@ -184,8 +176,16 @@
             call lk_timer%add_timer('neklab_helix_load_2d', start=.false.)
             call lk_timer%add_timer('neklab_helix_outpost_2d', start=.false.)
             call lk_timer%add_timer('neklab_helix_set_baseflow', start=.false.)
-            call lk_timer%add_timer('neklab_helix_compute_fft', start=.false.)           
-            call lk_timer%add_timer('neklab_helix_compute_ubar', start=.false.)           
+            call lk_timer%add_timer('neklab_helix_compute_fft', start=.false.)
+            call lk_timer%add_timer('neklab_helix_compute_ubar', start=.false.)
+
+            ! intialize geometry
+            call pipe%init_geom()
+            ! compute forcing distribution
+            call pipe%compute_fshape()
+
+            ! switch on FFT in the unsteady case
+            if (nf > 1) pipe%if_fft = .true.           
 
          end subroutine helix_pipe
 

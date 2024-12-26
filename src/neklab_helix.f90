@@ -908,7 +908,7 @@
             phi = self%phi
             ifld_ = ifld
             if (self%if_newton) then
-               ifld_ = ifld_ - self%noutn*lbuf
+               ifld_ = ifld_ - (self%noutn-1)*lbuf
                if (ifld_ > self%nload) then
                   ! load next file
                   self%noutn = self%noutn + 1
@@ -916,10 +916,11 @@
                   call nek_log_message(msg, this_module, 'set_baseflow')
                   call self%load_2d_fields(self%noutn)
                end if
+               ifld_ = ifld_ - (self%noutn-1)*lbuf
             else
                if (ifld_ > self%nload) call stop_error('Inconsistent ifld!', this_module, 'set_baseflow')
             end if
-            write(msg,'(A,I5,"/",I5,A,I5,A)') 'Set field ', ifld, lbuf, ' (', ifld, ')'
+            write(msg,'(A,I5,"/",I5,A,I5,A)') 'Set field ', ifld_, lbuf, ' (', ifld, ')'
             call logger%log_debug(msg, this_module, 'set_baseflow')
             if (nid == 0) print *, msg
             do ie = 1, nelv
@@ -927,10 +928,10 @@
             do iz = 1, lz1
             do iy = 1, ly1
             do ix = 1, lx1
-                  s = self%as(ix,iy,iz,ie)
-               u = self%vx2d(ix,iy,iseg,ifld)
-               v = self%vy2d(ix,iy,iseg,ifld)
-               w = self%vz2d(ix,iy,iseg,ifld)
+               s = self%as(ix,iy,iz,ie)
+               u = self%vx2d(ix,iy,iseg,ifld_)
+               v = self%vy2d(ix,iy,iseg,ifld_)
+               w = self%vz2d(ix,iy,iseg,ifld_)
                basex(ix,iy,iz,ie) = cos(phi)*( cos(s)*u + sin(s)*v) + sin(phi)*w
                basey(ix,iy,iz,ie) =           -sin(s)*u + cos(s)*v
                basez(ix,iy,iz,ie) = sin(phi)*(-cos(s)*u - sin(s)*v) + cos(phi)*w

@@ -45,8 +45,10 @@ c-----------------------------------------------------------------------
       ! State vectors
       type(nek_dvector) :: bf, test
       ! Tolerance for the Newton solver
-      real(dp) :: tol, ubar_old, ubar_new, deltaf
-      real(dp) :: df
+      real(dp) :: tol
+      real(dp) :: dubdf0, dubdf1
+      real(dp) :: ubar_old, ubar_new, du
+      real(dp) :: deltaf, df
       ! flow parameters
       real, parameter :: womersley   = 35.0d0
       ! corresponds to Q = 1%
@@ -58,21 +60,21 @@ c-----------------------------------------------------------------------
       !real, parameter :: dp0ds       = 7.948934241227328e-02
       !real, parameter :: dp1dsr      = 2.842725203120692e-02
       !real, parameter :: dp1dsi      = 1.942304584125990e+00
-		real(dp), dimension(3) :: dpds
+		real(dp), dimension(3) :: dpds, dpds0
       integer :: tol_mode, inwt, log_level
       character(len=128) :: msg
       character(len=3) :: fid
+      real(dp), parameter :: ubar_target = 1.0_dp
 
       log_level = information_level
       
       inwt = 0
       if (istep.eq.0) then
-			! Set flow parameters
-         dpds = [ dp0ds, dp1dsr, dp1dsi ]
-			call pipe%init_flow(dpds, womersley)
-         call pipe%compute_bf_forcing(0.0_dp) ! --> set neklab_forcing data
+         ! Set flow parameters
+         dpds0 = [ dp0ds, dp1dsr, dp1dsi ]
+	      call pipe%init_flow(dpds0, womersley)
 			
-			call load_fld('rsttorus0.f00001')
+         call load_fld('rsttorus0.f00001')
          call bf%zero()
          call nek2vec(bf, vx, vy, vz, pr, t)
 			
@@ -85,39 +87,132 @@ c-----------------------------------------------------------------------
          sys = nek_system_torus()
          sys%jacobian = nek_jacobian_torus()
          sys%jacobian%X = bf
-			ubar_old = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
-         write(msg,'(A,E15.8)') 'u_bar_old= ', ubar_old
+         ubar_old = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
+         write(msg,'(A,E15.8)') 'u_bar_init= ', ubar_old
          call logger%log_message(msg, procedure='userchk')
          
          ! Set up logging & timing
          call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
-         call timer%initialize()
-         call pipe%setup_summary()
-         write(msg,'(A,*(E15.8,1X))') 'forcing= ', dpds
+         call timer%initialize(); call pipe%setup_summary()
+         write(msg,'(A,*(E15.8,1X))') 'forcing= ', dpds0
          call nek_log_message(msg, procedure='userchk')
          ! Run Newton
          inwt = inwt + 1
          call newton_forced_periodic_orbit_torus(sys, bf, tol, tol_mode)
          call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
-         ubar_new = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
          ! Finalize system timings
-         call sys%finalize_timer()
-         call timer%finalize()
-         write(msg,'(A,E15.8)') 'u_bar_new= ', ubar_new
+         call sys%finalize_timer(); call timer%finalize()
+         ubar_old = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
+         write(msg,'(A,E15.8)') 'u_bar= ', ubar_old
          call nek_log_message(msg, procedure='userchk')
-         
-         call setup_nonlinear_solver(recompute_dt=.true.,cfl_limit = 0.4_dp)
-         ! Intgrate the nonlinear equations forward
-         time = 0.0_dp
-         call pipe%save_2d_fields(vx,vy,vy)
-         do istep = 1, nsteps
-            if (istep == nsteps) lastep = 1
-            call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
-            call nek_advance()
-            call pipe%save_2d_fields(vx,vy,vy)
-         end do
          write(fid,'(I3.3)') inwt
          call rename('lightkrylov.log','lightkrylov_nwt'//fid//'.log')
+
+         if (abs(ubar_old - ubar_target) > tol) then
+            !
+            ! get d_ubar/df 0
+            !
+            ! Set flow parameters
+            dpds = dpds0
+            dpds(1) = dpds(1) + df
+			   call pipe%init_flow(dpds, womersley)
+            ! Set up logging & timing
+            call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
+            call timer%initialize(); call pipe%setup_summary()
+            write(msg,'(A,*(E15.8,1X))') 'forcing= ', dpds
+            call nek_log_message(msg, procedure='userchk')
+            ! Run Newton
+            inwt = inwt + 1
+            call newton_forced_periodic_orbit_torus(sys, bf, tol, tol_mode)
+            call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
+            ! Finalize system timings
+            call sys%finalize_timer(); call timer%finalize()
+            ubar_new = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
+            du = ubar_new - ubar_old
+            dubdf0 = du/df
+            write(msg,'(3(A,E15.8))') 'u_bar_new= ', ubar_new, ', du= ', 
+     $                                 du, 'du/df= ', dubdf0
+            call nek_log_message(msg, procedure='userchk')
+            write(fid,'(I3.3)') inwt
+            call rename('lightkrylov.log','lightkrylov_nwt'//fid//'.log')
+            !
+            ! update
+            ! 
+            deltaf = (ubar_target - ubar_old)*dubdf0
+            ! Set flow parameters
+            dpds0(1) = dpds0(1) + deltaf ! update current reference forcing
+            write(msg,'(A,*(E15.8,1X))') 'deltaf_0= ', deltaf
+            call nek_log_message(msg, procedure='userchk')
+			   call pipe%init_flow(dpds0, womersley)
+            ! Set up logging & timing
+            call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
+            call timer%initialize(); call pipe%setup_summary()
+            write(msg,'(A,*(E15.8,1X))') 'forcing= ', dpds0
+            call nek_log_message(msg, procedure='userchk')
+            ! Run Newton
+            inwt = inwt + 1
+            call newton_forced_periodic_orbit_torus(sys, bf, tol, tol_mode)
+            call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
+            ! Finalize system timings
+            call sys%finalize_timer(); call timer%finalize()
+            ubar_old = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
+            write(msg,'(A,E15.8)') 'u_bar= ', ubar_old
+            call nek_log_message(msg, procedure='userchk')
+            write(fid,'(I3.3)') inwt
+            call rename('lightkrylov.log','lightkrylov_nwt'//fid//'.log')
+         end if
+
+         if (abs(ubar_old - ubar_target) > tol) then
+            !
+            ! get d_ubar/df 1
+            !
+            ! Set flow parameters
+            dpds = dpds0
+            dpds(2) = dpds(2) + df
+			   call pipe%init_flow(dpds, womersley)
+            ! Set up logging & timing
+            call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
+            call timer%initialize(); call pipe%setup_summary()
+            write(msg,'(A,*(E15.8,1X))') 'forcing= ', dpds
+            call nek_log_message(msg, procedure='userchk')
+            ! Run Newton
+            inwt = inwt + 1
+            call newton_forced_periodic_orbit_torus(sys, bf, tol, tol_mode)
+            call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
+            ! Finalize system timings
+            call sys%finalize_timer(); call timer%finalize()
+            ubar_new = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
+            du = ubar_new - ubar_old
+            dubdf0 = du/df
+            write(msg,'(3(A,E15.8))') 'u_bar_new= ', ubar_new, ', du= ', 
+     $                                 du, 'du/df= ', dubdf1
+            call nek_log_message(msg, procedure='userchk')
+            write(fid,'(I3.3)') inwt
+            call rename('lightkrylov.log','lightkrylov_nwt'//fid//'.log')
+            !
+            ! update
+            ! 
+            deltaf = (ubar_target - ubar_old)*dubdf0
+            ! Set flow parameters
+            dpds0(2) = dpds0(2) + deltaf ! update current reference forcing
+			   call pipe%init_flow(dpds0, womersley)
+            ! Set up logging & timing
+            call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
+            call timer%initialize(); call pipe%setup_summary()
+            write(msg,'(A,*(E15.8,1X))') 'forcing= ', dpds0
+            call nek_log_message(msg, procedure='userchk')
+            ! Run Newton
+            inwt = inwt + 1
+            call newton_forced_periodic_orbit_torus(sys, bf, tol, tol_mode)
+            call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
+            ! Finalize system timings
+            call sys%finalize_timer(); call timer%finalize()
+            ubar_old = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
+            write(msg,'(A,E15.8)') 'u_bar= ', ubar_old
+            call nek_log_message(msg, procedure='userchk')
+            write(fid,'(I3.3)') inwt
+            call rename('lightkrylov.log','lightkrylov_nwt'//fid//'.log')
+         end if
          call nek_end()
       end if
 

@@ -226,7 +226,7 @@
                call nek_log_warning('helix instance not initialized', module=this_module, fmt='(A)')
             end if
          end subroutine setup_summary
-
+         
          subroutine parameter_summary(self)
             class(helix), intent(in) :: self
             ! internal
@@ -235,6 +235,7 @@
             character(len=128) :: msg, fmt
             if (self%is_initialized) then
                call nek_log_message('##  HELIX PARAMETERS ##', module=this_module)
+               call nek_log_message('Flow:', module=this_module)
                write (msg, '(A,L8)') padl('steady:', 20), self%if_steady
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
                write (msg, '(A,F15.8)') padl('Wo:', 20), self%womersley
@@ -243,6 +244,7 @@
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
                write (msg, '(A,F15.8)') padl('T:', 20), self%pulse_T
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               call nek_log_message('Forcing:', module=this_module)
                write (msg, '(3(A,F15.8))') padl('dpds_00:', 20), self%dpds(1), ' ', 0.0_dp, ' | ', self%dpds(1)
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
                do i = 2, nf, 2
@@ -899,6 +901,7 @@
                if (ierr /= 0) call stop_error('Error reading gloabl element map from file '//trim(fname), procedure='load_2d_fields')
                ! read timestep information
                call byte_read(dt2dr(:nsaver), nsaver*wdsl, ierr)
+               self%dt2d = dt2dr
                if (ierr /= 0) call stop_error('Error reading timestep information from file '//trim(fname), procedure='load_2d_fields')
                ! read coords but skip them
                call byte_read(fldum, nxy*nelf*wdsl, ierr)
@@ -906,15 +909,12 @@
                if (ierr /= 0) call stop_error('Error reading coordinates from file '//trim(fname), procedure='load_2d_fields')
             end if
             call bcast(nsaver, isize)          ! broadcast number of saved snapshots
+            call bcast(self%dt2d, lbuf*wdsize) ! broadcast timestep data
             call bcast(global_map, nelf*isize) ! broadcast global element map
             call sort_index(global_map, gmap_index)
             ! initialize data and prepare arrays
-            len = nxy*nelf
-            call rzero(self%vx2d, len*lbuf)
-            call rzero(self%vy2d, len*lbuf)
-            call rzero(self%vz2d, len*lbuf)
+            len = 3*nxy*nelf
             allocate(slicedata(lx1,ly1,nelf,3))
-            len = 3*len
             call rzero(slicedata, len)
             ! load data one timestep at a time
             do i = 1, nsaver
@@ -970,7 +970,9 @@
                if (ifld_ > self%nload) call stop_error('Inconsistent ifld!', this_module, 'set_baseflow')
             end if
             call lk_timer%start('neklab_helix_set_baseflow')
-            write(msg,'(A,I5,"/",I5,A,I5,A)') 'Set field ', ifld_, lbuf, ' (', ifld, ')'
+            ! set dt
+            dt = -abs(self%dt2d(ifld_)) ! negative to force the stepsize in settime
+            write(msg,'(A,I5,"/",I5,A,I5,A,F10.6)') 'Set field ', ifld_, lbuf, ' (', ifld, '), dt= ', dt
             call logger%log_debug(msg, this_module, 'set_baseflow')
             if (nid == 0) print *, msg
             do ie = 1, nelv

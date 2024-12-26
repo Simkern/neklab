@@ -121,6 +121,7 @@
             procedure, pass(self), public :: add_dpds
             procedure, pass(self), public :: is_steady
             procedure, pass(self), public :: setup_summary
+            procedure, pass(self), public :: parameter_summary
             procedure, pass(self), public :: get_fshape
             procedure, pass(self), public :: get_angle_s
             procedure, pass(self), public :: get_alpha
@@ -225,6 +226,33 @@
                call nek_log_warning('helix instance not initialized', module=this_module, fmt='(A)')
             end if
          end subroutine setup_summary
+
+         subroutine parameter_summary(self)
+            class(helix), intent(in) :: self
+            ! internal
+            character(len=128) :: msg
+            if (self%is_initialized) then
+               call nek_log_message('##  HELIX PARAMETERS ##', module=this_module)
+               write (msg, '(A,L8)') padl('steady:', 20), self%if_steady
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,F15.8)') padl('Wo:', 20), self%womersley
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,F15.8)') padl('omega:', 20), self%omega
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,F15.8)') padl('T:', 20), self%pulse_T
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,F15.8,1X,F15.8)') padl('dpds_00:', 20), self%dpds(1), 0.0_dp
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               do i = 2, n, 2
+                  write(fmt,'("dpds_",I2.2)') i/2
+                  print *, fmt
+                  write (msg, '(A,F15.8,1X,F15.8)') padl(trim(fmt), 20), self%dpds(i), self%dpds(i+1)
+                  call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               end do
+            else
+               call nek_log_warning('helix instance not initialized', module=this_module, fmt='(A)')
+            end if
+         end subroutine parameter_summary
 
          subroutine init_geom(self)
             class(helix), intent(inout) :: self

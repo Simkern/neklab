@@ -18,8 +18,9 @@
                call pipe%reset_newton()         ! reset output counter to overwrite output files
                do istep = 1, nsteps
                   call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
-                  call pipe%save_2d_fields(vx,vy,vz)
                   call nek_advance()
+                  call pipe%save_2d_fields(vx,vy,vz)
+                  call pipe%compute_fft()
                end do
                call pipe%outpost_2d()                   ! output even if buffer is not full
       ! Copy the final solution to vector.

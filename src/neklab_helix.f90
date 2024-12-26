@@ -231,6 +231,7 @@
             class(helix), intent(in) :: self
             ! internal
             integer :: i
+            real(dp) :: dpds_norm
             character(len=128) :: msg, fmt
             if (self%is_initialized) then
                call nek_log_message('##  HELIX PARAMETERS ##', module=this_module)
@@ -242,12 +243,13 @@
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
                write (msg, '(A,F15.8)') padl('T:', 20), self%pulse_T
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,F15.8,1X,F15.8)') padl('dpds_00:', 20), self%dpds(1), 0.0_dp
+               write (msg, '(3(A,F15.8))') padl('dpds_00:', 20), self%dpds(1), ' ', 0.0_dp, ' | ', self%dpds(1)
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
                do i = 2, nf, 2
                   write(fmt,'("dpds_",I2.2)') i/2
                   print *, fmt
-                  write (msg, '(A,F15.8,1X,F15.8)') padl(trim(fmt), 20), self%dpds(i), self%dpds(i+1)
+                  dpds_norm = sqrt(self%dpds(i)**2 + self%dpds(i+1)**2)
+                  write (msg, '(3(A,F15.8))') padl(trim(fmt), 20), self%dpds(i), ' ', self%dpds(i+1), ' | ', dpds_norm
                   call nek_log_message(msg, module=this_module, fmt='(5X,A)')
                end do
             else
@@ -483,6 +485,7 @@
                   call stop_error('Steady case requires only one forcing component',module=this_module,procedure='init_flow')
                end if
             end if
+            self%dpds = dpds
             call self%parameter_summary()
          end subroutine init_flow
 

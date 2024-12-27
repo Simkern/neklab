@@ -90,7 +90,8 @@
             logical :: if_fft       = .false. ! compute the fft of the streamwise mass flow us on the fly
             real(dp), dimension(2*nfft + 1) :: fftv ! temporary array for mass flow FFT computation
             real(dp), dimension(nfft + 1) :: mflow  ! FFT of the streamwise mass flow 
-            real(dp) :: fft_time = 0.0_dp ! Integration time of the FFT
+            real(dp) :: fft_time  = 0.0_dp ! Current integration time
+            real(dp) :: fft_rtime = 0.0_dp ! Integration time of the FFT record
             ! save 2D fields
             logical, dimension(lelv)   :: lowner   ! is the local element the local segment owner?
             logical, dimension(lelv)   :: gowner   ! is the local element the global segmet owner? (first slice)
@@ -1018,10 +1019,11 @@
                self%fftv(i)   = self%fftv(i)   + ubar*cos(j*twopi*tau)*dtau
                self%fftv(i+1) = self%fftv(i+1) + ubar*sin(j*twopi*tau)*dtau
                j = j + 1
+               self%fft_time = self%fft_time + dt
             end do
             nperiod = nint(tau)
             if (abs(time - nperiod*self%pulse_T) < dt/10.0_dp) then ! at period
-               self%fft_time = time - self%fft_time ! total integration time since last call
+               self%fft_rtime = time - self%fft_time ! total integration time since last call
                j = 1
                self%mflow(1) = self%fftv(1)
                do i = 2, 2*nfft,2
@@ -1044,9 +1046,9 @@
             character(len=1024) :: msg
             nout_ = optval(nout, nfft)
             nout_ = min(max(nout_,1),nfft)
-            tau = self%fft_time/self%pulse_T
-            write(msg,'(A,2(1X,F16.8),1X,A,*(1X,E15.8))') 'Period',self%fft_time,tau,'mass flow FFT',self%mflow(:nout_)
-            if (self%if_fft) call nek_log_message(msg, this_module, 'compute_mflow_fft')
+            tau = self%fft_rtime/self%pulse_T
+            write(msg,'(A,2(1X,F16.8),1X,A,*(1X,E15.8))') 'Period',self%fft_rtime,tau,'mass flow FFT',self%mflow(:nout_)
+            if (self%if_fft) call nek_log_message(msg, this_module)
          end subroutine print_mflow_fft
 
          subroutine save_base(self, ifsave)

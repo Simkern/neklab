@@ -197,7 +197,7 @@
             integer,  intent(out)  :: info
             !! Information flag
             character(len=256) :: msg
-            real(dp), parameter :: mintol = 10*atol_dp! minimum acceptable solver tolerance
+            real(dp), parameter :: mintol = 10.0_dp*atol_dp! minimum acceptable solver tolerance
             if (target_tol < mintol) then
                tol = mintol
                write(msg,'(A,E9.2)') 'Input tolerance below minimum tolerance! Resetting solver tolerance to mintol= ', tol
@@ -229,7 +229,7 @@
             !! Information flag
             ! internals
             real(dp), parameter :: maxtol = 1e-4_dp ! maximum acceptable solver tolerance
-            real(dp), parameter :: mintol = 10*atol_dp! minimum acceptable solver tolerance
+            real(dp), parameter :: mintol = 10.0_dp*atol_dp! minimum acceptable solver tolerance
             real(dp) :: tol_old, target_tol_
             character(len=256) :: msg
 
@@ -246,7 +246,7 @@
             target_tol_ = min(target_tol_, maxtol)
 
             tol_old = tol
-            tol = max(0.1*rnorm, target_tol_)
+            tol = max(0.1_dp*rnorm, target_tol_)
             if (tol < 10*target_tol_) then
                write(msg,'(A,E9.2)') 'Residual is close to target. Setting tolerance to input target= ', target_tol_
                call nek_log_information(msg, module=this_module, procedure='nek_dynamic_tol')

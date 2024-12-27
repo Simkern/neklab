@@ -20,9 +20,10 @@
                   call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
                   call nek_advance()
                   call pipe%save_2d_fields(vx,vy,vz)
-                  call pipe%compute_fft()
+                  call pipe%compute_mflow_fft()      ! integrate Fourier coefficients
                end do
                call pipe%outpost_2d()                   ! output even if buffer is not full
+               call pipe%print_mflow_fft()
       ! Copy the final solution to vector.
                call nek2vec(vec_out, vx, vy, vz, pr, t)
       ! Evaluate residual F(X) - X.

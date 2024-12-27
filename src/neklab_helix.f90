@@ -32,7 +32,7 @@
       !! Number of forcing components
          integer, parameter :: lbuf = 1000
       !! Maximum number of 2d fields to save before outposting
-         integer, parameter :: nfft = 16
+         integer, parameter, public :: nfft = 16
       !! Number of FFT components to compute
 
          public :: pipe
@@ -87,8 +87,10 @@
             logical :: save_2d_usrt = .true.! save us,ur,ut in addition to vx,vy,vz?
             logical :: save_2d_base = .false.
             logical :: if_newton    = .false. ! are we in newton mode?
-            logical :: if_fft       = .false. ! compute an fft of us on the fly
-            real(dp), dimension(2*nfft + 1) :: fftv ! temporary array for FFT computation
+            logical :: if_fft       = .false. ! compute the fft of the streamwise mass flow us on the fly
+            real(dp), dimension(2*nfft + 1) :: fftv ! temporary array for mass flow FFT computation
+            real(dp), dimension(nfft + 1) :: mflow  ! FFT of the streamwise mass flow 
+            real(dp) :: fft_time = 0.0_dp ! Integration time of the FFT
             ! save 2D fields
             logical, dimension(lelv)   :: lowner   ! is the local element the local segment owner?
             logical, dimension(lelv)   :: gowner   ! is the local element the global segmet owner? (first slice)
@@ -114,7 +116,8 @@
             procedure, pass(self), public :: outpost_2d_fields
             procedure, pass(self), public :: load_2d_fields
             procedure, pass(self), public :: set_baseflow
-            procedure, pass(self), public :: compute_fft
+            procedure, pass(self), public :: compute_mflow_fft
+            procedure, pass(self), public :: print_mflow_fft
             ! helper routines
             procedure, pass(self), public :: get_forcing
             procedure, pass(self), public :: get_period
@@ -132,6 +135,7 @@
             procedure, pass(self), public :: get_v2d
             procedure, pass(self), public :: reset_newton
             procedure, pass(self), public :: save_base
+            procedure, pass(self), public :: get_mflow_fft
             ! getter/setter for dpds
             procedure, pass(self), public :: get_dpds_all
             procedure, pass(self), public :: get_dpds
@@ -176,8 +180,8 @@
             call lk_timer%add_timer('neklab_helix_load_2d', start=.false.)
             call lk_timer%add_timer('neklab_helix_outpost_2d', start=.false.)
             call lk_timer%add_timer('neklab_helix_set_baseflow', start=.false.)
-            call lk_timer%add_timer('neklab_helix_compute_fft', start=.false.)
             call lk_timer%add_timer('neklab_helix_compute_ubar', start=.false.)
+            call lk_timer%add_timer('neklab_helix_compute_mflow_fft', start=.false.)
 
             ! intialize geometry
             call pipe%init_geom()
@@ -994,15 +998,14 @@
             call lk_timer%stop('neklab_helix_set_baseflow')
          end subroutine set_baseflow
 
-         subroutine compute_fft(self)
+         subroutine compute_mflow_fft(self)
             ! only for constant dt
             class(helix), intent(inout) :: self
             ! internal
             integer :: i, j, nperiod
             real(dp) :: ubar, tau, dtau, twopi
-            real(dp), dimension(nfft+1) :: fftr
             character(len=1024) :: msg
-            call lk_timer%start('neklab_helix_compute_fft')
+            call lk_timer%start('neklab_helix_compute_mflow_fft')
             twopi = 8.0_dp*atan(1.0_dp)
             ! compute period, current ubar and time constants
             ubar = self%compute_ubar(vx,vy,vz)
@@ -1018,17 +1021,33 @@
             end do
             nperiod = nint(tau)
             if (abs(time - nperiod*self%pulse_T) < dt/10.0_dp) then ! at period
+               self%fft_time = time - self%fft_time ! total integration time since last call
                j = 1
-               fftr(1) = self%fftv(1)
+               self%mflow(1) = self%fftv(1)
                do i = 2, 2*nfft,2
                   j = j + 1
-                  fftr(j) = sqrt(self%fftv(i)**2 + self%fftv(i+1)**2)
+                  self%mflow(j) = sqrt(self%fftv(i)**2 + self%fftv(i+1)**2)
                end do
-               write(msg,'(A,2(1X,F16.8),1X,A,*(1X,E15.8))') 'Period',time,tau,'FFT',fftr
-               if (self%if_fft) call nek_log_message(msg, this_module, 'compute_fft')
+               self%fftv = 0.0_dp
+               self%fft_time = 0.0_dp               ! reset integration time
             end if
-            call lk_timer%stop('neklab_helix_compute_fft')
-         end subroutine compute_fft
+            call lk_timer%stop('neklab_helix_compute_mflow_fft')
+         end subroutine compute_mflow_fft
+
+         subroutine print_mflow_fft(self, nout)
+            ! only for constant dt
+            class(helix), intent(in) :: self
+            integer, optional, intent(in) :: nout
+            ! internal
+            real(dp) :: tau
+            integer :: nout_
+            character(len=1024) :: msg
+            nout_ = optval(nout, nfft)
+            nout_ = min(max(nout_,1),nfft)
+            tau = self%fft_time/self%pulse_T
+            write(msg,'(A,2(1X,F16.8),1X,A,*(1X,E15.8))') 'Period',self%fft_time,tau,'mass flow FFT',self%mflow(:nout)
+            if (self%if_fft) call nek_log_message(msg, this_module, 'compute_mflow_fft')
+         end subroutine print_mflow_fft
 
          subroutine save_base(self, ifsave)
             class(helix), intent(inout) :: self
@@ -1149,6 +1168,12 @@
                end if
             end if
          end function get_v2d
+
+         subroutine get_mflow_fft(self, mflow)
+            class(helix), intent(in) :: self
+            real(dp), intent(out) :: mflow(nfft+1)
+            mflow = self%mflow
+         end subroutine get_mflow_fft
 
       ! Helper functions
 

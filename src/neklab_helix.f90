@@ -1045,7 +1045,7 @@
             nout_ = optval(nout, nfft)
             nout_ = min(max(nout_,1),nfft)
             tau = self%fft_time/self%pulse_T
-            write(msg,'(A,2(1X,F16.8),1X,A,*(1X,E15.8))') 'Period',self%fft_time,tau,'mass flow FFT',self%mflow(:nout)
+            write(msg,'(A,2(1X,F16.8),1X,A,*(1X,E15.8))') 'Period',self%fft_time,tau,'mass flow FFT',self%mflow(:nout_)
             if (self%if_fft) call nek_log_message(msg, this_module, 'compute_mflow_fft')
          end subroutine print_mflow_fft
 

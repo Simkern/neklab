@@ -28,7 +28,7 @@
       !! Local number of grid points for the velocity mesh.
          integer, parameter :: lp = lx2*ly2*lz2*lelv
       !! Local number of grid points for the pressure mesh.
-         integer, parameter :: nf = 3
+         integer, parameter :: nf = 1
       !! Number of forcing components
          integer, parameter :: lbuf = 1000
       !! Maximum number of 2d fields to save before outposting
@@ -87,7 +87,7 @@
             logical :: save_2d_usrt = .true.! save us,ur,ut in addition to vx,vy,vz?
             logical :: save_2d_base = .false.
             logical :: if_newton    = .false. ! are we in newton mode?
-            logical :: if_fft       = .false. ! compute the fft of the streamwise mass flow us on the fly
+            logical, public :: if_fft       = .false. ! compute the fft of the streamwise mass flow us on the fly
             real(dp), dimension(2*nfft + 1) :: fftv ! temporary array for mass flow FFT computation
             real(dp), dimension(nfft + 1) :: mflow  ! FFT of the streamwise mass flow 
             real(dp) :: fft_time  = 0.0_dp ! Current integration time
@@ -219,9 +219,6 @@
                write (msg, '(A,F15.8)') padl('sweep angle:', 20), pipe%sweep
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
                call nek_log_message('Mesh:', module=this_module)
-               write (msg, '(A,I8)') padl('ntot:', 20), nx1*ny1*nz1*nelv
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,I8)') padl('nelv:', 20), nelv
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
                write (msg, '(A,I8)') padl('slices:', 20), pipe%nslices
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
@@ -976,8 +973,8 @@
             end if
             call lk_timer%start('neklab_helix_set_baseflow')
             ! set dt
-            dt = -abs(self%dt2d(ifld_)) ! negative to force the stepsize in settime
-            write(msg,'(A,I5,"/",I5,A,I5,A,F10.6)') 'Set field ', ifld_, lbuf, ' (', ifld, '), dt= ', dt
+            param(12) = -abs(self%dt2d(ifld_)) ! negative to force the stepsize in settime
+            write(msg,'(A,I5,"/",I5,A,I5,A,F10.6)') 'Set field ', ifld_, lbuf, ' (', ifld, '), dt= ', -param(12)
             call logger%log_debug(msg, this_module, 'set_baseflow')
             if (nid == 0) print *, msg
             do ie = 1, nelv
@@ -999,56 +996,69 @@
             call lk_timer%stop('neklab_helix_set_baseflow')
          end subroutine set_baseflow
 
-         subroutine compute_mflow_fft(self)
+         subroutine compute_mflow_fft(self, period)
             ! only for constant dt
             class(helix), intent(inout) :: self
+            real(dp), optional, intent(in) :: period
             ! internal
             integer :: i, j, nperiod
-            real(dp) :: ubar, tau, dtau, twopi
-            character(len=1024) :: msg
-            call lk_timer%start('neklab_helix_compute_mflow_fft')
-            twopi = 8.0_dp*atan(1.0_dp)
-            ! compute period, current ubar and time constants
-            ubar = self%compute_ubar(vx,vy,vz)
-            tau  = time/self%pulse_T
-            dtau = dt/self%pulse_T
-            ! fill up fft array
-            self%fftv(1) = self%fftv(1) + ubar*dtau
-            j = 1
-            do i = 2, 2*nfft, 2
-               self%fftv(i)   = self%fftv(i)   + ubar*cos(j*twopi*tau)*dtau
-               self%fftv(i+1) = self%fftv(i+1) + ubar*sin(j*twopi*tau)*dtau
-               j = j + 1
-               self%fft_time = self%fft_time + dt
-            end do
-            nperiod = nint(tau)
-            if (abs(time - nperiod*self%pulse_T) < dt/10.0_dp) then ! at period
-               self%fft_rtime = time - self%fft_time ! total integration time since last call
-               j = 1
-               self%mflow(1) = self%fftv(1)
-               do i = 2, 2*nfft,2
-                  j = j + 1
-                  self%mflow(j) = sqrt(self%fftv(i)**2 + self%fftv(i+1)**2)
-               end do
-               self%fftv = 0.0_dp
-               self%fft_time = 0.0_dp               ! reset integration time
+            real(dp) :: ubar, tau, dtau, twopi, pd
+            pd = optval(period, self%pulse_T)
+
+            if (self%if_fft) then
+               if (pd /= 0.0_dp) then
+                  call lk_timer%start('neklab_helix_compute_mflow_fft')
+                  twopi = 8.0_dp*atan(1.0_dp)
+                  ! compute period, current ubar and time constants
+                  ubar = self%compute_ubar(vx,vy,vz)
+                  tau  = time/pd
+                  dtau = dt/pd
+                  ! fill up fft array
+                  self%fftv(1) = self%fftv(1) + ubar*dtau
+                  j = 1
+                  do i = 2, 2*nfft, 2
+                     self%fftv(i)   = self%fftv(i)   + ubar*cos(j*twopi*tau)*dtau
+                     self%fftv(i+1) = self%fftv(i+1) + ubar*sin(j*twopi*tau)*dtau
+                     j = j + 1
+                  end do
+                  self%fft_time = self%fft_time + dt
+                  nperiod = nint(tau)
+                  if (abs(time - nperiod*pd) < dt/10.0_dp) then ! at period
+                     self%fft_rtime = self%fft_time ! total integration time since last call
+                     j = 1
+                     self%mflow(1) = self%fftv(1)
+                     do i = 2, 2*nfft,2
+                        j = j + 1
+                        self%mflow(j) = sqrt(self%fftv(i)**2 + self%fftv(i+1)**2)
+                     end do
+                     self%fftv = 0.0_dp
+                     self%fft_time = 0.0_dp               ! reset integration time
+                  end if
+                  call lk_timer%stop('neklab_helix_compute_mflow_fft')
+               else
+                  call nek_log_message('Period not set or zero. FFT not computed', this_module, 'compute_mflow_fft')
+                  self%if_fft = .false.
+               end if
             end if
-            call lk_timer%stop('neklab_helix_compute_mflow_fft')
          end subroutine compute_mflow_fft
 
-         subroutine print_mflow_fft(self, nout)
+         subroutine print_mflow_fft(self, period, nout)
             ! only for constant dt
             class(helix), intent(in) :: self
+            real(dp), optional, intent(in) :: period
             integer, optional, intent(in) :: nout
             ! internal
-            real(dp) :: tau
+            real(dp) :: tau, pd
             integer :: nout_
             character(len=1024) :: msg
+            pd = optval(period, self%pulse_T)
             nout_ = optval(nout, nfft)
             nout_ = min(max(nout_,1),nfft)
-            tau = self%fft_rtime/self%pulse_T
-            write(msg,'(A,2(1X,F16.8),1X,A,*(1X,E15.8))') 'Period',self%fft_rtime,tau,'mass flow FFT',self%mflow(:nout_)
-            if (self%if_fft) call nek_log_message(msg, this_module)
+            if (pd /= 0.0_dp .and. self%if_fft) then
+               tau = self%fft_rtime/pd
+               write(msg,'(A,2(1X,F16.8),1X,A,*(1X,E15.8))') 'Period',self%fft_rtime,tau,'mass flow FFT',self%mflow(:nout_)
+               call nek_log_message(msg, this_module)
+            end if
          end subroutine print_mflow_fft
 
          subroutine save_base(self, ifsave)

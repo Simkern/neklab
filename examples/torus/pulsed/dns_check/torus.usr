@@ -41,7 +41,7 @@ c-----------------------------------------------------------------------
       ! State vectors
       type(nek_dvector) :: bf, res, vtmp1, vtmp2
       ! Tolerance for the Newton solver
-      real(dp) :: tol, ubar, norm, period
+      real(dp) :: tol, ubar, norm, period, ltim
       ! flow parameters
       !real, parameter :: womersley   = 35.0d0
       ! corresponds to Q = 1%
@@ -56,6 +56,7 @@ c-----------------------------------------------------------------------
       real(dp), dimension(3), parameter :: dpds = [ dp0ds, sqrt(dp1dsr**2 + dp1dsi**2), 0.0_dp ]
       integer :: i, j, ostep, tol_mode
 		character(len=128) :: msg
+      real dnekclock_sync
 
 
       if (istep == 0) then
@@ -79,6 +80,7 @@ c-----------------------------------------------------------------------
          write(msg,'(A,E15.8)') 'u_bar_old= ', ubar
          call logger%log_message(msg, procedure='userchk')
 
+         ltim = dnekclock_sync()
          call setup_nonlinear_solver(recompute_dt=.true.,cfl_limit=0.4_dp,endtime=period)
       ! Intgrate the nonlinear equations forward
          time = 0.0_dp
@@ -102,15 +104,18 @@ c-----------------------------------------------------------------------
 				!if (mod(istep,20)==0) call outpost(vx,vy,vz,pr,t,'bs1')
          end do
          call pipe%outpost_2d()                 ! output even if buffer is not full
+         ltim = dnekclock_sync() - ltim
+         if (nid == 0) print *, 'Timing nonlinear with 2d saves: ', ltim
          call nek2vec(res, vx, vy, vx, pr, t)
          call res%sub(bf)
 			
-         call setup_linear_solver(solve_baseflow=.true.,recompute_dt = .false.)
 			! Integrate the equations forward in time.
-         call vec2nek(vx, vy, vz, pr, t, bf)
-         call vec2nek(vxp, vyp, vzp, prp, tp, res)
-         call outpost(vx,vy,vz,pr,t,'bs2')	
-         call outpost(vxp,vyp,vzp,prp,tp,'pr2')
+         !call vec2nek(vx, vy, vz, pr, t, bf)
+         !call vec2nek(vxp, vyp, vzp, prp, tp, res)
+         !call outpost(vx,vy,vz,pr,t,'bs2')	
+         !call outpost(vxp,vyp,vzp,prp,tp,'pr2')
+         ltim = dnekclock_sync()
+         call setup_linear_solver(solve_baseflow=.true.,recompute_dt = .false.)
          time = 0.0_dp
          ostep = 20
          call pipe%reset_newton()         		! reset output counter to load output files in order
@@ -126,30 +131,35 @@ c-----------------------------------------------------------------------
             !call outpost_dnek(vtmp1,'nek')
             !call vtmp2%sub(vtmp1)
             !call outpost_dnek(vtmp2,'bsd')
-				if (mod(istep,ostep)==0) then
-               call outpost(vx,vy,vz,pr,t,'bs2')	
-               call outpost(vxp,vyp,vzp,prp,tp,'pr2')
+				!if (mod(istep,ostep)==0) then
+            !   call outpost(vx,vy,vz,pr,t,'bs2')	
+            !   call outpost(vxp,vyp,vzp,prp,tp,'pr2')
             !call nek_end()
-            end if	
+            !end if	
          end do
-
-         call setup_linear_solver(solve_baseflow=.false.,recompute_dt = .false.)
+         ltim = dnekclock_sync() - ltim
+         if (nid == 0) print *, 'Timing linear with baseflow solve: ', ltim
+      
 			! Integrate the equations forward in time.
-         call vec2nek(vx, vy, vz, pr, t, bf)
-         call vec2nek(vxp, vyp, vzp, prp, tp, res)
-         call outpost(vx,vy,vz,pr,t,'bs3')	
-         call outpost(vxp,vyp,vzp,prp,tp,'pr3')
+         !call vec2nek(vx, vy, vz, pr, t, bf)
+         !call vec2nek(vxp, vyp, vzp, prp, tp, res)
+         !call outpost(vx,vy,vz,pr,t,'bs3')	
+         !call outpost(vxp,vyp,vzp,prp,tp,'pr3')
+         ltim = dnekclock_sync()
+         call setup_linear_solver(solve_baseflow=.false.,recompute_dt = .false.)
          time = 0.0_dp
          ostep = 20
          call pipe%reset_newton()         		! reset output counter to load output files in order
          do istep = 1, nsteps
             call pipe%set_baseflow(vx, vy, vz, istep)
             call nek_advance()
-				if (mod(istep,ostep)==0) then
-               call outpost(vx,vy,vz,pr,t,'bs3')	
-               call outpost(vxp,vyp,vzp,prp,tp,'pr3')
-            end if	
+				!if (mod(istep,ostep)==0) then
+            !   call outpost(vx,vy,vz,pr,t,'bs3')	
+            !   call outpost(vxp,vyp,vzp,prp,tp,'pr3')
+            !end if	
          end do
+         ltim = dnekclock_sync() - ltim
+         if (nid == 0) print *, 'Timing linear with set 2d baseflow: ', ltim
 			call nek_end()
       end if
 

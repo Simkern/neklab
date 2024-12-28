@@ -74,13 +74,13 @@ c-----------------------------------------------------------------------
       if (istep.eq.0) then
          ! Set flow parameters
          dpds0 = [ dp0ds, dp1dsr, dp1dsi ]
-	 call pipe%init_flow(dpds0, womersley)
+	      call pipe%init_flow(dpds0, womersley)
 			
          call load_fld('rsttorus0.f00001')
          call bf%zero()
          call nek2vec(bf, vx, vy, vz, pr, t)
 			
-	 ! parameters
+	      ! parameters
          tol = 1e-8_dp
          tol_mode = 2
          

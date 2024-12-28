@@ -29,13 +29,9 @@ c-----------------------------------------------------------------------
       end
 c-----------------------------------------------------------------------
       subroutine userchk
-      use stdlib_logger, only: debug_level, information_level
-      use LightKrylov_Constants
-      use LightKrylov_Timing, only: timer => global_lightkrylov_timer
-      use LightKrylov_Logger
       use neklab
       use neklab_helix
-      use neklab_nek_setup
+      use LightKrylov_Logger
       implicit none     
       include "SIZE"
       include "TOTAL"
@@ -43,47 +39,75 @@ c-----------------------------------------------------------------------
       ! System for which we seek a fixed point
       type(nek_system), allocatable :: sys
       ! State vectors
-      type(nek_dvector) :: bf
+      type(nek_dvector) :: bf, ref
       ! Tolerance for the Newton solver
-      real(dp) :: tol, ubar, norm, pd
+      real(dp) :: tol, ubar, norm, period
+      integer, parameter :: nfft = 8
+      real(dp), dimension(2*nfft+1) :: fftv
+      real(dp), dimension(nfft+1) :: ffta
       ! flow parameters
-      real, parameter :: dp0ds = 7.9486896e-2 !7.945994987500288e-02 ! 
-      real(dp), dimension(1), parameter :: dpds = [ dp0ds ]
-      integer :: outpost_step, ip, nperiod
+      real, parameter :: womersley   = 35.0d0
+      ! corresponds to Q = 1%
+      real, parameter :: dp0ds       = 7.966035446259826e-02 ! 7.946035446259826e-02
+      real, parameter :: dp1dsr      = 2.0e-1 !6.088015703926612e-04
+      real, parameter :: dp1dsi      = 0.0_dp !1.210241163576931e-02
+      real(dp), dimension(3), parameter :: dpds = [ dp0ds, sqrt(dp1dsr**2 + dp1dsi**2), 0.0_dp ]
+      integer :: i, j, outpost_step
+
+      save fftv
+      save ref
 
       if (istep == 0) then
          call pipe%setup_summary()
          ! Set flow parameters
-         call pipe%init_flow(dpds)
-         call timer%initialize(); call pipe%setup_summary(); call pipe%parameter_summary()
+         call pipe%init_flow(dpds, womersley)
+         call load_fld('rsttorus0.f00001')
+         call nek2vec(ref, vx, vy, vz, pr, t)
+         call nek2vec(bf, vx, vy, vz, pr, t)
+         fftv = 0.0_dp
+         ffta = 0.0_dp
+      end if
+      
+      call pipe%compute_bf_forcing(time)
+      
+      period = pipe%get_period()
+      ubar = pipe%compute_ubar(vx,vy,vz)
+      pi = 4.0_dp*atan(1.0_dp)
+      fftv(1) = fftv(1) + ubar*dt/period
+      j = 1
+      do i = 2, 2*nfft, 2
+            fftv(i)   = fftv(i)   + ubar*cos(j*2.0_dp*pi*time/period)*dt/period
+            fftv(i+1) = fftv(i+1) + ubar*sin(j*2.0_dp*pi*time/period)*dt/period
+            j = j + 1
+      end do
+      outpost_step = nint(period/dt)
+      if (nid == 0) print *, time, 'UBAR: ', ubar, period, outpost_step
+      if (nid == 0) print *, time, 'fftv: ', fftv, period, outpost_step
+      
+      if (istep > 0 .and. mod(istep,outpost_step) == 0) then
+          j = 1
+          ffta(1) = fftv(1)
+          do i = 2, 2*nfft,2
+                j = j + 1
+                ffta(j) = sqrt(fftv(i)**2 + fftv(i+1)**2)
+          end do
+          if (nid == 0) print *, 'Period', time, time/period, ffta
+          ffta = 0.0_dp
+          fftv = 0.0_dp
+      end if
 
-	   call load_fld('rsttorus0.f00001')
-	   call nek2vec(bf, vx, vy, vz, pr, t)
-         
-         time = 0.0_dp
-         pipe%if_fft = .true.
-         pd = 1.0_dp
-         nperiod = 5
-         ubar = pipe%compute_ubar(vx,vy,vz)
-         if (nid == 0) print *, time, time/pd, 'mass flow UBAR:', ubar
-         call setup_nonlinear_solver(recompute_dt=.true.,endTime=1.0_dp, 
-     $      cfl_limit = 0.5_dp)
-
-         do ip = 1, nperiod
-            do istep = 1, nsteps
-               call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
-               call nek_advance()
-               !call pipe%save_2d_fields(vx,vy,vz) ! save 2D flow fields
-               call pipe%compute_mflow_fft(period=pd)      ! integrate Fourier coefficients
-            end do
-            !call pipe%outpost_2d()                   ! output even if buffer is not full
-            call pipe%print_mflow_fft(period=pd, nout=1)
-            ubar = pipe%compute_ubar(vx,vy,vz)
-            if (nid == 0) print *, time, time/pd, 'mass flow UBAR:', ubar         
-         end do
+      if (istep > 0 .and. mod(istep,outpost_step) == 0) then
+         call nek2vec(bf, vx, vy, vz, pr, t)
+         call ref%axpby(1.0_dp, bf, -1.0_dp)
+         call outpost_dnek(ref, 'res')
+         call outpost_dnek(bf, 'bas')
+         norm = ref%norm()
+         if (nid == 0) print *, 'istep', istep, ': norm', norm
+         call nek2vec(ref, vx, vy, vz, pr, t)
       end if
 
       return
+
       end
 c----------------------------------------------------------------------------------
       subroutine userbc(i,j,k,iside,eg)
@@ -132,8 +156,6 @@ c-----------------------------------------------------------------------
       end
 c-----------------------------------------------------------------------
       subroutine usrdat2
-      use stdlib_logger, only: debug_level, information_level
-      use LightKrylov_Logger
       use neklab_helix
       implicit none
       include 'SIZE'
@@ -147,11 +169,13 @@ c-----------------------------------------------------------------------
       integer, parameter :: nslices  = 5
       integer, parameter :: nelf     = 108
       if (istep.eq.0) then
-         ! Setup logger
-         call logger_setup(nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
-         ! Initialize type, set geometry and compute forcing distribution
+         ! Initialize type
          call helix_pipe(delta, diameter, pitch_s, length, nslices, nelf)
-      end if
+         ! Set geometry
+         call pipe%init_geom()
+         ! compute forcing distribution
+         call pipe%compute_fshape()
+      endif
       end
 c-----------------------------------------------------------------------
       subroutine usrdat3

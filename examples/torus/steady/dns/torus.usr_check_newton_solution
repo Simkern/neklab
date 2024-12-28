@@ -57,13 +57,13 @@ c-----------------------------------------------------------------------
          call pipe%init_flow(dpds)
          call timer%initialize(); call pipe%setup_summary(); call pipe%parameter_summary()
 
-	   call load_fld('rsttorus0.f00001')
-	   call nek2vec(bf, vx, vy, vz, pr, t)
+	      call load_fld('rsttorus0.f00001')
+	      call nek2vec(bf, vx, vy, vz, pr, t)
          
          time = 0.0_dp
          pipe%if_fft = .true.
          pd = 1.0_dp
-         nperiod = 5
+         nperiod = 1
          ubar = pipe%compute_ubar(vx,vy,vz)
          if (nid == 0) print *, time, time/pd, 'mass flow UBAR:', ubar
          call setup_nonlinear_solver(recompute_dt=.true.,endTime=1.0_dp, 

@@ -55,6 +55,7 @@ c-----------------------------------------------------------------------
          call pipe%setup_summary()
          ! Set flow parameters
          call pipe%init_flow(dpds)
+         call pipe%compute_bf_forcing(0.0_dp)
          call timer%initialize(); call pipe%setup_summary(); call pipe%parameter_summary()
 
 	   call load_fld('rsttorus0.f00001')

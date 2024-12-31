@@ -30,7 +30,7 @@
       ! Set up solver
          public :: setup_nek, setup_nonlinear_solver, setup_linear_solver, nek_status
       ! Utilities for logging
-         public :: nek_log_message, nek_log_warning, nek_log_information, nek_log_debug
+         public :: nek_log_message, nek_log_warning, nek_log_information, nek_log_debug, nek_stop_error
       
       contains
       
@@ -345,5 +345,17 @@
             call logger%log_information(msg, module=module, procedure=procedure)
             if (nid == 0 .and. level == information_level) print fmt_, "INFO: ", trim(msg)
          end subroutine nek_log_information
+
+         subroutine nek_stop_error(msg, module, procedure, fmt)
+            character(len=*), intent(in) :: msg
+            character(len=*), optional, intent(in) :: module
+            character(len=*), optional, intent(in) :: procedure
+            character(len=*), optional, intent(in) :: fmt
+            ! internal
+            character(len=128) :: fmt_
+            fmt_ = optval(fmt,'(A,A)')
+            if (nid == 0) print fmt_, "ERROR: ", trim(msg)
+            call stop_error(msg, module=module, procedure=procedure)
+         end subroutine nek_stop_error
       
       end module neklab_nek_setup

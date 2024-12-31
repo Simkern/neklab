@@ -15,7 +15,7 @@
       ! Extensions of the abstract vector types to nek data format.
          use neklab_vectors
          use neklab_nek_forcing, only: neklab_forcing, set_neklab_forcing
-         use neklab_nek_setup, only: nek_log_message, nek_log_information, nek_log_warning, nek_log_debug
+         use neklab_nek_setup, only: nek_log_message, nek_log_information, nek_log_warning, nek_log_debug, nek_stop_error
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -28,7 +28,7 @@
       !! Local number of grid points for the velocity mesh.
          integer, parameter :: lp = lx2*ly2*lz2*lelv
       !! Local number of grid points for the pressure mesh.
-         integer, parameter :: nf = 1
+         integer, parameter :: nf = 3
       !! Number of forcing components
          integer, parameter :: lbuf = 1000
       !! Maximum number of 2d fields to save before outposting
@@ -87,7 +87,7 @@
             logical :: save_2d_usrt = .true.! save us,ur,ut in addition to vx,vy,vz?
             logical :: save_2d_base = .false.
             logical :: if_newton    = .false. ! are we in newton mode?
-            logical, public :: if_fft       = .false. ! compute the fft of the streamwise mass flow us on the fly
+            logical, public :: if_fft = .false. ! compute the fft of the streamwise mass flow us on the fly
             real(dp), dimension(2*nfft + 1) :: fftv ! temporary array for mass flow FFT computation
             real(dp), dimension(nfft + 1) :: mflow  ! FFT of the streamwise mass flow 
             real(dp) :: fft_time  = 0.0_dp ! Current integration time
@@ -219,7 +219,6 @@
                write (msg, '(A,F15.8)') padl('sweep angle:', 20), pipe%sweep
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
                call nek_log_message('Mesh:', module=this_module)
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
                write (msg, '(A,I8)') padl('slices:', 20), pipe%nslices
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
                write (msg, '(A,I8)') padl('nel/slice:', 20), pipe%nelf
@@ -475,20 +474,32 @@
                self%omega     = (self%womersley**2)*cpfld(1,1)    ! pulsation frequency
                self%pulse_T   = 2.0d0*pi/self%omega               ! pulsation period
                if (n == 1) then
-                  call stop_error('Unsteady case requires more than one forcing component',module=this_module,procedure='init_flow')
+                  msg = 'Unsteady case requires more than one forcing component'
+                  call nek_stop_error(msg, this_module, 'init_flow')
                else if (mod(n,2)==0) then
-                  call stop_error('Unsteady case requires an uneven number of forcing components',module=this_module,procedure='init_flow')
+                  msg = 'Unsteady case requires an uneven number of forcing components'
+                  call nek_stop_error(msg, this_module, 'init_flow')
                end if
+               msg = 'Steady flow parameters set.'
+               call nek_log_message(msg, this_module, 'init_flow')
             else
                self%if_steady = .true.
                self%womersley = 0.0_dp   
                self%omega     = 0.0_dp   
                self%pulse_T   = 0.0_dp  
                if (n > 1) then
-                  call stop_error('Steady case requires only one forcing component',module=this_module,procedure='init_flow')
+                  msg = 'Steady case requires only one forcing component'
+                  call nek_stop_error(msg, this_module, 'init_flow')
                end if
+               call nek_log_message('Unsteady flow parameters set.', this_module, 'init_flow')
+            end if
+            if (n /= nf) then
+               msg = 'The parameter nf in neklab_helix is not compatible with the inputs'
+               call nek_stop_error(msg, this_module, 'init_flow')
             end if
             self%dpds = dpds
+            call pipe%compute_bf_forcing(0.0_dp) ! ensure that the forcing is set (in particular for steady flows)
+            call nek_log_message('Baseflow forcing set.', this_module, 'init_flow')
             call self%parameter_summary()
          end subroutine init_flow
 
@@ -759,13 +770,13 @@
             call nek_log_message(msg, this_module, 'outpost_2d_fields')
             if (nid == 0) then
                call byte_open(fname, ierr)
-               if (ierr /= 0) call stop_error('Error opening file '//trim(fname), procedure='outpost_2d_fields')
+               if (ierr /= 0) call nek_stop_error('Error opening file '//trim(fname), procedure='outpost_2d_fields')
 
                ! write file's header
                ftm="('#tor',1x,i1,1x,'(lx1, ly1 =',2i9,') (nelf =',i9,') (time =',e17.9,') (nsave, lbuf =', 2i9,')')"
                write(head,ftm) wdsize,lx1,ly1,self%nelf,time,self%nsave,lbuf
                call byte_write(head,116/4,ierr)
-               if (ierr /= 0) call stop_error('Error writing header in file '//trim(fname), procedure='outpost_2d_fields')  
+               if (ierr /= 0) call nek_stop_error('Error writing header in file '//trim(fname), procedure='outpost_2d_fields')  
 
                ! write big/little endian test
                call byte_write(test,1,ierr)
@@ -777,7 +788,7 @@
                call byte_write(time,wdsl,ierr)
                call byte_write(self%nsave,isl,ierr)
                call byte_write(lbuf,isl,ierr)
-               if (ierr /= 0) call stop_error('Error writing metadata in file '//trim(fname), procedure='outpost_2d_fields')
+               if (ierr /= 0) call nek_stop_error('Error writing metadata in file '//trim(fname), procedure='outpost_2d_fields')
             end if
 
             ! gather information about elements on other procs  
@@ -802,7 +813,7 @@
                   n2d_elmap(iseg+1:iseg+i_own) = isend(:i_own)
                   iseg = iseg + i_own
                enddo
-               if (iseg /= self%nelf) call stop_error('Not all elements in slice found!', this_module, 'outpost_2d_fields')
+               if (iseg /= self%nelf) call nek_stop_error('Not all elements in slice found!', this_module, 'outpost_2d_fields')
                ! write it to file
                call byte_write(n2d_elmap,self%nelf*isl,ierr)
                ! write timestep information to file
@@ -835,7 +846,7 @@
             ! master closes the file
             if (nid == 0) then 
                call byte_close(ierr)
-               if (ierr /= 0) call stop_error('Error closing file '//trim(fname), procedure='outpost_2d_fields')
+               if (ierr /= 0) call nek_stop_error('Error closing file '//trim(fname), procedure='outpost_2d_fields')
             end if
          end subroutine outpost_2d_fields
 
@@ -874,7 +885,7 @@
             allocate(gmap_index(nelf))
             if (nid == 0) then
                call byte_open(fname,ierr)
-               if (ierr /= 0) call stop_error('Error opening file '//trim(fname), procedure='load_2d_fields')
+               if (ierr /= 0) call nek_stop_error('Error opening file '//trim(fname), procedure='load_2d_fields')
                ! read header
                if (ierr == 0) then
                   call blank     (hdr,hdrsize)
@@ -900,15 +911,15 @@
                call nek_log_debug(msg, this_module, 'load_2d_fields')
                ! read global element mapping
                call byte_read(global_map, nelf*isl, ierr)
-               if (ierr /= 0) call stop_error('Error reading gloabl element map from file '//trim(fname), procedure='load_2d_fields')
+               if (ierr /= 0) call nek_stop_error('Error reading gloabl element map from file '//trim(fname), procedure='load_2d_fields')
                ! read timestep information
                call byte_read(dt2dr(:nsaver), nsaver*wdsl, ierr)
                self%dt2d = dt2dr
-               if (ierr /= 0) call stop_error('Error reading timestep information from file '//trim(fname), procedure='load_2d_fields')
+               if (ierr /= 0) call nek_stop_error('Error reading timestep information from file '//trim(fname), procedure='load_2d_fields')
                ! read coords but skip them
                call byte_read(fldum, nxy*nelf*wdsl, ierr)
                call byte_read(fldum, nxy*nelf*wdsl, ierr)
-               if (ierr /= 0) call stop_error('Error reading coordinates from file '//trim(fname), procedure='load_2d_fields')
+               if (ierr /= 0) call nek_stop_error('Error reading coordinates from file '//trim(fname), procedure='load_2d_fields')
             end if
             call bcast(nsaver, isize)          ! broadcast number of saved snapshots
             call bcast(self%dt2d, lbuf*wdsize) ! broadcast timestep data
@@ -938,7 +949,7 @@
             ! master closes the file
             if (nid == 0) then 
                call byte_close(ierr)
-               if (ierr /= 0) call stop_error('Error closing file '//trim(fname), procedure='load_2d_fields')
+               if (ierr /= 0) call nek_stop_error('Error closing file '//trim(fname), procedure='load_2d_fields')
             end if
             self%nload = nsaver
             write(msg,'(A,A,A,I0)') 'Loaded 2D data from file ', trim(fname), ': ', self%nload
@@ -969,7 +980,7 @@
                ifld_ = ifld - (self%noutn-1)*lbuf
             else
                ifld_ = ifld
-               if (ifld_ > self%nload) call stop_error('Inconsistent ifld!', this_module, 'set_baseflow')
+               if (ifld_ > self%nload) call nek_stop_error('Inconsistent ifld!', this_module, 'set_baseflow')
             end if
             call lk_timer%start('neklab_helix_set_baseflow')
             ! set dt
@@ -1022,6 +1033,7 @@
                      j = j + 1
                   end do
                   self%fft_time = self%fft_time + dt
+                  if (nid == 0) print *, 'compute mflow fft', dtau, self%fft_time
                   nperiod = nint(tau)
                   if (abs(time - nperiod*pd) < dt/10.0_dp) then ! at period
                      self%fft_rtime = self%fft_time ! total integration time since last call
@@ -1031,6 +1043,7 @@
                         j = j + 1
                         self%mflow(j) = sqrt(self%fftv(i)**2 + self%fftv(i+1)**2)
                      end do
+                     if (nid == 0) print *, 'period mflow fft', self%fft_time, self%mflow
                      self%fftv = 0.0_dp
                      self%fft_time = 0.0_dp               ! reset integration time
                   end if
@@ -1224,7 +1237,7 @@
                      call byte_write(rtmpv2,len,ierr)
                   endif
                end do
-               if (ierr /= 0) call stop_error('Error writing slice data', procedure='gather_and_write_slice')
+               if (ierr /= 0) call nek_stop_error('Error writing slice data', procedure='gather_and_write_slice')
             else 
                ! send data to master
                call crecv2(nid,idum,isize,0) ! hand shake

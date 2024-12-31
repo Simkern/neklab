@@ -49,52 +49,80 @@ c-----------------------------------------------------------------------
       real, parameter :: dp1dsr      = 6.088015703926612e-04
       real, parameter :: dp1dsi      = 1.210241163576931e-02
       real(dp), dimension(3) :: dpds
-      integer :: i, j, outpost_step
+      integer :: i, j, outpost_step, ip, nperiod
       character(len=128) :: msg
 
       if (istep == 0) then
-         call load_fld('rsttorus0.f00001')
+         call load_fld('rsttorus0.f00001') ! start from steady state
          call nek2vec(bf, vx, vy, vz, pr, t)
+
+	 pd = sqrt(dp1dsr**2 + dp1dsi**2)
+	 if (nid == 0) print *, 'dpds INFO:', dp0ds, dp1dsr, dp1dsi
+	 if (nid == 0) print *, 'dpds INFO:', dp0ds + 2.0*pd, dp0ds - 2.0*pd
          
          ! fully real
+         call vec2nek(vx, vy, vz, pr, t, bf)
          dpds = [ dp0ds, sqrt(dp1dsr**2 + dp1dsi**2), 0.0_dp ]
          call pipe%init_flow(dpds, womersley)
          pd = pipe%get_period()
+         nperiod = 5
          
-         call setup_nonlinear_solver(recompute_dt=.true., cfl_limit = 0.5_dp)
+         call setup_nonlinear_solver(recompute_dt=.true., endtime=pd,
+     $               cfl_limit = 0.5_dp)
          
-         call vec2nek(vx, vy, vz, pr, t, bf)
-         time = 0.0_dp
          do ip = 1, nperiod
             do istep = 1, nsteps
                call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
                call nek_advance()
                call pipe%compute_mflow_fft(period=pd)      ! integrate Fourier coefficients
+               ubar = pipe%compute_ubar(vx,vy,vz)
+               if (nid == 0) print *, time, time/pd, mod(time,pd), 'massflow1 UBAR:', ubar     
             end do
             call pipe%print_mflow_fft(nout=2)
-            ubar = pipe%compute_ubar(vx,vy,vz)
-            if (nid == 0) print *, time, time/pd, 'mass flow UBAR:', ubar     
          end do
          
          ! fully imaginary
+         call vec2nek(vx, vy, vz, pr, t, bf)
+         time = 0.0_dp
          dpds = [ dp0ds, 0.0_dp, sqrt(dp1dsr**2 + dp1dsi**2) ]
          call pipe%init_flow(dpds, womersley)
          pd = pipe%get_period()
          
-         call setup_nonlinear_solver(recompute_dt=.true., cfl_limit = 0.5_dp)
+         call setup_nonlinear_solver(recompute_dt=.true., endtime=pd,
+     $                cfl_limit = 0.5_dp)
          
-         call vec2nek(vx, vy, vz, pr, t, bf)
-         time = 0.0_dp
          do ip = 1, nperiod
             do istep = 1, nsteps
                call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
                call nek_advance()
                call pipe%compute_mflow_fft(period=pd)      ! integrate Fourier coefficients
+               ubar = pipe%compute_ubar(vx,vy,vz)
+               if (nid == 0) print *, time, time/pd, mod(time,pd), 'massflow2 UBAR:', ubar     
             end do
             call pipe%print_mflow_fft(nout=2)
-            ubar = pipe%compute_ubar(vx,vy,vz)
-            if (nid == 0) print *, time, time/pd, 'mass flow UBAR:', ubar     
          end do
+         
+	 ! actual
+         call vec2nek(vx, vy, vz, pr, t, bf)
+         time = 0.0_dp
+         dpds = [ dp0ds, dp1dsr, dp1dsi ]
+         call pipe%init_flow(dpds, womersley)
+         pd = pipe%get_period()
+         
+         call setup_nonlinear_solver(recompute_dt=.true., endtime=pd,
+     $                cfl_limit = 0.5_dp)
+         
+         do ip = 1, nperiod
+            do istep = 1, nsteps
+               call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
+               call nek_advance()
+               call pipe%compute_mflow_fft(period=pd)      ! integrate Fourier coefficients
+               ubar = pipe%compute_ubar(vx,vy,vz)
+               if (nid == 0) print *, time, time/pd, mod(time,pd), 'massflow3 UBAR:', ubar     
+            end do
+            call pipe%print_mflow_fft(nout=2)
+         end do
+
          call nek_end()
       end if
       

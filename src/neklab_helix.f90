@@ -89,7 +89,9 @@
             logical :: if_newton    = .false. ! are we in newton mode?
             logical, public :: if_fft = .false. ! compute the fft of the streamwise mass flow us on the fly
             real(dp), dimension(2*nfft + 1) :: fftv ! temporary array for mass flow FFT computation
-            real(dp), dimension(nfft + 1) :: mflow  ! FFT of the streamwise mass flow 
+            real(dp), dimension(2*nfft + 1) :: mflow ! FFT of the streamwise mass flow 
+            real(dp), dimension(nfft + 1) :: mflow_amplitude ! FFT amplitude of the streamwise mass flow 
+            real(dp), dimension(nfft + 1) :: mflow_phase     ! FFT phase of the streamwise mass flow 
             real(dp) :: fft_time  = 0.0_dp ! Current integration time
             real(dp) :: fft_rtime = 0.0_dp ! Integration time of the FFT record
             ! save 2D fields
@@ -1012,7 +1014,7 @@
             class(helix), intent(inout) :: self
             real(dp), optional, intent(in) :: period
             ! internal
-            integer :: i, j, nperiod
+            integer :: i, j, nperiod, nprint
             real(dp) :: ubar, tau, dtau, twopi, pd
             pd = optval(period, self%pulse_T)
 
@@ -1038,12 +1040,21 @@
                   if (abs(time - nperiod*pd) < dt/10.0_dp) then ! at period
                      self%fft_rtime = self%fft_time ! total integration time since last call
                      j = 1
-                     self%mflow(1) = self%fftv(1)
-                     do i = 2, 2*nfft,2
+                     call copy(self%mflow, self%fftv, 2*nfft+1)
+                     self%mflow_amplitude(1) = self%mflow(1)
+                     self%mflow_phase(1) = 0.0_dp
+                     do i = 2, 2*nfft, 2
                         j = j + 1
-                        self%mflow(j) = sqrt(self%fftv(i)**2 + self%fftv(i+1)**2)
+                        self%mflow_amplitude(j) = sqrt(self%mflow(i)**2 + self%mflow(i+1)**2)
+                        self%mflow_phase(j) = atan2(self%mflow(i+1),self%mflow(i))
                      end do
-                     if (nid == 0) print *, 'period mflow fft', self%fft_time, self%mflow
+                     if (nid == 0) then
+                        nprint = (nf+1)/2
+                        print *, 'period mflow fft cmplx', self%fft_time, self%mflow(:nf)
+                        print *, 'period mflow fft amp  ', self%fft_time, self%mflow_amplitude(:nprint)
+                        print *, 'period mflow fft phase', self%fft_time, self%mflow_phase(:nprint)
+                        print *, 'period mflow fft shift', dt, self%mflow_phase(:nprint)/self%omega
+                     end if
                      self%fftv = 0.0_dp
                      self%fft_time = 0.0_dp               ! reset integration time
                   end if
@@ -1055,22 +1066,33 @@
             end if
          end subroutine compute_mflow_fft
 
-         subroutine print_mflow_fft(self, period, nout)
+         subroutine print_mflow_fft(self, period, nout, if_amplitude)
             ! only for constant dt
             class(helix), intent(in) :: self
             real(dp), optional, intent(in) :: period
             integer, optional, intent(in) :: nout
+            logical, optional, intent(in) :: if_amplitude
             ! internal
             real(dp) :: tau, pd
             integer :: nout_
+            logical :: if_amplitude_
             character(len=1024) :: msg
+            character(len=128), parameter :: fmt = '(A,2(1X,F16.8),1X,A,*(1X,E15.8))'
             pd = optval(period, self%pulse_T)
-            nout_ = optval(nout, nfft)
+            nout_ = optval(nout, (nf+1)/2)
             nout_ = min(max(nout_,1),nfft)
+            if_amplitude_ = optval(if_amplitude, .true.)
             if (pd /= 0.0_dp .and. self%if_fft) then
                tau = self%fft_rtime/pd
-               write(msg,'(A,2(1X,F16.8),1X,A,*(1X,E15.8))') 'Period',self%fft_rtime,tau,'mass flow FFT',self%mflow(:nout_)
-               call nek_log_message(msg, this_module)
+               if (if_amplitude_) then
+                  write(msg,fmt) 'Period',self%fft_rtime,tau,'massflow FFT amp  ',self%mflow_amplitude(:nout_)
+                  call nek_log_message(msg, this_module)
+                  write(msg,fmt) 'Period',self%fft_rtime,tau,'massflow FFT phase',self%mflow_phase(:nout_)
+                  call nek_log_message(msg, this_module)
+               else
+                  write(msg,fmt) 'Period',self%fft_rtime,tau,'massflow FFT',self%mflow(:2*nout_-1)
+                  call nek_log_message(msg, this_module)
+               end if
             end if
          end subroutine print_mflow_fft
 
@@ -1194,10 +1216,20 @@
             end if
          end function get_v2d
 
-         subroutine get_mflow_fft(self, mflow)
+         subroutine get_mflow_fft(self, mflow, if_amplitude)
             class(helix), intent(in) :: self
-            real(dp), intent(out) :: mflow(nfft+1)
-            mflow = self%mflow
+            real(dp), allocatable, intent(out) :: mflow(:)
+            logical, optional, intent(in) :: if_amplitude
+            ! internal 
+            logical :: if_amplitude_
+            if_amplitude_ = optval(if_amplitude, .true.)
+            if (if_amplitude_) then
+               allocate(mflow(nfft+1))
+               mflow = self%mflow_amplitude
+            else
+               allocate(mflow(2*nfft+1))
+               mflow = self%mflow
+            end if
          end subroutine get_mflow_fft
 
       ! Helper functions

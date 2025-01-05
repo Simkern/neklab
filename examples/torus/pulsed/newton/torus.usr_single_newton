@@ -43,9 +43,9 @@ c-----------------------------------------------------------------------
       ! System for which we seek a fixed point
       type(nek_system_torus), allocatable :: sys
       ! State vectors
-      type(nek_dvector) :: bf, test
+      type(nek_dvector) :: bf, ref
       ! Tolerance for the Newton solver
-      real(dp) :: tol, dmf
+      real(dp) :: tol, dmf, rnorm, pd
       real(dp) :: ubar_old, ubar_new, du
       real(dp) :: deltaf, df, dfdu
       ! flow parameters
@@ -54,7 +54,7 @@ c-----------------------------------------------------------------------
       !real, parameter :: dp0ds       = 7.946035446259826e-02
       !real, parameter :: dp1dsr      = 6.088015703926612e-04
       !real, parameter :: dp1dsi      = 1.210241163576931e-02
-		real, parameter :: womersley   = 100.0d0
+	   real, parameter :: womersley   = 100.0d0
       ! corresponds to Q = 0.1%
       real, parameter :: dp0ds       = 7.945994655600840e-02
       real, parameter :: dp1dsr      = 1.421324613149435e-04
@@ -63,23 +63,38 @@ c-----------------------------------------------------------------------
       real(dp), dimension(2), parameter :: mflow_target = [ 1.0_dp, 0.001_dp ]
       real(dp), dimension(nfft+1) :: mflow_old, mflow_new
       integer, parameter :: max_frc_iter = 5
-      integer :: tol_mode, inwt, log_level
+      integer :: tol_mode, log_level
       integer :: frc_iter, icomp
       character(len=128) :: msg
-      character(len=3) :: fid, itid
 
       log_level = information_level
       
-      inwt = 0
       if (istep.eq.0) then
          ! Set flow parameters
          dpds0 = [ dp0ds, dp1dsr, dp1dsi ]
 	      call pipe%init_flow(dpds0, womersley)
-			
+         pd = pipe%get_period()
+	   		
          call load_fld('rsttorus0.f00001')
          call nek2vec(bf, vx, vy, vz, pr, t)
-			
-	      ! parameters
+         call setup_nonlinear_solver(recompute_dt=.true.,cfl_limit = 0.5_dp)
+         call nek_status(full_summary=.true.)
+         do istep = 1, nsteps
+            call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
+            call nek_advance()
+            call pipe%compute_mflow_fft(period=pd)      ! integrate Fourier coefficients
+            ubar_old = pipe%compute_ubar(vx,vy,vz)
+            if (nid == 0) print *, time, time/pd, mod(time,pd), 'massflow_init UBAR:', ubar_old
+         end do
+         call pipe%print_mflow_fft(nout=2)
+         call nek2vec(ref, vx, vy, vz, pr, t)
+         call ref%sub(bf)
+         rnorm = ref%norm()
+         write(msg,'(A,E15.8)') 'rnorm_init= ', rnorm
+         call nek_log_message(msg, procedure='userchk')
+         call setup_linear_solver(recompute_dt=.true.,cfl_limit = 0.5_dp)
+         
+         ! parameters
          tol = 1e-8_dp
          tol_mode = 2
          
@@ -95,7 +110,6 @@ c-----------------------------------------------------------------------
          call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
          call timer%initialize(); call pipe%setup_summary(); call pipe%parameter_summary()
          ! Run Newton
-         inwt = inwt + 1
          call newton_forced_periodic_orbit_torus(sys, bf, tol, tol_mode)
          call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
          ! Finalize system timings
@@ -103,8 +117,24 @@ c-----------------------------------------------------------------------
          ubar_old = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
          write(msg,'(A,E15.8)') 'u_bar= ', ubar_old
          call nek_log_message(msg, procedure='userchk')
-         write(fid,'(I3.3)') inwt
-         call rename('lightkrylov.log','lightkrylov_nwt'//fid//'.log')
+         call rename('lightkrylov.log','lightkrylov_nwt.log')
+         
+         call nek2vec(bf, vx, vy, vz, pr, t)
+         call setup_nonlinear_solver(recompute_dt=.true.,cfl_limit = 0.5_dp)
+         call nek_status(full_summary=.true.)
+         do istep = 1, nsteps
+            call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
+            call nek_advance()
+            call pipe%compute_mflow_fft(period=pd)      ! integrate Fourier coefficients
+            ubar_old = pipe%compute_ubar(vx,vy,vz)
+            if (nid == 0) print *, time, time/pd, mod(time,pd), 'massflow_post UBAR:', ubar_old
+         end do
+         call pipe%print_mflow_fft(nout=2)
+         call nek2vec(ref, vx, vy, vz, pr, t)
+         call ref%sub(bf)
+         rnorm = ref%norm()
+         write(msg,'(A,E15.8)') 'rnorm_post= ', rnorm
+         call nek_log_message(msg, procedure='userchk')
          
          call nek_end()
       end if

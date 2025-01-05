@@ -55,17 +55,18 @@ c-----------------------------------------------------------------------
       if (istep == 0) then
          call load_fld('rsttorus0.f00001') ! start from steady state
          call nek2vec(bf, vx, vy, vz, pr, t)
+         time = 0.0_dp
 
-	 pd = sqrt(dp1dsr**2 + dp1dsi**2)
-	 if (nid == 0) print *, 'dpds INFO:', dp0ds, dp1dsr, dp1dsi
-	 if (nid == 0) print *, 'dpds INFO:', dp0ds + 2.0*pd, dp0ds - 2.0*pd
+	      pd = sqrt(dp1dsr**2 + dp1dsi**2)
+	      if (nid == 0) print *, 'dpds INFO:', dp0ds, dp1dsr, dp1dsi
+	      if (nid == 0) print *, 'dpds INFO:', dp0ds + 2.0*pd, dp0ds - 2.0*pd
          
          ! fully real
          call vec2nek(vx, vy, vz, pr, t, bf)
          dpds = [ dp0ds, sqrt(dp1dsr**2 + dp1dsi**2), 0.0_dp ]
          call pipe%init_flow(dpds, womersley)
          pd = pipe%get_period()
-         nperiod = 5
+         nperiod = 20
          
          call setup_nonlinear_solver(recompute_dt=.true., endtime=pd,
      $               cfl_limit = 0.5_dp)

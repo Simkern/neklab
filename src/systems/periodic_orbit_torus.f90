@@ -27,7 +27,7 @@
       ! Copy the final solution to vector.
                call nek2vec(vec_out, vx, vy, vz, pr, t)
       ! Evaluate residual F(X) - X.
-               call vec_out%axpby(1.0_dp, vec_in, -1.0_dp)
+               call vec_out%sub(vec_in)
             end select
          end select
          end procedure nonlinear_map_torus
@@ -57,7 +57,7 @@
       ! Extract the final solution to vector.
                call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
       ! Evaluate [ exp(tau*J) - I ] @ dx.
-               call vec_out%axpby(1.0_dp, vec_in, -1.0_dp)
+               call vec_out%sub(vec_in)
                param(22) = atol
             end select
          end select
@@ -88,7 +88,7 @@
       ! Extract the final solution to vector.
                call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
       ! Evaluate [ exp(tau*J) - I ] @ dx.
-               call vec_out%axpby(1.0_dp, vec_in, -1.0_dp)
+               call vec_out%sub(vec_in)
                param(22) = atol
             end select
          end select

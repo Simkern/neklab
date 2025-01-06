@@ -34,7 +34,7 @@
       
       contains
       
-         subroutine setup_nek(LNS, transpose, solve_baseflow, recompute_dt, endtime, vtol, ptol, cfl_limit, silent)
+         subroutine setup_nek(LNS, transpose, solve_baseflow, recompute_dt, variable_dt, endtime, vtol, ptol, cfl_limit, silent)
             logical, intent(in) :: LNS
             logical, optional, intent(in) :: transpose
             logical :: transpose_
@@ -42,6 +42,8 @@
             logical :: solve_baseflow_
             logical, optional, intent(in) :: recompute_dt
             logical :: recompute_dt_
+            logical, optional, intent(in) :: variable_dt
+            logical :: variable_dt_
             real(dp), optional, intent(in) :: endtime
             real(dp) :: endtime_
             real(dp), optional, intent(in) :: vtol
@@ -74,6 +76,8 @@
             else
                recompute_dt_ = optval(recompute_dt, .false.)
             end if
+
+            variable_dt_ = optval(variable_dt, .false.)
       
             call nekgsync()
       
@@ -168,7 +172,23 @@
                nsteps = ceiling(param(10)/dt)
                param(12) = dt
             end if
-            fintim = nsteps*dt
+            
+            ! Force constant timestep if requested
+            if (variable_dt_) then
+               param(12) = abs(param(12))
+               fintim = param(10)
+               write (msg, '(A)') padl('Set variable timestep. ', 30)
+               if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
+               write (msg, '(A,E15.8)') padl('Set fintim: ', 30), fintim
+               if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
+            else
+               fintim = nsteps*dt
+               param(12) = -abs(param(12))
+               write (msg, '(A,E15.8)') padl('Force constant timestep: ', 30), -param(12)
+               if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
+               write (msg, '(A,E15.8)') padl('Set fintim: ', 30), fintim
+               if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
+            end if
       
       ! Set tolerances if requested
             param(21) = ptol_; TOLPDF = param(21); call bcast(TOLPDF,wdsize)
@@ -178,11 +198,6 @@
             write (msg, '(A,E15.8)') padl('Set pressure tol: ', 30), param(21)
             if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
             write (msg, '(A,E15.8)') padl('Set velocity tol: ', 30), param(22)
-            if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
-
-      ! Force constant timestep
-            param(12) = -abs(param(12))
-            write (msg, '(A,E15.8)') padl('Force constant timestep: ', 30), -param(12)
             if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
       
       ! Broadcast parameters
@@ -200,14 +215,15 @@
             return
          end subroutine setup_nek
       
-         subroutine setup_nonlinear_solver(recompute_dt, endtime, vtol, ptol, cfl_limit, silent)
+         subroutine setup_nonlinear_solver(recompute_dt, variable_dt, endtime, vtol, ptol, cfl_limit, silent)
             logical, optional, intent(in) :: recompute_dt
+            logical, optional, intent(in) :: variable_dt
             real(dp), optional, intent(in) :: endtime
             real(dp), optional, intent(in) :: vtol
             real(dp), optional, intent(in) :: ptol
             real(dp), optional, intent(in) :: cfl_limit
             logical, optional, intent(in) :: silent
-            call setup_nek(LNS=.false., recompute_dt=recompute_dt,
+            call setup_nek(LNS=.false., recompute_dt=recompute_dt, variable_dt=variable_dt,
      $   endtime = endtime, vtol = vtol, ptol = ptol, cfl_limit = cfl_limit, silent = silent)
             return
          end subroutine setup_nonlinear_solver

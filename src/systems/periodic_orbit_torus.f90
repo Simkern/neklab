@@ -11,8 +11,8 @@
       ! Set the initial condition
                call vec2nek(vx, vy, vz, pr, t, vec_in)
       ! Set appropriate tolerances and Nek status
-               call setup_nonlinear_solver(recompute_dt=.true.,
-     $   cfl_limit = 0.4_dp, vtol = atol/10.0, ptol = atol/10.0)
+               call setup_nonlinear_solver(recompute_dt=.true., variable_dt=.true., 
+     $   cfl_limit = 0.5_dp, vtol = atol/10.0, ptol = atol/10.0)
       ! Intgrate the nonlinear equations forward
                time = 0.0_dp
                call pipe%reset_newton()         ! reset output counter to overwrite output files

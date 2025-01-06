@@ -457,6 +457,7 @@
             self%alpha = atan2(self%zax, pipe_r)
 
             self%is_initialized = .true.
+            call comment() ! set internal variable ifcour for standard timestep logging (--> needs to be called at istep == 0)
             call lk_timer%stop('neklab_helix_init_geom')
             
          end subroutine init_geom
@@ -666,7 +667,8 @@
                call lk_timer%start('neklab_helix_save_2d')
                self%nsave = self%nsave + 1
                ! save data to buffer
-               write(msg,'(A,I5,A,I5)') 'Save 2D data: ', self%nsave, '/', lbuf
+               write(msg,'(A,I5,A,I5,A,E12.5,A,F12.8)') 'Save 2D data: ', self%nsave, '/', lbuf, 
+     $         ', time=', time, ', dt=', dt
                call logger%log_debug(msg, this_module, 'save_2d_fields')
                if (nid == 0) print *, msg
                do iseg = 1, self%n2d_gown

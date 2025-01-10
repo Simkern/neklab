@@ -72,6 +72,7 @@
          public :: newton_fixed_point_iteration
          public :: newton_periodic_orbit
          public :: newton_forced_periodic_orbit_torus
+         public :: mflow_newton_periodic_orbit_torus
       
       ! Stability analysis exports.
          public :: linear_stability_analysis_fixed_point

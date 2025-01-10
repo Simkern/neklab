@@ -197,7 +197,7 @@
             integer,  intent(out)  :: info
             !! Information flag
             character(len=256) :: msg
-            real(dp), parameter :: mintol = 10.0_dp*atol_dp! minimum acceptable solver tolerance
+            real(dp), parameter :: mintol = 10.0*atol_dp! minimum acceptable solver tolerance
             if (target_tol < mintol) then
                tol = mintol
                write(msg,'(A,E11.4)') 'Input tolerance below minimum tolerance! Resetting solver tolerance to mintol= ', tol
@@ -228,8 +228,8 @@
             integer,  intent(out)  :: info
             !! Information flag
             ! internals
-            real(dp), parameter :: maxtol = 1e-4_dp ! maximum acceptable solver tolerance
-            real(dp), parameter :: mintol = 10.0_dp*atol_dp! minimum acceptable solver tolerance
+            real(dp), parameter :: maxtol = 1.0e-04_dp ! maximum acceptable solver tolerance
+            real(dp), parameter :: mintol = 10.0*atol_dp! minimum acceptable solver tolerance
             real(dp) :: tol_old, target_tol_
             character(len=256) :: msg
 

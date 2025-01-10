@@ -84,6 +84,31 @@ else
     echo "Skipping modification."
 fi
 
+# Modify core/subs1.f to allow switching back and forth between variable and constant dt runs
+read -p "Do you want to modify a line in core/subs1.f to allow both variable and fixed dt in the same case? (y/n): " confirm
+if [ "$confirm" == "y" ] || [ "$confirm" == "Y" ]; then
+    echo "Modifying core/subs1.f..."
+    FILE_PATH="core/subs1.f"
+    cp "$FILE_PATH" "${FILE_PATH}.original"
+    if [ "$OS" == "Linux" ]; then
+        sed -i -e '/save    iffxdt/s/^/c/' "$FILE_PATH" # comment line
+        sed -i -e '/data    iffxdt/s/^/c/' "$FILE_PATH" # comment line
+        sed -i -e '/if (param(12).lt.0.or.iffxdt)/i\      iffxdt = .false.' "$FILE_PATH"  # insert line
+    elif [ "$OS" == "Darwin" ]; then
+        sed -i -e '' '/save    iffxdt/s/^/c/' "$FILE_PATH"
+        sed -i -e '' '/data    iffxdt/s/^/c/' "$FILE_PATH"
+        sed -i -e '' '/if (param(12).lt.0.or.iffxdt)/i\      iffxdt = .false.' "$FILE_PATH"
+    fi
+    if cmp -s "$FILE_PATH" "${FILE_PATH}.original"; then
+        echo "No match found in $FILE_PATH. No replacement made."
+    else
+        echo "Line in $FILE_PATH successfully replaced."
+    fi
+    rm "${FILE_PATH}.original"
+else
+    echo "Skipping modification."
+fi
+
 # Build genmap and genbox tools
 read -p "Do you want to build genmap and genbox tools? (y/n): " confirm
 if [ "$confirm" == "y" ] || [ "$confirm" == "Y" ]; then

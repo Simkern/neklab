@@ -1,0 +1,139 @@
+      submodule (neklab_helix) helix_getters_setters
+         implicit none
+
+      contains
+
+         !! LOGICAL FUNCTIONS
+
+         module procedure is_steady
+            steady = self%if_steady
+         end procedure is_steady
+
+         module procedure is_lowner
+            is_owner = .false.
+            if (ie <= nelv) is_owner = self%lowner(ie)
+         end procedure is_lowner
+
+         module procedure is_gowner
+            is_owner = .false.
+            if (ie <= nelv) is_owner = self%gowner(ie)
+         end procedure is_gowner
+
+         !! GETTERS
+
+         module procedure get_dpds
+            integer :: i, j
+            dpds = self%dpds
+            if (present(phase)) then
+               allocate(phase((nf+1)/2))
+               phase = 0.0_dp
+               j = 1
+               do i = 2, nf, 2
+                  j = j + 1
+                  phase(j) = atan2(dpds(i+1),dpds(i))
+               end do
+            end if
+         end procedure get_dpds
+
+         module procedure get_fshape
+            call copy(fshape, self%fshape, lv)
+         end procedure get_fshape
+
+         module procedure get_angle_s
+            call copy(angle_s, self%as, lv)
+         end procedure get_angle_s
+
+         module procedure get_alpha
+            call copy(alpha, self%alpha, lv)
+         end procedure get_alpha
+
+         module procedure get_period
+            T = self%pulse_T
+         end procedure get_period
+
+         module procedure get_nf
+            n = nf
+         end procedure get_nf
+
+         module procedure get_Wo
+            Wo = self%womersley
+         end procedure get_Wo
+
+         module procedure get_nsteps
+            ns = 0
+            if (self%nsteps /= 0) then
+               ns = self%nsteps
+            else
+               call nek_stop_error('nsteps not computed.', procedure='get_nsteps')
+            end if
+         end procedure get_nsteps
+
+         module procedure get_dt_minmax
+            if (self%min_dt == 100.0_dp) then
+               call nek_log_message('min_dt not computed.', procedure='get_dt_minmax')
+            end if
+            if (self%max_dt == 0.0_dp) then
+               call nek_log_message('max_dt not computed.', procedure='get_dt_minmax')
+            end if
+            if (self%min_dt /= 100.0_dp .and. self%max_dt /= 0.0_dp) then
+               dt_minmax(1) = self%min_dt
+               dt_minmax(2) = self%max_dt
+            end if
+         end procedure get_dt_minmax
+
+         module procedure get_ubar_lag
+            ubar_lag = 0.0_dp
+            if (self%ubar_lag /= 0.0_dp) then
+               ubar_lag = self%ubar_lag
+            else
+               call nek_stop_error('ubar_lag not computed.', procedure='get_ubar_lag')
+            end if
+         end procedure get_ubar_lag
+
+         module procedure get_lsegment
+            local_segment = 0
+            if (ie <= nelv) local_segment = self%lsegment(ie)
+         end procedure get_lsegment
+      
+         module procedure get_gsegment
+            global_segment = 0
+            if (ie <= nelv) global_segment = self%gsegment(ie)
+         end procedure get_gsegment
+
+         module procedure get_v2d
+            v2d = 0.0_dp
+            if (ix <= lx1) then
+               if (iy <= ly1) then
+                  if (iseg <= self%n2d_lown) then
+                     if (ifld <= self%nload) then
+                        if (icomp == 1) then
+                           v2d = self%vx2d(ix,iy,iseg,ifld)
+                        else if (icomp == 2) then
+                           v2d = self%vy2d(ix,iy,iseg,ifld)
+                        else if (icomp == 2) then
+                           v2d = self%vz2d(ix,iy,iseg,ifld)
+                        end if
+                     end if
+                  end if
+               end if
+            end if
+         end procedure get_v2d
+
+         !! SETTERS
+
+         module procedure set_dpds
+            logical :: reset_dpds
+            reset_dpds = optval(reset, .true.)
+            if (reset_dpds) self%dpds = 0.0_dp
+            self%dpds = self%dpds + dpds
+         end procedure set_dpds
+
+         module procedure set_nsteps
+            if (ns /= 0) then
+               self%nsteps = ns
+            else
+               call nek_log_message('input is zero. nsteps not set.', procedure='set_nsteps')
+            end if
+         end procedure set_nsteps
+      
+      end submodule helix_getters_setters

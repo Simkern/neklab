@@ -16,6 +16,7 @@
          use neklab_vectors
          use neklab_nek_forcing, only: neklab_forcing, set_neklab_forcing
          use neklab_nek_setup, only: nek_log_message, nek_log_information, nek_log_warning, nek_log_debug, nek_stop_error
+
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -108,56 +109,315 @@
             real(dp), dimension(lx1,ly1,lelv)      :: x2d, y2d ! coordinates of the reference 2d slice
             real(dp), dimension(lx1,ly1,lelv,lbuf) :: vx2d, vy2d, vz2d ! 2D velocity fields
          contains
-            ! initialization
+            ! helix_utils
             procedure, pass(self), public :: init_geom
             procedure, pass(self), public :: init_flow
-            ! public computation routines
+            procedure, pass(self), public :: reset_newton
             procedure, pass(self), public :: compute_fshape
             procedure, pass(self), public :: compute_bf_forcing
-            procedure, pass(self), public :: forcing_amplitude
             procedure, pass(self), public :: compute_usrt
             procedure, pass(self), public :: compute_ubar
-            ! 2D data manipulation
+            procedure, pass(self), public :: forcing_amplitude
+            procedure, pass(self), public :: setup_summary
+            procedure, pass(self), public :: parameter_summary
+            procedure, pass(self), public :: forcing_summary
+            ! helix_2d
+            procedure, pass(self) :: init_2d_geom
             procedure, pass(self), public :: save_2d_fields
-            procedure, pass(self), public :: compute_2d_usrt
             procedure, pass(self), public :: outpost_2d
             procedure, pass(self), public :: outpost_2d_fields
             procedure, pass(self), public :: load_2d_fields
             procedure, pass(self), public :: set_baseflow
-            ! Fourier coefficient integration
+            procedure, pass(self), public :: compute_2d_usrt
+            procedure, pass(self), public :: save_base
+            ! helix_mflow_fft
             procedure, pass(self), public :: reset_mflow_fft
             procedure, pass(self), public :: compute_mflow_fft
             procedure, pass(self), public :: extract_mflow_fft
-            ! helper routines
-            procedure, pass(self), public :: setup_summary
-            procedure, pass(self), public :: parameter_summary
-            procedure, pass(self), public :: forcing_summary
+            procedure, pass(self), public :: get_mflow_fft
+            ! helix_getters_setters
+            procedure, pass(self), public :: is_steady
+            procedure, pass(self), public :: is_lowner
+            procedure, pass(self), public :: is_gowner
             procedure, pass(self), public :: get_period
             procedure, pass(self), public :: get_Wo
-            procedure, pass(self), public :: is_steady
+            procedure, pass(self), public :: get_dpds
+            procedure, pass(self), public :: get_nf
             procedure, pass(self), public :: get_fshape
             procedure, pass(self), public :: get_angle_s
             procedure, pass(self), public :: get_alpha
             procedure, pass(self), public :: get_nsteps
-            procedure, pass(self), public :: set_nsteps
             procedure, pass(self), public :: get_dt_minmax
             procedure, pass(self), public :: get_ubar_lag
-            procedure, pass(self), public :: is_lowner
-            procedure, pass(self), public :: is_gowner
             procedure, pass(self), public :: get_lsegment
             procedure, pass(self), public :: get_gsegment
             procedure, pass(self), public :: get_v2d
-            procedure, pass(self), public :: reset_newton
-            procedure, pass(self), public :: save_base
-            procedure, pass(self), public :: get_mflow_fft
-            procedure, pass(self), public :: get_nf
-            ! getter/setter for dpds
-            procedure, pass(self), public :: get_dpds
             procedure, pass(self), public :: set_dpds
+            procedure, pass(self), public :: set_nsteps
          end type helix
+         
+         interface
+         
+            !-----------------------------------------------------
+            ! neklab_helix % helix_utils
+            !
+            ! Type-bound procedures
+
+            module subroutine init_geom(self)
+               class(helix), intent(inout) :: self
+            end subroutine init_geom
+
+            module subroutine init_flow(self, dpds, womersley)
+               class(helix), intent(inout) :: self
+               real(dp), intent(in) :: dpds(:)
+               real(dp), optional, intent(in) :: womersley
+            end subroutine init_flow
+
+            module subroutine reset_newton(self)
+               class(helix), intent(inout) :: self
+            end subroutine
+
+            module subroutine compute_fshape(self)
+               class(helix), intent(inout) :: self
+            end subroutine compute_fshape
+
+            module subroutine compute_bf_forcing(self, t)
+               class(helix), intent(in) :: self
+               real(dp) :: t
+               !! time
+            end subroutine compute_bf_forcing
+
+            module subroutine compute_usrt(self, u, v, w, us, ur, ut)
+               class(helix), intent(in) :: self
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: u
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: v
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: w
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: us
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: ur
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: ut
+            end subroutine compute_usrt
+            
+            module function compute_ubar(self,u,v,w) result(ubar)
+               class(helix), intent(in) :: self
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: u
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: v
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: w
+               real(dp) :: ubar
+            end function compute_ubar
+
+            module pure function forcing_amplitude(self, t) result(f)
+               class(helix), intent(in) :: self
+               real(dp), intent(in) :: t
+               real(dp) :: f
+               !! time
+            end function forcing_amplitude
+
+            module subroutine setup_summary(self)
+               class(helix), intent(in) :: self
+            end subroutine setup_summary
+            
+            module subroutine parameter_summary(self)
+               class(helix), intent(in) :: self
+            end subroutine parameter_summary
+
+            module subroutine forcing_summary(self)
+               class(helix), intent(in) :: self
+            end subroutine forcing_summary
+
+            !-----------------------------------------------------
+            ! neklab_helix % helix_2d
+            !
+            ! Type-bound procedures           
+
+            module subroutine init_2d_geom(self)
+               class(helix), intent(inout) :: self
+            end subroutine init_2d_geom
+
+            module subroutine save_2d_fields(self, u, v, w)
+               class(helix), intent(inout) :: self
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: u
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: v
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: w
+            end subroutine save_2d_fields
+         
+            module subroutine outpost_2d(self)
+               class(helix), intent(inout) :: self
+            end subroutine outpost_2d
+
+            module subroutine outpost_2d_fields(self, iname, iout)
+               class(helix), intent(inout) :: self
+               character(len=1), intent(in) :: iname
+               integer, intent(in) :: iout
+            end subroutine outpost_2d_fields            
+
+            module subroutine load_2d_fields(self, idx)
+               ! only nid 0 will read
+               class(helix), intent(inout) :: self
+               integer, intent(in) :: idx
+            end subroutine load_2d_fields
+
+            module subroutine set_baseflow(self, basex, basey, basez, ifld)
+               class(helix), intent(inout) :: self
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: basex
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: basey
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: basez
+               integer, intent(in) :: ifld
+            end subroutine set_baseflow
+
+            module subroutine compute_2d_usrt(self)
+               ! this routine will overwrite self%v[xyz]2d
+               class(helix), intent(inout) :: self
+            end subroutine compute_2d_usrt
+
+            module subroutine save_base(self, ifsave)
+               class(helix), intent(inout) :: self
+               logical, intent(in) :: ifsave
+            end subroutine save_base
+
+            !-----------------------------------------------------
+            ! neklab_helix % helix_mflow_fft
+            !
+            ! Type-bound procedures 
+
+            module subroutine reset_mflow_fft(self)
+               class(helix), intent(inout) :: self
+            end subroutine reset_mflow_fft
+
+            module subroutine compute_mflow_fft(self, period, var_dt)
+               ! only for constant dt
+               class(helix), intent(inout) :: self
+               real(dp), optional, intent(in) :: period
+               logical, optional, intent(in) :: var_dt
+            end subroutine compute_mflow_fft
+
+            module subroutine extract_mflow_fft(self, if_amplitude)
+               ! only for constant dt
+               class(helix), intent(inout) :: self
+               logical, optional, intent(in) :: if_amplitude
+            end subroutine extract_mflow_fft
+
+            module subroutine get_mflow_fft(self, mflow, if_amplitude)
+               class(helix), intent(in) :: self
+               real(dp), allocatable, intent(out) :: mflow(:)
+               logical, optional, intent(in) :: if_amplitude
+            end subroutine get_mflow_fft
+
+            !-----------------------------------------------------
+            ! neklab_helix % helix_gs
+            !
+            ! Type-bound procedures
+            
+            ! logicals
+
+            module pure function is_steady(self) result(steady)
+               class(helix), intent(in) :: self
+               logical :: steady
+            end function is_steady
+
+            module pure function is_lowner(self, ie) result(is_owner)
+               class(helix), intent(in) :: self
+               integer, intent(in) :: ie
+               logical :: is_owner
+            end function is_lowner
+            
+            module pure function is_gowner(self, ie) result(is_owner)
+               class(helix), intent(in) :: self
+               integer, intent(in) :: ie
+               logical :: is_owner
+            end function is_gowner
+
+            ! getters
+
+            module pure function get_period(self) result(T)
+               class(helix), intent(in) :: self
+               real(dp) :: T
+            end function get_period
+
+            module pure function get_Wo(self) result(Wo)
+               class(helix), intent(in) :: self
+               real(dp) :: Wo
+            end function get_Wo
+            
+            module subroutine get_dpds(self, dpds, phase)
+               class(helix), intent(in) :: self
+               real(dp), dimension(nf), intent(out) :: dpds
+               real(dp), optional, allocatable, intent(out) :: phase(:)
+            end subroutine get_dpds
+
+            module pure function get_nf(self) result(n)
+               class(helix), intent(in) :: self
+               integer :: n
+            end function get_nf
+
+            module subroutine get_fshape(self, fshape)
+               class(helix), intent(in) :: self
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: fshape
+            end subroutine get_fshape
+
+            module subroutine get_angle_s(self, angle_s)
+               class(helix), intent(in) :: self
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: angle_s
+            end subroutine get_angle_s
+
+            module subroutine get_alpha(self, alpha)
+               class(helix), intent(in) :: self
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: alpha
+            end subroutine get_alpha        
+
+            module function get_nsteps(self) result(ns)
+               class(helix), intent(in) :: self
+               integer :: ns
+            end function get_nsteps
+
+            module subroutine get_dt_minmax(self, dt_minmax)
+               class(helix), intent(in) :: self
+               real(dp), dimension(2), intent(out) :: dt_minmax
+            end subroutine get_dt_minmax
+
+            module function get_ubar_lag(self) result(ubar_lag)
+               class(helix), intent(in) :: self
+               real(dp) :: ubar_lag
+            end function get_ubar_lag
+
+            module pure function get_lsegment(self, ie) result(local_segment)
+               class(helix), intent(in) :: self
+               integer, intent(in) :: ie
+               integer :: local_segment
+            end function get_lsegment
+         
+            module pure function get_gsegment(self, ie) result(global_segment)
+               class(helix), intent(in) :: self
+               integer, intent(in) :: ie
+               integer :: global_segment
+            end function get_gsegment
+
+            module pure function get_v2d(self,ix,iy,iseg,ifld,icomp) result(v2d)
+               class(helix), intent(in) :: self
+               integer, intent(in) :: ix
+               integer, intent(in) :: iy
+               integer, intent(in) :: iseg
+               integer, intent(in) :: ifld
+               integer, intent(in) :: icomp
+               real(dp) :: v2d
+            end function get_v2d
+
+            ! setters
+
+            module subroutine set_dpds(self, dpds, reset)
+               class(helix), intent(inout) :: self
+               real(dp), dimension(nf), intent(in) :: dpds
+               logical, optional, intent(in) :: reset
+            end subroutine set_dpds
+
+            module subroutine set_nsteps(self, ns)
+               class(helix), intent(inout) :: self
+               integer, intent(in) :: ns
+            end subroutine set_nsteps
+            
+         end interface
 
          type(helix) :: pipe
-      
+
       contains
 
          ! Constructor for the module level instance of helix
@@ -206,1209 +466,5 @@
             if (nf > 1) pipe%if_fft = .true.           
 
          end subroutine helix_pipe
-
-         subroutine setup_summary(self)
-            class(helix), intent(in) :: self
-            ! internal
-            character(len=128) :: msg
-            if (self%is_initialized) then
-               call nek_log_message('##  HELIX SETUP ##', module=this_module)
-               call nek_log_message('Geometry:', module=this_module)
-               write (msg, '(A,F15.8)') padl('length:', 20), pipe%length
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,F15.8)') padl('diameter:', 20), pipe%diameter
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,F15.8)') padl('radius:', 20), pipe%radius
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,F15.8)') padl('pitch_s:', 20), pipe%pitch_s
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,F15.8)') padl('delta:', 20), pipe%delta
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,F15.8)') padl('curv_radius:', 20), pipe%curv_radius
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               call nek_log_message('Angles:', module=this_module)
-               write (msg, '(A,F15.8)') padl('rise angle:', 20), pipe%phi
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,F15.8)') padl('sweep angle:', 20), pipe%sweep
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               call nek_log_message('Mesh:', module=this_module)
-               write (msg, '(A,I8)') padl('slices:', 20), pipe%nslices
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,I8)') padl('nel/slice:', 20), pipe%nelf
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            else
-               call nek_log_warning('helix instance not initialized', module=this_module, fmt='(A)')
-            end if
-         end subroutine setup_summary
-         
-         subroutine parameter_summary(self)
-            class(helix), intent(in) :: self
-            ! internal
-            character(len=128) :: msg
-            if (self%is_initialized) then
-               call nek_log_message('##  HELIX PARAMETERS ##', module=this_module)
-               call nek_log_message('Flow:', module=this_module)
-               write (msg, '(A,L8)') padl('steady:', 20), self%if_steady
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,F15.8)') padl('Wo:', 20), self%womersley
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,F15.8)') padl('omega:', 20), self%omega
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,F15.8)') padl('T:', 20), self%pulse_T
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               call nek_log_message('Forcing:', module=this_module)
-               call self%forcing_summary()
-            else
-               call nek_log_warning('helix instance not initialized', module=this_module, fmt='(A)')
-            end if
-         end subroutine parameter_summary
-
-         subroutine forcing_summary(self)
-            class(helix), intent(in) :: self
-            ! internal
-            integer :: i
-            real(dp) :: dpds_norm, dpds_angle_rad
-            character(len=128) :: msg, fmt
-            if (self%is_initialized) then
-               write (msg, '(4(A,F15.8))') padl('dpds_00:', 20), self%dpds(1), ' ', 0.0_dp,
-     $               ' | ', self%dpds(1), ' | ', 0.0_dp 
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               do i = 2, nf, 2
-                  write(fmt,'("dpds_",I2.2,":")') i/2
-                  dpds_norm      = sqrt(self%dpds(i)**2 + self%dpds(i+1)**2)
-                  dpds_angle_rad = atan2(self%dpds(i+1),self%dpds(i))
-                  write (msg, '(4(A,F15.8))') padl(trim(fmt), 20), self%dpds(i), ' ', self%dpds(i+1), 
-     $               ' | ', dpds_norm, ' | ', dpds_angle_rad
-                  call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               end do
-            else
-               call nek_log_warning('helix instance not initialized', module=this_module, fmt='(A)')
-            end if
-         end subroutine forcing_summary
-
-         subroutine init_geom(self)
-            class(helix), intent(inout) :: self
-            ! internal
-            real(dp) :: xmin, xmax, helix_r, s_angle, invnv
-            real(dp) :: x_torus, y_torus, z_torus, sweep, r
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: tmp, pipe_r
-            integer :: ix, iy, iz, ie, iel, ieg, iseg, iface, isl, level, nxy
-            integer :: fileid
-            integer, dimension(lelv) :: islice
-            integer, dimension(:), allocatable :: unique_segments, segment_owner, segment_count
-            integer, dimension(:), allocatable :: idx ! for findloc
-            logical, dimension(:), allocatable :: segment_found
-            character(len=3) :: fid
-            ! functions
-            real(dp), external :: glmax, glmin
-            integer, external :: iglsum
-
-            if (self%is_initialized) call stop_error('Attempting to reinitialize the mesh', this_module, 'init_geom')
-            call lk_timer%start('neklab_helix_init_geom')
-
-         !  Geometry modification for helical pipe
-
-            pi = 4.0_dp*atan(1.0_dp)
-            nxy = lx1*ly1
-
-            call rescale_x(xm1,-self%radius,self%radius) ! x in [ -r, r ]
-            call rescale_x(ym1,-self%radius,self%radius) ! y in [ -r, r ]
-            call rescale_x(zm1,0.0_dp,1.0_dp)            ! z in [  0, 1 ]
-
-         !  rotate mesh to set the center of the pipe along x-axis
-            call copy(tmp,  xm1, lv)
-            call copy(xm1,  zm1, lv)   ! x <--  z
-            call copy(zm1, -tmp, lv)   ! z <-- -x
-            call copy(self%zax,zm1,lv) ! zax set before curvature in z is added!
-
-            ! rescale the new x axis
-            xmin = glmin(xm1,lv)
-            xmax = glmax(xm1,lv)
-            xm1 = self%sweep/(xmax-xmin) * xm1 ! x in [ 0, max_sweep_angle ]
-            call copy(self%sweep_angle,xm1,lv) ! save sweep angle
-            call copy(pipe_r,          ym1,lv) ! local distance from pipe center
-
-            ! Sort local elements according to 2D mesh. 
-            ! Here we use a trick that relies on the particular structure of meshes extruded
-            ! from a 2D mesh using n2to3.
-            allocate(unique_segments(self%nelf)); call izero(unique_segments, self%nelf)
-            allocate(segment_count  (self%nelf)); call izero(segment_count,   self%nelf)
-            allocate(segment_owner  (self%nelf)); call izero(segment_owner,   self%nelf)
-            allocate(segment_found  (self%nelf), source=.false.)
-            call izero(islice, nelv)
-            call izero(self%id2d, 3*nelv)
-            self%n2d_lown = 0
-            self%n2d_gown = 0
-            do ie = 1, nelv
-               ieg = lglel(ie)
-               isl = ieg/self%nelf + 1
-               if (mod(ieg,self%nelf)==0) isl = isl - 1
-               islice(ie) = isl
-               self%gsegment(ie) = ieg - (isl-1)*self%nelf
-               if (isl == 1) then
-                  ! the element in the first slice is the global segment owner
-                  self%gowner(ie) = .true.
-                  self%n2d_gown = self%n2d_gown + 1
-               end if
-               ! gather all unique segments on proc
-               if (.not. segment_found(self%gsegment(ie))) then
-                  self%n2d_lown = self%n2d_lown + 1
-                  segment_owner(self%n2d_lown) = ie
-                  unique_segments(self%n2d_lown) = self%gsegment(ie)
-                  segment_found(self%gsegment(ie)) = .true.
-                  self%id2d(self%n2d_lown,1) = ie
-                  self%id2d(self%n2d_lown,3) = self%gsegment(ie)
-                  self%lowner(ie) = .true.
-               end if
-               idx = findloc(unique_segments, self%gsegment(ie))
-               segment_count(idx(1)) = segment_count(idx(1)) + 1
-               self%lsegment(ie) = idx(1)
-            end do
-      
-            call logger%configuration(level=level)
-            if (level <= debug_level) then
-               print '(A,2(I0,1X),A,*(1X,I3))', 'DEBUG 2dmap: ', nid, self%n2d_lown, 'unique streamwise segments:   ', unique_segments(:self%n2d_lown)
-               print '(A,2(I0,1X),A,*(1X,I3))', 'DEBUG 2dmap: ', nid, self%n2d_lown, '# of elements in segment:     ', segment_count(:self%n2d_lown)
-               print '(A,2(I0,1X),A,*(1X,I3))', 'DEBUG 2dmap: ', nid, self%n2d_lown, 'local element local  s. owner:', segment_owner(:self%n2d_lown)
-               print '(A,2(I0,1X),A,*(1X,L3))', 'DEBUG 2dmap: ', nid, self%n2d_lown, 'local element global s. owner:', self%gowner(:self%n2d_lown)
-               print '(A,2(I0,1X),A,I0)'      , 'DEBUG 2dmap: ', nid, self%n2d_lown, 'globally owned: ', self%n2d_gown
-            end if
-            if (level == all_level) then
-               call nekgsync()
-               do ie = 1, nelv
-                  call cfill(vz(1,1,1,ie), 1.0_dp*nid, lx1*ly1*lz1)
-                  call cfill(vx(1,1,1,ie), 1.0_dp*islice(ie),lx1*ly1*lz1)
-                  call cfill(vy(1,1,1,ie), 1.0_dp*self%gsegment(ie),lx1*ly1*lz1)
-                  if (self%lowner(ie)) call cfill(vz(1,1,1,ie), -1.0_dp,lx1*ly1*lz1) 
-                  if (self%gowner(ie)) call cfill(vz(1,1,1,ie), np*1.0_dp,lx1*ly1*lz1)
-               end do
-               call outpost(vx,vy,vz,pr,t,'m2d')
-               print '(A,A3,3X,3(A5),2X,2(A20))', 'DEBUG: 2dmap ', 'nid', 'glob', 'locl', 'l2d', 'xavg', 'yavg'
-            end if
-
-            ! Extract 2D mesh
-            iseg = 0 
-		      do ie = 1, nelv
-               if (self%lowner(ie)) then
-		      	   ! extract boundary points from the global segment owners
-                  iseg = iseg + 1
-                  if (self%gowner(ie)) then
-		      	      do iface = 1, 2*ndim
-		      	      	if (cbc(iface,ie,1) == 'P') then
-		      	   	   	call ftovec(self%x2d(1,1,iseg), zm1, ie, iface, nx1, ny1, nz1) ! z --> x
-		      	   		   call ftovec(self%y2d(1,1,iseg), ym1, ie, iface, nx1, ny1, nz1)
-                           self%id2d(iseg,2) = iface
-                       end if
-		      	      end do
-                  end if
-                  if (level <= debug_level) then
-                     print '(A,I3,A,4(1X,I4),A,3X,F17.8,3x,F17.8)', 'DEBUG 2dmap: ', nid, ' el', lglel(ie), ie, iseg, self%gsegment(ie),  
-     &                           ': ', sum(self%x2d(:,:,iseg))/nxy, sum(self%y2d(:,:,iseg))/nxy
-                  end if
-               end if
-		      end do
-            
-            ! initialize data
-            call rzero(self%vx2d, nx1*ny1*nelv*lbuf)
-            call rzero(self%vy2d, nx1*ny1*nelv*lbuf)
-            call rzero(self%vz2d, nx1*ny1*nelv*lbuf)
-            call rzero(self%dt2d, lbuf)
-            self%nsave = 0
-            self%noutc = 0
-            self%noutt = 0
-            self%n2d   = iglsum(self%n2d_gown,1)
-            self%nload = 0
-            if (self%n2d /= self%nelf) call stop_error('Inconsistent elements in 2D mesh!', module=this_module, procedure='init_geom')
-            if (level <= debug_level) then
-               call nekgsync()
-               print '(A,I3,A,*(1x,I0))', 'DEBUG 2dmap: ', nid, ', nelv2iseg: ', self%lsegment(:nelv)
-               write(fid,'(I3.3)') nid
-               fileid = 2000+nid
-               open (fileid, file='torus_map'//fid//'.txt', status='replace', action='write')
-               write(fileid, *) 'nelv = ', nelv
-               write(fileid, '(6(1X,A11),2(1X,A7),A12)') 'ie','ieg','slice','self%gsegment','gllel','gllnid','s%lowner','s%gowner','s%n2iseg'
-               do ie = 1, nelv
-                  ieg = lglel(ie)
-                  write(fileid, '(6(I12),2(1X,L7),I12)') ie, ieg, islice(ie), self%gsegment(ie), gllel(ieg), gllnid(ieg), self%lowner(ie), self%gowner(ie), self%lsegment(ie)
-               end do
-               write(fileid, *) 'n2d_lown = ', self%n2d_lown
-               write(fileid, '(*(1X,A11))') 'iel','ieg','s%id2d:ie', 's%id2d:ifc', 's%id2d%iseg'
-               do ie = 1, self%n2d_lown
-                  write(fileid, *) ie, lglel(self%id2d(ie,1)), self%id2d(ie,:)
-               end do
-               close (fileid)
-               call nekgsync()
-            end if
-
-            ! Morph the mesh into a torus
-            helix_r = self%curv_radius
-            do ie = 1, nelv
-            do iz = 1, lz1
-            do iy = 1, ly1
-            do ix = 1, lx1
-               r     = pipe_r(ix,iy,iz,ie)
-               sweep = self%sweep_angle(ix,iy,iz,ie)
-               self%ox(ix,iy,iz,ie) = helix_r * sin(sweep)
-               self%oy(ix,iy,iz,ie) = helix_r * cos(sweep)
-               xm1(ix,iy,iz,ie)     = r * sin(sweep) + self%ox(ix,iy,iz,ie)
-               ym1(ix,iy,iz,ie)     = r * cos(sweep) + self%oy(ix,iy,iz,ie)
-            end do
-            end do
-            end do
-            end do
-            call copy(self%xax, xm1, lv) ! xax set before curvature in z is added!
-            call copy(self%yax, ym1, lv) ! yax set before curvature in z is added!
-
-            ! Morph the torus into a helix
-            if (self%phi /= 0.0_dp) then
-               do ie = 1, nelv
-               do iz = 1, lz1
-               do iy = 1, ly1
-               do ix = 1, lx1
-                  x_torus = xm1(ix,iy,iz,ie)
-                  y_torus = ym1(ix,iy,iz,ie)
-                  z_torus = self%zax(ix,iy,iz,ie)
-                  sweep   = self%sweep_angle(ix,iy,iz,ie)
-                  xm1(ix,iy,iz,ie) = x_torus - z_torus*sin(self%phi)*cos(sweep)
-                  ym1(ix,iy,iz,ie) = y_torus + z_torus*sin(self%phi)*sin(sweep)
-                  zm1(ix,iy,iz,ie) = sweep*self%pitch_s + z_torus*cos(self%phi)
-               enddo
-               enddo
-               enddo
-               enddo
-            end if
-            param(59) = 1.   !  All elements deformed
-
-            ! Streamwise angle in the equatorial plane & angle within cross-sectional plane
-            self%as    = atan2(self%xax, self%yax) ! clockwise from y axis
-            self%alpha = atan2(self%zax, pipe_r)
-
-            self%is_initialized = .true.
-            call comment() ! set internal variable ifcour for standard timestep logging (--> needs to be called at istep == 0)
-            call lk_timer%stop('neklab_helix_init_geom')
-            
-         end subroutine init_geom
-
-         subroutine init_flow(self, dpds, womersley)
-            class(helix), intent(inout) :: self
-            real(dp), intent(in) :: dpds(:)
-            real(dp), optional, intent(in) :: womersley
-            ! internal
-            integer :: i, n
-            character(len=128) :: msg, fmt
-            pi = 4.0_dp*atan(1.0_dp)
-            n = size(dpds)
-            if (present(womersley)) then
-               self%if_steady = .false.
-               self%womersley = womersley
-               self%omega     = (self%womersley**2)*cpfld(1,1)    ! pulsation frequency
-               self%pulse_T   = 2.0_dp*pi/self%omega               ! pulsation period
-               if (n == 1) then
-                  msg = 'Unsteady case requires more than one forcing component'
-                  call nek_stop_error(msg, this_module, 'init_flow')
-               else if (mod(n,2)==0) then
-                  msg = 'Unsteady case requires an uneven number of forcing components'
-                  call nek_stop_error(msg, this_module, 'init_flow')
-               end if
-               msg = 'Steady flow parameters set.'
-               call nek_log_message(msg, this_module, 'init_flow')
-            else
-               self%if_steady = .true.
-               self%womersley = 0.0_dp   
-               self%omega     = 0.0_dp   
-               self%pulse_T   = 0.0_dp  
-               if (n > 1) then
-                  msg = 'Steady case requires only one forcing component'
-                  call nek_stop_error(msg, this_module, 'init_flow')
-               end if
-               call nek_log_message('Unsteady flow parameters set.', this_module, 'init_flow')
-            end if
-            if (n /= nf) then
-               msg = 'The parameter nf in neklab_helix is not compatible with the inputs'
-               call nek_stop_error(msg, this_module, 'init_flow')
-            end if
-            self%dpds = dpds
-            call pipe%compute_bf_forcing(0.0_dp) ! ensure that the forcing is set (in particular for steady flows)
-            call nek_log_message('Baseflow forcing set.', this_module, 'init_flow')
-            call self%parameter_summary()
-         end subroutine init_flow
-
-         subroutine compute_fshape(self)
-            class(helix), intent(inout) :: self
-            ! internals
-            integer :: ix, iy, iz, ie
-            real(dp) :: helix_r2, r, rr, alpha
-            self%fshape = 0.0_dp
-            do ie = 1, lelv
-            do iz = 1, lz1
-            do iy = 1, ly1
-            do ix = 1, lx1
-               ! Distance from the origin in the equatorial plane
-               helix_r2 = self%xax(ix,iy,iz,ie)**2 + self%yax(ix,iy,iz,ie)**2
-               ! Distance from the pipe center in the equatorial plane
-               r = sqrt(helix_r2) - self%curv_radius
-               ! Azimuthal angle in the cross-sectional plane
-               alpha = atan2(r, self%zax(ix,iy,iz,ie))
-               ! Radial position in the cross-sectional plane
-               rr = sqrt(r**2 + self%zax(ix,iy,iz,ie)**2)
-               ! Compute fshape
-               self%fshape(ix,iy,iz,ie) = 1.0_dp / abs(1.0_dp + self%delta * rr * sin(alpha))
-            end do
-            end do
-            end do
-            end do
-         end subroutine compute_fshape
-
-         real(dp) pure function forcing_amplitude(self, t) result(f)
-            class(helix), intent(in) :: self
-            real(dp), intent(in) :: t
-            !! time
-            ! internal
-            integer :: i
-            complex(dp) :: eiwt, dpds
-
-            f = self%dpds(1)
-            if (.not.self%if_steady) then
-               eiwt = cexp(imag * self%omega * t)
-               do i = 2, nf, 2
-                  dpds = self%dpds(i) + imag*self%dpds(i+1)
-                  f = f + 2.0_dp * real(dpds * eiwt)
-               end do
-            end if
-         end function forcing_amplitude
-
-         subroutine compute_bf_forcing(self, t)
-            class(helix), intent(in) :: self
-            real(dp) :: t
-            !! time
-            ! internal
-            integer :: ix, iy, iz, ie
-            real(dp) :: fs, phi
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: ffx, ffy, ffz
-            fs = self%forcing_amplitude(t) / self%curv_radius
-
-            phi = self%phi
-            do ie = 1, nelv
-            do iz = 1, lz1
-            do iy = 1, ly1
-            do ix = 1, lx1
-               ffx(ix,iy,iz,ie) =  fs * self%fshape(ix,iy,iz,ie) * cos(phi) * cos(self%as(ix,iy,iz,ie))
-               ffy(ix,iy,iz,ie) = -fs * self%fshape(ix,iy,iz,ie) * cos(phi) * sin(self%as(ix,iy,iz,ie))
-               ffz(ix,iy,iz,ie) =  fs * self%fshape(ix,iy,iz,ie) * sin(phi)
-            end do
-            end do
-            end do
-            end do
-
-            ! set baseflow forcing
-            call set_neklab_forcing(ffx, ffy, ffz, ipert=0)
-
-         end subroutine compute_bf_forcing
-
-         subroutine compute_usrt(self, u, v, w, us, ur, ut)
-            class(helix), intent(in) :: self
-            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: u
-            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: v
-            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: w
-            real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: us
-            real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: ur
-            real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: ut
-            ! internal
-            integer :: ix, iy, iz, ie
-            real(dp) :: phi, a, s, ux, uy, uz, utmp, vtmp
-            phi = self%phi
-            do ie = 1, nelv
-            do iz = 1, lz1
-            do iy = 1, ly1
-            do ix = 1, lx1
-               s  = self%as(ix,iy,iy,ie)
-               a  = self%alpha(ix,iy,iy,ie)
-               ux = u(ix,iy,iy,ie)
-               uy = v(ix,iy,iy,ie)
-               uz = w(ix,iy,iy,ie)
-               utmp            = sin(s)*ux + cos(s)*uy
-               vtmp            = sin(phi) * (-cos(s)*ux - sin(s)*uy) + cos(phi)*uz
-               us(ix,iy,iz,ie) = cos(phi) * ( cos(s)*ux - sin(s)*uy) + sin(phi)*uz
-               ur(ix,iy,iz,ie) = cos(a) * utmp + sin(a) * vtmp
-               ut(ix,iy,iz,ie) = sin(a) * utmp - cos(a) * vtmp
-            end do
-            end do
-            end do
-            end do
-         end subroutine compute_usrt
-            
-         real(dp) function compute_ubar(self,u,v,w) result(ubar)
-            class(helix) :: self
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: u
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: v
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: w
-            ! internal
-            integer :: ix, iy, iz, ie
-            real(dp) :: num, den, us, us_r, ux, uy, uz, phi, s, a, fs
-            real(dp), external :: glsum
-            call lk_timer%start('neklab_helix_compute_ubar')
-            num = 0.0_dp
-            den = 0.0_dp
-            phi = self%phi
-            do ie = 1, nelv
-            do iz = 1, lz1
-            do iy = 1, ly1
-            do ix = 1, lx1
-               ux = u(ix,iy,iz,ie)
-               uy = v(ix,iy,iz,ie)
-               uz = w(ix,iy,iz,ie)
-               s  = self%as(ix,iy,iz,ie)
-               a  = self%alpha(ix,iy,iz,ie)
-               fs = self%fshape(ix,iy,iz,ie)
-               us = cos(phi)*(cos(s)*ux - sin(s)*uy) + sin(phi)*uz
-               us_r = us * fs ! u/r
-               num = num + us_r*bm1(ix,iy,iz,ie)
-               den = den + fs  *bm1(ix,iy,iz,ie)
-            end do
-            end do
-            end do
-            end do
-            num = glsum(num,1)
-            den = glsum(den,1)
-            ubar = num/den  ! "1/r"-weighted volumetric average of streamwise velocity
-            call lk_timer%stop('neklab_helix_compute_ubar')
-         end function compute_ubar
-
-         subroutine save_2d_fields(self, u, v, w)
-            class(helix), intent(inout) :: self
-            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: u
-            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: v
-            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: w
-            ! internal
-            integer :: iseg, ie, ifc, level, nxy
-            real(dp) :: xavg, yavg, vxavg, vyavg, vzavg
-            character(len=128) :: msg
-            nxy = lx1*ly1
-            call logger%configuration(level=level)
-            if (self%save_2d_base) then
-               call lk_timer%start('neklab_helix_save_2d')
-               self%nsave = self%nsave + 1
-               ! save data to buffer
-               write(msg,'(A,I5,A,I5,A,E12.5,A,F12.8)') 'Save 2D field ', self%nsave, '/', lbuf, ', time=', time, ', dt=', dt
-               call logger%log_debug(msg, this_module, 'save_2d_fields')
-               if (nid == 0) print '(A,A)', 'neklab_helix: ', trim(msg)
-               do iseg = 1, self%n2d_gown
-                  ie  = self%id2d(iseg, 1)
-                  ifc = self%id2d(iseg, 2)
-                  call ftovec(self%vx2d(1,1,iseg,self%nsave), u, ie, ifc, nx1, ny1, nz1)
-		         	call ftovec(self%vy2d(1,1,iseg,self%nsave), v, ie, ifc, nx1, ny1, nz1)
-		         	call ftovec(self%vz2d(1,1,iseg,self%nsave), w, ie, ifc, nx1, ny1, nz1)
-                  if (level == all_level) then
-                     xavg  = sum(self%x2d (:,:,iseg))/nxy
-                     yavg  = sum(self%y2d (:,:,iseg))/nxy
-                     vxavg = sum(self%vx2d(:,:,iseg,self%nsave))/nxy
-                     vyavg = sum(self%vy2d(:,:,iseg,self%nsave))/nxy
-                     vzavg = sum(self%vz2d(:,:,iseg,self%nsave))/nxy
-                     print '(A,I8,I8,A,5(3X,F16.8))', 'DEBUG: save el', ie, iseg, ': ', xavg, yavg, vxavg, vyavg, vzavg
-                  end if
-                  call lk_timer%stop('neklab_helix_save_2d')
-               end do
-               ! save timestep information and record minimum dt
-               self%dt2d(self%nsave) = dt
-               if (lastep == 0) then ! exclude the potentially very short last step
-                  self%min_dt = min(dt, self%min_dt)
-                  self%max_dt = max(dt, self%max_dt)
-               end if
-               ! save data to file when buffer is full
-               if (self%nsave == lbuf .or. lastep == 1) call self%outpost_2d()
-            else
-               call nek_log_information('Baseflow saving turned off', this_module, 'save_2d_fields')
-            end if
-         end subroutine save_2d_fields
-         
-         subroutine outpost_2d(self)
-            class(helix), intent(inout) :: self
-            if (self%nsave > 0) then
-               call lk_timer%start('neklab_helix_outpost_2d')
-               if (self%if_newton) then
-                  self%noutn = self%noutn + 1
-                  call self%outpost_2d_fields(iname='n', iout=self%noutn)
-               else
-                  self%noutc = self%noutc + 1
-                  call self%outpost_2d_fields(iname='c', iout=self%noutc)
-                  if (self%save_2d_usrt) then
-                     call self%compute_2d_usrt() ! self%v[xyz]2d are overwritten
-                     self%noutt = self%noutt + 1
-                     call self%outpost_2d_fields(iname='t', iout=self%noutt)
-                  end if
-               end if
-               self%nsave = 0
-               call lk_timer%stop('neklab_helix_outpost_2d')
-            else
-               call nek_log_message('No 2D data to outpost.', this_module, 'outpost')
-            end if
-         end subroutine outpost_2d
-
-         subroutine compute_2d_usrt(self)
-            ! this routine will overwrite self%v[xyz]2d
-            class(helix), intent(inout) :: self
-            ! internal
-            integer, parameter :: iz = 1
-            integer :: ix, iy, ie, is, ib
-            real(dp) :: phi, sweep, a, s
-            real(dp) :: utmp, vtmp, ux, uy, uz
-            phi = self%phi
-            do is = 1, self%n2d_gown ! only for the first slice
-               ie = self%id2d(is, 1)
-               do iy = 1, ly1
-               do ix = 1, lx1
-                  s = self%as(ix,iy,iz,ie)
-                  a = self%alpha(ix,iy,iz,ie)
-                  ! iterate over buffer
-                  do ib = 1, lbuf
-                     ux = self%vx2d(ix,iy,is,ib)
-                     uy = self%vy2d(ix,iy,is,ib)
-                     uz = self%vz2d(ix,iy,is,ib)
-                     ! overwrite v[xyz]2d with u[srt]2d
-                     self%vx2d(ix,iy,is,ib) = cos(phi)*( cos(s)*ux -sin(s)*uy) + sin(phi)*uz
-                     utmp                   = sin(s)*ux + cos(s)*uy
-                     vtmp                   = sin(phi)*(-cos(s)*ux -sin(s)*uy) + cos(phi)*uz
-                     self%vy2d(ix,iy,is,ib) = cos(a)*utmp + sin(a)*vtmp
-                     self%vz2d(ix,iy,is,ib) = sin(a)*utmp - cos(a)*vtmp
-                  end do ! lbuf
-               end do    ! lx1
-               end do    ! ly1
-            end do       ! self%n2d_gown
-         end subroutine compute_2d_usrt
-         
-         subroutine outpost_2d_fields(self, iname, iout)
-            class(helix), intent(inout) :: self
-            character(len=1), intent(in) :: iname
-            integer, intent(in) :: iout
-            ! internals
-            integer, allocatable :: n2d_gown(:)
-            integer, allocatable :: n2d_elmap(:)
-            integer :: ierr, itmp, i, nxy, ip, ibuf, iseg, len, i_own
-            integer :: wdsl, isl, isend(lelv)
-            character(len=128)  :: fname, msg
-            character(len=1024) :: head, ftm
-            real rtmpv1(lx1*ly1*lelv), rtmpv(lx1*ly1*lelv)
-            real*4 rtmpv2(2*lx1*ly1*lelv)
-            equivalence (rtmpv1,rtmpv2)
-            real*4 test
-            parameter (test=6.54321)
-            nxy = lx1*ly1
-            wdsl = wdsize/4
-            isl  = isize/4
-            write(fname,'(A,A,I3.3,A)') iname, '2dtorus', iout, '.fld'
-            write(msg,'(A,I5,4X,A,A)') 'Outpost 2D data: ', self%nsave, 'fname: ', trim(fname)
-            call nek_log_information(msg, this_module, 'outpost_2d_fields')
-            if (nid == 0) then
-               call byte_open(fname, ierr)
-               if (ierr /= 0) call nek_stop_error('Error opening file '//trim(fname), procedure='outpost_2d_fields')
-
-               ! write file's header
-               ftm="('#tor',1x,i1,1x,'(lx1, ly1 =',2i9,') (nelf =',i9,') (time =',e17.9,') (nsave, lbuf =', 2i9,')')"
-               write(head,ftm) wdsize,lx1,ly1,self%nelf,time,self%nsave,lbuf
-               call byte_write(head,116/4,ierr)
-               if (ierr /= 0) call nek_stop_error('Error writing header in file '//trim(fname), procedure='outpost_2d_fields')  
-
-               ! write big/little endian test
-               call byte_write(test,1,ierr)
-
-               ! write metadata
-               call byte_write(lx1,isl,ierr)
-               call byte_write(ly1,isl,ierr)
-               call byte_write(self%nelf,isl,ierr)
-               call byte_write(time,wdsl,ierr)
-               call byte_write(self%nsave,isl,ierr)
-               call byte_write(lbuf,isl,ierr)
-               if (ierr /= 0) call nek_stop_error('Error writing metadata in file '//trim(fname), procedure='outpost_2d_fields')
-            end if
-
-            ! gather information about elements on other procs  
-            allocate(n2d_gown(np))           ! number of elements owned by each proc
-            call izero(n2d_gown,np)
-            allocate(n2d_elmap(self%nelf))  ! global element number of owned elements
-            call izero(n2d_elmap,self%nelf)
-            ! determine how many elements to dump
-            if (nid == 0) then
-               ! first for the master node 
-               n2d_gown(1) = self%n2d_gown
-               do i = 1, self%n2d_gown
-                  n2d_elmap(i) = lglel(self%id2d(i,1))     ! get global element number
-               end do 
-               iseg = self%n2d_gown
-               ! then gather info from other procs
-               do ip = 1, np-1
-                  call csend(ip,itmp,isize,ip,0)           ! hand shake
-                  call crecv(ip,i_own,isize)               ! recv number of elements
-                  n2d_gown(ip+1) = i_own
-                  call crecv(ip,isend(:i_own),i_own*isize) ! recv global element map
-                  n2d_elmap(iseg+1:iseg+i_own) = isend(:i_own)
-                  iseg = iseg + i_own
-               enddo
-               if (iseg /= self%nelf) call nek_stop_error('Not all elements in slice found!', this_module, 'outpost_2d_fields')
-               ! write it to file
-               call byte_write(n2d_elmap,self%nelf*isl,ierr)
-               ! write timestep information to file
-               call byte_write(self%dt2d(:self%nsave),self%nsave*wdsl,ierr)
-            else
-               call crecv(nid,itmp,isize)                  ! hand shake
-               call csend(nid,self%n2d_gown,isize,0,0)     ! send number of elements
-               len = self%n2d_gown
-               do i = 1, self%n2d_gown
-                  isend(i) = lglel(self%id2d(i,1))       
-               end do
-               call csend(nid,isend(:len),len*isize,0,0)   ! send global element map
-            endif
-            call bcast(n2d_gown, np*isize)         ! broadcast to all procs
-            call bcast(n2d_elmap, self%nelf*isize) ! broadcast to all procs
-
-            ! coordinates
-            call nek_log_debug('   '//trim(fname)//': write x2d ...', this_module, 'outpost_2d_fields')
-            call gather_and_write_slice(self%x2d, n2d_gown)
-            call nek_log_debug('   '//trim(fname)//': write y2d ...', this_module, 'outpost_2d_fields')
-            call gather_and_write_slice(self%y2d, n2d_gown)
-            ! velocity data
-            write(msg,'(3X,A,A,1X,I5)') trim(fname),': write v[xyz]2d', self%nsave
-            call nek_log_debug(msg, this_module, 'outpost_2d_fields')
-            do i = 1, self%nsave
-               call gather_and_write_slice(self%vx2d(:,:,:,i), n2d_gown)
-               call gather_and_write_slice(self%vy2d(:,:,:,i), n2d_gown)
-               call gather_and_write_slice(self%vz2d(:,:,:,i), n2d_gown)
-            end do
-            ! master closes the file
-            if (nid == 0) then 
-               call byte_close(ierr)
-               if (ierr /= 0) call nek_stop_error('Error closing file '//trim(fname), procedure='outpost_2d_fields')
-            end if
-         end subroutine outpost_2d_fields
-
-         subroutine load_2d_fields(self, idx)
-            ! only nid 0 will read
-            class(helix), intent(inout) :: self
-            integer, intent(in) :: idx
-            ! internal
-            integer ierr, hdrsize
-            real*4 test_pattern
-            integer :: nxr, nyr, nelfr, nsaver, lbufr, wdsizr, len
-            integer :: wdsl, isl, itmp, ip, nxy, i, ie, ieg, iel, iseg, gseg, nelf
-            real rtmpv(lx1*ly1)
-            integer, allocatable :: global_map(:)
-            integer, allocatable :: gmap_index(:)
-            real(dp), allocatable :: slicedata(:,:,:,:)
-            real(dp) :: dt2dr(lbuf)
-            real(dp) :: timer
-            character(len=132) :: hdr, fname, msg
-            character(len=4)   :: sdummy
-            character(len=3)   :: fid
-            common /CTMP1/ fldum(lx1*ly1*lelv)
-            real fldum
-            ! functions
-            logical, external :: if_byte_swap_test
-            call lk_timer%start('neklab_helix_load_2d')
-            if (self%if_newton) then
-               write(fname,'("n2dtorus",I3.3,".fld")') idx
-            else
-               write(fname,'("c2dtorus",I3.3,".fld")') idx
-            end if
-            hdrsize = 116
-            nxy = lx1*ly1
-            nelf = self%nelf
-            allocate(global_map(nelf))
-            allocate(gmap_index(nelf))
-            if (nid == 0) then
-               call byte_open(fname,ierr)
-               if (ierr /= 0) call nek_stop_error('Error opening file '//trim(fname), procedure='load_2d_fields')
-               ! read header
-               if (ierr == 0) then
-                  call blank     (hdr,hdrsize)
-                  call byte_read (hdr,hdrsize/4,ierr)
-               endif
-               if (ierr == 0) then
-                  call byte_read (test_pattern,1,ierr)
-                  if_byte_sw = if_byte_swap_test(test_pattern,ierr) ! determine endianess
-               endif
-               call nek_log_debug('header: '//trim(hdr), this_module, 'load_2d_fields')
-               ! read wdsize from header
-               read(hdr,*) sdummy, wdsizr
-               wdsl = wdsizr/4
-               isl  = isize/4
-               ! read metadata
-               call byte_read(nxr,    isl, ierr)
-               call byte_read(nyr,    isl, ierr)
-               call byte_read(nelfr,  isl, ierr)
-               call byte_read(timer, wdsl, ierr)
-               call byte_read(nsaver, isl, ierr)
-               call byte_read(lbufr,  isl, ierr)
-               write(msg,'(A,3(1X,I0),1X,E15.7,2(1X,I0))') 'metadata: ', nxr, nyr, nelfr, timer, nsaver, lbufr
-               call nek_log_debug(msg, this_module, 'load_2d_fields')
-               ! read global element mapping
-               call byte_read(global_map, nelf*isl, ierr)
-               if (ierr /= 0) call nek_stop_error('Error reading gloabl element map from file '//trim(fname), procedure='load_2d_fields')
-               ! read timestep information
-               call byte_read(dt2dr(:nsaver), nsaver*wdsl, ierr)
-               self%dt2d = dt2dr
-               if (ierr /= 0) call nek_stop_error('Error reading timestep information from file '//trim(fname), procedure='load_2d_fields')
-               ! read coords but skip them
-               call byte_read(fldum, nxy*nelf*wdsl, ierr)
-               call byte_read(fldum, nxy*nelf*wdsl, ierr)
-               if (ierr /= 0) call nek_stop_error('Error reading coordinates from file '//trim(fname), procedure='load_2d_fields')
-            end if
-            call bcast(nsaver, isize)          ! broadcast number of saved snapshots
-            call bcast(self%dt2d, lbuf*wdsize) ! broadcast timestep data
-            call bcast(global_map, nelf*isize) ! broadcast global element map
-            call sort_index(global_map, gmap_index)
-            ! initialize data and prepare arrays
-            len = 3*nxy*nelf
-            allocate(slicedata(lx1,ly1,nelf,3))
-            call rzero(slicedata, len)
-            ! load data one timestep at a time
-            do i = 1, nsaver
-               if (nid == 0) then ! read v[xyz]2d for all elements at the current timestep
-                  call byte_read(slicedata, len*wdsl, ierr)
-                  if (if_byte_sw) call byte_reverse(slicedata, len, ierr)
-                  if (ierr /= 0) call stop_error('Error reading element data', procedure='load_and_distribute_slice')
-               end if
-               call bcast(slicedata, len*wdsize) ! broadcast 2D data to all procs
-               ! distribute to local segment owners
-               do iseg = 1, self%n2d_lown
-                  gseg = self%id2d(iseg,3)  ! global segment
-                  iel  = gmap_index(gseg)   ! get element that is read
-                  call copy(self%vx2d(1,1,iseg,i), slicedata(1,1,iel,1), nxy)
-                  call copy(self%vy2d(1,1,iseg,i), slicedata(1,1,iel,2), nxy)
-                  call copy(self%vz2d(1,1,iseg,i), slicedata(1,1,iel,3), nxy)
-               end do
-            end do ! 1, nsaver
-            ! master closes the file
-            if (nid == 0) then 
-               call byte_close(ierr)
-               if (ierr /= 0) call nek_stop_error('Error closing file '//trim(fname), procedure='load_2d_fields')
-            end if
-            self%nload = nsaver
-            write(msg,'(A,A,A,I0)') 'Loaded 2D data from file ', trim(fname), ': ', self%nload
-            call nek_log_information(msg, this_module, 'load_2d_fields')
-            call lk_timer%stop('neklab_helix_load_2d')
-         end subroutine load_2d_fields
-
-         subroutine set_baseflow(self, basex, basey, basez, ifld)
-            class(helix), intent(inout) :: self
-            real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: basex
-            real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: basey
-            real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: basez
-            integer, intent(in) :: ifld
-            ! internal
-            integer  :: ie, ix, iy, iz, iseg, ifld_
-            real(dp) :: s, phi, u, v, w
-            character(len=128) :: msg
-            phi = self%phi
-            if (self%if_newton) then
-               ifld_ = ifld - (self%noutn-1)*lbuf
-               if (ifld_ > self%nload) then
-                  ! load next file
-                  self%noutn = self%noutn + 1
-                  write(msg,'(A,I5)') 'Load file: ', self%noutn
-                  call nek_log_debug(msg, this_module, 'set_baseflow')
-                  call self%load_2d_fields(self%noutn)
-               end if
-               ifld_ = ifld - (self%noutn-1)*lbuf
-            else
-               ifld_ = ifld
-               if (ifld_ > self%nload) call nek_stop_error('Inconsistent ifld!', this_module, 'set_baseflow')
-            end if
-            call lk_timer%start('neklab_helix_set_baseflow')
-            ! set dt
-            param(12) = -abs(self%dt2d(ifld_)) ! negative to force the stepsize in settime
-            write(msg,'(A,I5,"/",I5,A,I5,A,F10.6)') 'Set field ', ifld_, lbuf, ' (', ifld, '), dt= ', -param(12)
-            call logger%log_debug(msg, this_module, 'set_baseflow')
-            if (nid == 0) print '(A,A)', 'neklab_helix: ', trim(msg)
-            do ie = 1, nelv
-            iseg = self%lsegment(ie) ! local segment
-            do iz = 1, lz1
-            do iy = 1, ly1
-            do ix = 1, lx1
-               s = self%as(ix,iy,iz,ie)
-               u = self%vx2d(ix,iy,iseg,ifld_)
-               v = self%vy2d(ix,iy,iseg,ifld_)
-               w = self%vz2d(ix,iy,iseg,ifld_)
-               basex(ix,iy,iz,ie) = cos(phi)*( cos(s)*u + sin(s)*v) + sin(phi)*w
-               basey(ix,iy,iz,ie) =           -sin(s)*u + cos(s)*v
-               basez(ix,iy,iz,ie) = sin(phi)*(-cos(s)*u - sin(s)*v) + cos(phi)*w
-            end do
-            end do
-            end do
-            end do
-            call lk_timer%stop('neklab_helix_set_baseflow')
-         end subroutine set_baseflow
-
-         subroutine compute_mflow_fft(self, period, var_dt)
-            ! only for constant dt
-            class(helix), intent(inout) :: self
-            real(dp), optional, intent(in) :: period
-            logical, optional, intent(in) :: var_dt
-            ! internal
-            integer :: i, j
-            real(dp) :: ubar, tau, dtau, twopi, pd
-            logical :: var_dt_
-            real(dp) :: ubar_old, tau_old, dt0, dfftv1, dfftv2
-            var_dt_ = optval(var_dt, .false.)
-            pd = optval(period, self%pulse_T)
-            if (self%if_fft) then
-               if (pd /= 0.0_dp) then
-                  call lk_timer%start('neklab_helix_compute_mflow_fft')
-                  twopi = 8.0_dp*atan(1.0_dp)
-                  ! compute period, current ubar and time constants
-                  ubar = self%compute_ubar(vx,vy,vz)
-                  tau  = time/pd
-                  dtau = dt/pd
-                  if (var_dt_) then ! variable timestep integration
-                     ! get ubar and time of previous timestep
-                     ubar_old = self%ubar_lag
-                     tau_old = (time - dt)/pd
-                     if (ubar*ubar_old < 0.0) then ! zero crossing
-                        ! find zero crossing
-                        dt0 = -(ubar - ubar_old)/ubar_old
-                        ! fill up fft array
-                        self%fftv(1) = self%fftv(1) + (ubar_old*dt0 + ubar*(1 - dt0))*0.5*dtau
-                        j = 1
-                        do i = 2, 2*nfft, 2
-                           dfftv1 = ubar_old*cos(j*twopi*tau_old)*   dt0
-                           dfftv2 = ubar    *cos(j*twopi*tau    )*(1-dt0)
-                           self%fftv(i)   = self%fftv(i)   + (dfftv1 + dfftv2)*0.5*dtau
-                           dfftv1 = ubar_old*sin(j*twopi*tau_old)*   dt0
-                           dfftv2 = ubar    *sin(j*twopi*tau    )*(1-dt0)
-                           self%fftv(i+1) = self%fftv(i+1) + (dfftv1 + dfftv2)*0.5*dtau
-                           j = j + 1
-                        end do
-                     else
-                        ! fill up fft array
-                        self%fftv(1) = self%fftv(1) + (ubar_old + ubar)*0.5*dtau
-                        j = 1
-                        do i = 2, 2*nfft, 2
-                           dfftv1 = ubar_old*cos(j*twopi*tau_old)
-                           dfftv2 = ubar    *cos(j*twopi*tau    )
-                           self%fftv(i)   = self%fftv(i)   + (dfftv1 + dfftv2)*0.5*dtau
-                           dfftv1 = ubar_old*sin(j*twopi*tau_old)
-                           dfftv2 = ubar    *sin(j*twopi*tau    )
-                           self%fftv(i+1) = self%fftv(i+1) + (dfftv1 + dfftv2)*0.5*dtau
-                           j = j + 1
-                        end do
-                     end if
-                     ! update lagged ubar
-                     self%ubar_lag = ubar
-                  else ! constant timestep
-                     ! fill up fft array
-                     self%fftv(1) = self%fftv(1) + ubar*dtau
-                     j = 1
-                     do i = 2, 2*nfft, 2
-                        self%fftv(i)   = self%fftv(i)   + ubar*cos(j*twopi*tau)*dtau
-                        self%fftv(i+1) = self%fftv(i+1) + ubar*sin(j*twopi*tau)*dtau
-                        j = j + 1
-                     end do
-                  end if
-                  ! increment integration time
-                  self%fft_time = self%fft_time + dt
-                  if (nid == 0) print '(A,2(1X,F16.8))', 'neklab_helix: Compute mflow fft', dtau, self%fft_time
-                  call lk_timer%stop('neklab_helix_compute_mflow_fft')
-               else
-                  call nek_log_message('Period not set or zero. FT not computed', this_module, 'compute_mflow_fft')
-                  self%if_fft = .false.
-               end if
-            end if
-         end subroutine compute_mflow_fft
-
-         subroutine extract_mflow_fft(self, if_amplitude)
-            ! only for constant dt
-            class(helix), intent(inout) :: self
-            logical, optional, intent(in) :: if_amplitude
-            ! internal
-            real(dp) :: pd_chk
-            integer :: i, j, nprint
-            logical :: if_amplitude_
-            character(len=1024) :: msg
-            character(len=128), parameter :: fmt = '(A,1X,F16.8,1X,A,*(1X,F16.8))'
-            if_amplitude_ = optval(if_amplitude, .true.)
-            ! extract the computed FFT data, compute amplitudes and phases
-            self%fft_rtime = self%fft_time ! total integration time since last call
-            call copy(self%mflow, self%fftv, 2*nfft+1)
-            self%mflow_amplitude(1) = self%mflow(1)
-            self%mflow_phase(1) = 0.0_dp
-            j = 1
-            do i = 2, 2*nfft, 2
-               j = j + 1
-               self%mflow_amplitude(j) = sqrt(self%mflow(i)**2 + self%mflow(i+1)**2)
-               self%mflow_phase(j)     = atan2(self%mflow(i+1),self%mflow(i))
-            end do
-            self%fftv = 0.0_dp
-            self%fft_time = 0.0_dp               ! reset integration time
-            ! sanity period check
-            pd_chk = self%fft_rtime/self%pulse_T
-            ! print result
-            if (if_amplitude_) then
-               nprint = (nf+1)/2
-               write(msg,fmt) 'Period',self%fft_rtime,'massflow FT amplitude  ',self%mflow_amplitude(:nprint)
-               call nek_log_message(msg, this_module)
-               write(msg,fmt) 'Period',self%fft_rtime,'massflow FT phase angle',self%mflow_phase(:nprint)
-               call nek_log_message(msg, this_module)
-               write(msg,fmt) 'Period',self%fft_rtime,'massflow FT t-shift    ',self%mflow_phase(:nprint)/self%omega
-               call nek_log_debug(msg, this_module)
-            else
-               write(msg,fmt) 'Period',self%fft_rtime,'massflow FT cmplx',self%mflow(:nf)
-               call nek_log_message(msg, this_module)
-            end if
-            if (abs(pd_chk - 1.0_dp) > 1.0e-06) then
-               write(msg, '(A,E15.8,A,2(F16.8,1X))') 'Period check: ', pd_chk - 1.0_dp, ': ', self%pulse_T, self%fft_rtime
-               call nek_log_message(msg, this_module)
-               call nek_stop_error('Period check failed. Maybe the integration time does not equal the period precisely.')
-            end if
-         end subroutine extract_mflow_fft
-
-         subroutine reset_mflow_fft(self)
-            class(helix), intent(inout) :: self
-            self%ubar_lag = self%compute_ubar(vx, vy, vz) ! compute ubar at t = 0
-            ! zero out data arrays
-            self%fftv = 0.0_dp
-            self%fft_time = 0.0_dp               ! reset integration time
-         end subroutine reset_mflow_fft
-
-         subroutine save_base(self, ifsave)
-            class(helix), intent(inout) :: self
-            logical, intent(in) :: ifsave
-            self%save_2d_base = ifsave
-         end subroutine save_base
-         
-         subroutine reset_newton(self)
-            class(helix), intent(inout) :: self
-            self%noutn = 0
-            self%nload = 0
-            self%save_2d_base = .true.
-            self%if_newton = .true.
-            self%min_dt = 100.0_dp
-            self%max_dt = 0.0_dp
-            call self%reset_mflow_fft()
-         end subroutine
-
-         logical pure function is_steady(self) result(steady)
-            class(helix), intent(in) :: self
-            steady = self%if_steady
-         end function is_steady
-
-         subroutine set_dpds(self, dpds, reset)
-            class(helix), intent(inout) :: self
-            real(dp), dimension(nf), intent(in) :: dpds
-            logical, optional, intent(in) :: reset
-            ! internal
-            logical :: reset_dpds
-            reset_dpds = optval(reset, .true.)
-            if (reset_dpds) self%dpds = 0.0_dp
-            self%dpds = self%dpds + dpds
-         end subroutine set_dpds
-
-         subroutine get_dpds(self, dpds, phase)
-            class(helix), intent(in) :: self
-            real(dp), dimension(nf), intent(out) :: dpds
-            real(dp), optional, allocatable, intent(out) :: phase(:)
-            ! internal
-            integer :: i, j
-            dpds = self%dpds
-            if (present(phase)) then
-               allocate(phase((nf+1)/2))
-               phase = 0.0_dp
-               j = 1
-               do i = 2, nf, 2
-                  j = j + 1
-                  phase(j) = atan2(dpds(i+1),dpds(i))
-               end do
-            end if
-         end subroutine get_dpds
-
-         subroutine get_fshape(self, fshape)
-            class(helix), intent(in) :: self
-            real, dimension(lx1,ly1,lz1,lelv), intent(out) :: fshape
-            call copy(fshape, self%fshape, lv)
-         end subroutine get_fshape
-
-         subroutine get_angle_s(self, angle_s)
-            class(helix), intent(in) :: self
-            real, dimension(lx1,ly1,lz1,lelv), intent(out) :: angle_s
-            call copy(angle_s, self%as, lv)
-         end subroutine get_angle_s
-
-         subroutine get_alpha(self, alpha)
-            class(helix), intent(in) :: self
-            real, dimension(lx1,ly1,lz1,lelv), intent(out) :: alpha
-            call copy(alpha, self%alpha, lv)
-         end subroutine get_alpha
-
-         real(dp) pure function get_period(self) result(T)
-            class(helix), intent(in) :: self
-            T = self%pulse_T
-         end function get_period
-
-         integer pure function get_nf(self) result(n)
-            class(helix), intent(in) :: self
-            n = nf
-         end function get_nf
-
-         real(dp) pure function get_Wo(self) result(Wo)
-            class(helix), intent(in) :: self
-            Wo = self%womersley
-         end function get_Wo
-
-         integer function get_nsteps(self) result(ns)
-            class(helix), intent(in) :: self
-            ns = 0
-            if (self%nsteps /= 0) then
-               ns = self%nsteps
-            else
-               call nek_stop_error('nsteps not computed.', procedure='get_nsteps')
-            end if
-         end function get_nsteps
-
-         subroutine set_nsteps(self, ns)
-            class(helix), intent(inout) :: self
-            integer, intent(in) :: ns
-            if (ns /= 0) then
-               self%nsteps = ns
-            else
-               call nek_log_message('input is zero. nsteps not set.', procedure='set_nsteps')
-            end if
-         end subroutine set_nsteps
-
-         subroutine get_dt_minmax(self, dt_minmax)
-            class(helix), intent(in) :: self
-            real(dp), dimension(2), intent(out) :: dt_minmax
-            if (self%min_dt == 100.0_dp) then
-               call nek_log_message('min_dt not computed.', procedure='get_dt_minmax')
-            end if
-            if (self%max_dt == 0.0_dp) then
-               call nek_log_message('max_dt not computed.', procedure='get_dt_minmax')
-            end if
-            if (self%min_dt /= 100.0_dp .and. self%max_dt /= 0.0_dp) then
-               dt_minmax(1) = self%min_dt
-               dt_minmax(2) = self%max_dt
-            end if
-         end subroutine get_dt_minmax
-
-         real(dp) function get_ubar_lag(self) result(ubar_lag)
-            class(helix), intent(in) :: self
-            ubar_lag = 0.0_dp
-            if (self%ubar_lag /= 0.0_dp) then
-               ubar_lag = self%ubar_lag
-            else
-               call nek_stop_error('ubar_lag not computed.', procedure='get_ubar_lag')
-            end if
-         end function get_ubar_lag
-
-         logical pure function is_lowner(self, ie) result(is_owner)
-            class(helix), intent(in) :: self
-            integer, intent(in) :: ie
-            is_owner = .false.
-            if (ie <= nelv) is_owner = self%lowner(ie)
-         end function is_lowner
-
-         logical pure function is_gowner(self, ie) result(is_owner)
-            class(helix), intent(in) :: self
-            integer, intent(in) :: ie
-            is_owner = .false.
-            if (ie <= nelv) is_owner = self%gowner(ie)
-         end function is_gowner
-         
-         integer pure function get_lsegment(self, ie) result(local_segment)
-            class(helix), intent(in) :: self
-            integer, intent(in) :: ie
-            local_segment = 0
-            if (ie <= nelv) local_segment = self%lsegment(ie)
-         end function get_lsegment
-      
-         integer pure function get_gsegment(self, ie) result(global_segment)
-            class(helix), intent(in) :: self
-            integer, intent(in) :: ie
-            global_segment = 0
-            if (ie <= nelv) global_segment = self%gsegment(ie)
-         end function get_gsegment
-
-         real(dp) pure function get_v2d(self,ix,iy,iseg,ifld,icomp) result(v2d)
-            class(helix), intent(in) :: self
-            integer, intent(in) :: ix
-            integer, intent(in) :: iy
-            integer, intent(in) :: iseg
-            integer, intent(in) :: ifld
-            integer, intent(in) :: icomp
-            v2d = 0.0_dp
-            if (ix <= lx1) then
-               if (iy <= ly1) then
-                  if (iseg <= self%n2d_lown) then
-                     if (ifld <= self%nload) then
-                        if (icomp == 1) then
-                           v2d = self%vx2d(ix,iy,iseg,ifld)
-                        else if (icomp == 2) then
-                           v2d = self%vy2d(ix,iy,iseg,ifld)
-                        else if (icomp == 2) then
-                           v2d = self%vz2d(ix,iy,iseg,ifld)
-                        end if
-                     end if
-                  end if
-               end if
-            end if
-         end function get_v2d
-
-         subroutine get_mflow_fft(self, mflow, if_amplitude)
-            class(helix), intent(in) :: self
-            real(dp), allocatable, intent(out) :: mflow(:)
-            logical, optional, intent(in) :: if_amplitude
-            ! internal 
-            logical :: if_amplitude_
-            if_amplitude_ = optval(if_amplitude, .true.)
-            if (if_amplitude_) then
-               allocate(mflow(nfft+1))
-               mflow = self%mflow_amplitude
-            else
-               allocate(mflow(2*nfft+1))
-               mflow = self%mflow
-            end if
-         end subroutine get_mflow_fft
-
-      ! Helper functions
-
-         subroutine gather_and_write_slice(slicedata, n2d_gown)
-            real(dp), intent(in) :: slicedata(:,:,:)
-            integer, intent(in) :: n2d_gown(:)
-            ! internal
-            integer :: nxy, idum, wdsl, isl, len, ierr, ip
-            real rtmpv1(lx1*ly1*lelv), rtmpv(lx1*ly1*lelv)
-            real*4 rtmpv2(2*lx1*ly1*lelv)
-            equivalence (rtmpv1,rtmpv2)
-            nxy  = lx1*ly1
-            wdsl = wdsize/4
-            isl  = isize/4
-            if (nid == 0) then
-               ! master writes if there are data
-               len = nxy*n2d_gown(nid+1)
-               if (wdsl.eq.2) then
-                  call copy(rtmpv1,slicedata,len)
-                  call byte_write(rtmpv2,len*wdsl,ierr)
-               else
-                  call copyX4(rtmpv2,slicedata,len)
-                  call byte_write(rtmpv2,len,ierr)
-               end if
-               ! get data from other procs and write to file
-               do ip = 1, np-1
-                  len = nxy*n2d_gown(ip+1)
-                  call csend(ip,idum,isize,ip,0) ! hand shake
-                  call crecv2(ip,rtmpv,len*wdsize,ip)
-                  ! write data
-                  if (wdsl.eq.2) then
-                     call copy(rtmpv1,rtmpv,len)
-                     call byte_write(rtmpv2,len*wdsl,ierr)
-                  else
-                     call copyX4(rtmpv2,rtmpv,len)
-                     call byte_write(rtmpv2,len,ierr)
-                  endif
-               end do
-               if (ierr /= 0) call nek_stop_error('Error writing slice data', procedure='gather_and_write_slice')
-            else 
-               ! send data to master
-               call crecv2(nid,idum,isize,0) ! hand shake
-               len = nxy*n2d_gown(nid+1)
-               call csend(nid,slicedata,len*wdsize,0,0)
-            end if
-         end subroutine gather_and_write_slice
       
       end module neklab_helix

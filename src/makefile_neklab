@@ -14,6 +14,10 @@ $(OBJDIR)/fixed_point.o			:$(NEKLAB_SOURCE_ROOT)/src/systems/fixed_point.f90		;$
 $(OBJDIR)/periodic_orbit.o		:$(NEKLAB_SOURCE_ROOT)/src/systems/periodic_orbit.f90		;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/periodic_orbit_torus.o			:$(NEKLAB_SOURCE_ROOT)/src/systems/periodic_orbit_torus.f90		;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_otd.o			:$(NEKLAB_SOURCE_ROOT)/src/neklab_otd.f90			;$(FC) -c $(FL2) $< -o $@
-$(OBJDIR)/neklab_helix.o			:$(NEKLAB_SOURCE_ROOT)/src/neklab_helix.f90			;$(FC) -c $(FL2) $< -o $@
+$(OBJDIR)/neklab_helix.o			:$(NEKLAB_SOURCE_ROOT)/src/helix/neklab_helix.f90			;$(FC) -c $(FL2) $< -o $@
+$(OBJDIR)/helix_utils.o			:$(NEKLAB_SOURCE_ROOT)/src/helix/helix_utils.f90			;$(FC) -c $(FL2) $< -o $@
+$(OBJDIR)/helix_gs.o			:$(NEKLAB_SOURCE_ROOT)/src/helix/helix_gs.f90			;$(FC) -c $(FL2) $< -o $@
+$(OBJDIR)/helix_2d.o			:$(NEKLAB_SOURCE_ROOT)/src/helix/helix_2d.f90			;$(FC) -c $(FL2) $< -o $@
+$(OBJDIR)/helix_mflow_fft.o			:$(NEKLAB_SOURCE_ROOT)/src/helix/helix_mflow_fft.f90			;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_analysis.o		:$(NEKLAB_SOURCE_ROOT)/src/neklab_analysis.f90			;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab.o			:$(NEKLAB_SOURCE_ROOT)/src/neklab.f90				;$(FC) -c $(FL2) $< -o $@

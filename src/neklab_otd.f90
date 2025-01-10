@@ -220,7 +220,7 @@
             write (fmt_Lr, '("(I8,1X,F15.8,A,",I0,"(1X,E15.8),A,",I0,"(1X,E15.8))")') r, r
       
       ! compute eigenvalues of the symmetrized operator
-            Lsym = 0.5_dp*(Lr + transpose(Lr))
+            Lsym = 0.5*(Lr + transpose(Lr))
             call eig(Lsym, l, right=v)
             s = real(l)
             call sort_index(s, idx, reverse=.true.)

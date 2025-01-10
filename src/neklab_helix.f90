@@ -5,7 +5,7 @@
          use stdlib_strings, only: padl
          use stdlib_optval, only: optval
          use stdlib_sorting, only: sort_index
-         use stdlib_logger, only: debug_level, information_level
+         use stdlib_logger, only: all_level, debug_level, information_level
       ! Default real kind.
          use LightKrylov, only: dp
          use LightKrylov_Constants, only: imag => one_im_cdp
@@ -33,7 +33,7 @@
          integer, parameter :: lbuf = 1000
       !! Maximum number of 2d fields to save before outposting
          integer, parameter, public :: nfft = 16
-      !! Number of FFT components to compute
+      !! Number of FT components to compute
 
          public :: pipe
          public :: helix_pipe ! constructor for the pipe instance of the helix type
@@ -84,16 +84,20 @@
             integer :: noutt = 0 ! number of data files in toroidal coordinates written to disk
             integer :: noutn = 0 ! number of data files for newton
             integer :: nload = 0 ! number of loaded 2D baseflow fields
+            integer :: nsteps = 0 ! number of steps in period for nonlinear simulation with variable dt
             logical :: save_2d_usrt = .true.! save us,ur,ut in addition to vx,vy,vz?
             logical :: save_2d_base = .false.
             logical :: if_newton    = .false. ! are we in newton mode?
-            logical, public :: if_fft = .false. ! compute the fft of the streamwise mass flow us on the fly
-            real(dp), dimension(2*nfft + 1) :: fftv ! temporary array for mass flow FFT computation
-            real(dp), dimension(2*nfft + 1) :: mflow ! FFT of the streamwise mass flow 
-            real(dp), dimension(nfft + 1) :: mflow_amplitude ! FFT amplitude of the streamwise mass flow 
-            real(dp), dimension(nfft + 1) :: mflow_phase     ! FFT phase of the streamwise mass flow 
+            logical, public :: if_fft = .false. ! compute the FT of the streamwise mass flow us on the fly
+            real(dp), dimension(2*nfft + 1) :: fftv ! temporary array for mass flow FT computation
+            real(dp), dimension(2*nfft + 1) :: mflow ! FT of the streamwise mass flow 
+            real(dp), dimension(nfft + 1) :: mflow_amplitude ! FT amplitude of the streamwise mass flow 
+            real(dp), dimension(nfft + 1) :: mflow_phase     ! FT phase of the streamwise mass flow 
             real(dp) :: fft_time  = 0.0_dp ! Current integration time
-            real(dp) :: fft_rtime = 0.0_dp ! Integration time of the FFT record
+            real(dp) :: fft_rtime = 0.0_dp ! Integration time of the FT record
+            real(dp) :: min_dt = 100.0_dp ! minimum dt over a period using variable dt to determine smallest dt posssible for constant dt nonlinear run
+            real(dp) :: max_dt = 0.0_dp   ! maximum dt over a period using variable dt
+            real(dp) :: ubar_lag = 0.0_dp ! lagged ubar for variable dt mass flow integration
             ! save 2D fields
             logical, dimension(lelv)   :: lowner   ! is the local element the local segment owner?
             logical, dimension(lelv)   :: gowner   ! is the local element the global segmet owner? (first slice)
@@ -110,6 +114,7 @@
             ! public computation routines
             procedure, pass(self), public :: compute_fshape
             procedure, pass(self), public :: compute_bf_forcing
+            procedure, pass(self), public :: forcing_amplitude
             procedure, pass(self), public :: compute_usrt
             procedure, pass(self), public :: compute_ubar
             ! 2D data manipulation
@@ -119,18 +124,24 @@
             procedure, pass(self), public :: outpost_2d_fields
             procedure, pass(self), public :: load_2d_fields
             procedure, pass(self), public :: set_baseflow
+            ! Fourier coefficient integration
+            procedure, pass(self), public :: reset_mflow_fft
             procedure, pass(self), public :: compute_mflow_fft
-            procedure, pass(self), public :: print_mflow_fft
+            procedure, pass(self), public :: extract_mflow_fft
             ! helper routines
-            procedure, pass(self), public :: get_forcing
-            procedure, pass(self), public :: get_period
-            procedure, pass(self), public :: add_dpds
-            procedure, pass(self), public :: is_steady
             procedure, pass(self), public :: setup_summary
             procedure, pass(self), public :: parameter_summary
+            procedure, pass(self), public :: forcing_summary
+            procedure, pass(self), public :: get_period
+            procedure, pass(self), public :: get_Wo
+            procedure, pass(self), public :: is_steady
             procedure, pass(self), public :: get_fshape
             procedure, pass(self), public :: get_angle_s
             procedure, pass(self), public :: get_alpha
+            procedure, pass(self), public :: get_nsteps
+            procedure, pass(self), public :: set_nsteps
+            procedure, pass(self), public :: get_dt_minmax
+            procedure, pass(self), public :: get_ubar_lag
             procedure, pass(self), public :: is_lowner
             procedure, pass(self), public :: is_gowner
             procedure, pass(self), public :: get_lsegment
@@ -139,8 +150,8 @@
             procedure, pass(self), public :: reset_newton
             procedure, pass(self), public :: save_base
             procedure, pass(self), public :: get_mflow_fft
+            procedure, pass(self), public :: get_nf
             ! getter/setter for dpds
-            procedure, pass(self), public :: get_dpds_all
             procedure, pass(self), public :: get_dpds
             procedure, pass(self), public :: set_dpds
          end type helix
@@ -171,7 +182,7 @@
             pipe%nelf     = nelf
             
             !  Derived quantities
-            pipe%radius      = pipe%diameter/2.0_dp
+            pipe%radius      = pipe%diameter*0.5_dp
             pipe%curv_radius = 1.0_dp/pipe%delta
             pipe%phi         = atan2(pipe%pitch_s,pipe%curv_radius)
             pipe%sweep       = pipe%length*cos(pipe%phi)/pipe%curv_radius ! sweep angle in radians
@@ -191,7 +202,7 @@
             ! compute forcing distribution
             call pipe%compute_fshape()
 
-            ! switch on FFT in the unsteady case
+            ! switch on FT in the unsteady case
             if (nf > 1) pipe%if_fft = .true.           
 
          end subroutine helix_pipe
@@ -233,9 +244,7 @@
          subroutine parameter_summary(self)
             class(helix), intent(in) :: self
             ! internal
-            integer :: i
-            real(dp) :: dpds_norm
-            character(len=128) :: msg, fmt
+            character(len=128) :: msg
             if (self%is_initialized) then
                call nek_log_message('##  HELIX PARAMETERS ##', module=this_module)
                call nek_log_message('Flow:', module=this_module)
@@ -248,18 +257,34 @@
                write (msg, '(A,F15.8)') padl('T:', 20), self%pulse_T
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
                call nek_log_message('Forcing:', module=this_module)
-               write (msg, '(3(A,F15.8))') padl('dpds_00:', 20), self%dpds(1), ' ', 0.0_dp, ' | ', self%dpds(1)
+               call self%forcing_summary()
+            else
+               call nek_log_warning('helix instance not initialized', module=this_module, fmt='(A)')
+            end if
+         end subroutine parameter_summary
+
+         subroutine forcing_summary(self)
+            class(helix), intent(in) :: self
+            ! internal
+            integer :: i
+            real(dp) :: dpds_norm, dpds_angle_rad
+            character(len=128) :: msg, fmt
+            if (self%is_initialized) then
+               write (msg, '(4(A,F15.8))') padl('dpds_00:', 20), self%dpds(1), ' ', 0.0_dp,
+     $               ' | ', self%dpds(1), ' | ', 0.0_dp 
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
                do i = 2, nf, 2
                   write(fmt,'("dpds_",I2.2,":")') i/2
-                  dpds_norm = sqrt(self%dpds(i)**2 + self%dpds(i+1)**2)
-                  write (msg, '(3(A,F15.8))') padl(trim(fmt), 20), self%dpds(i), ' ', self%dpds(i+1), ' | ', dpds_norm
+                  dpds_norm      = sqrt(self%dpds(i)**2 + self%dpds(i+1)**2)
+                  dpds_angle_rad = atan2(self%dpds(i+1),self%dpds(i))
+                  write (msg, '(4(A,F15.8))') padl(trim(fmt), 20), self%dpds(i), ' ', self%dpds(i+1), 
+     $               ' | ', dpds_norm, ' | ', dpds_angle_rad
                   call nek_log_message(msg, module=this_module, fmt='(5X,A)')
                end do
             else
                call nek_log_warning('helix instance not initialized', module=this_module, fmt='(A)')
             end if
-         end subroutine parameter_summary
+         end subroutine forcing_summary
 
          subroutine init_geom(self)
             class(helix), intent(inout) :: self
@@ -347,6 +372,8 @@
                print '(A,2(I0,1X),A,*(1X,I3))', 'DEBUG 2dmap: ', nid, self%n2d_lown, 'local element local  s. owner:', segment_owner(:self%n2d_lown)
                print '(A,2(I0,1X),A,*(1X,L3))', 'DEBUG 2dmap: ', nid, self%n2d_lown, 'local element global s. owner:', self%gowner(:self%n2d_lown)
                print '(A,2(I0,1X),A,I0)'      , 'DEBUG 2dmap: ', nid, self%n2d_lown, 'globally owned: ', self%n2d_gown
+            end if
+            if (level == all_level) then
                call nekgsync()
                do ie = 1, nelv
                   call cfill(vz(1,1,1,ie), 1.0_dp*nid, lx1*ly1*lz1)
@@ -475,7 +502,7 @@
                self%if_steady = .false.
                self%womersley = womersley
                self%omega     = (self%womersley**2)*cpfld(1,1)    ! pulsation frequency
-               self%pulse_T   = 2.0d0*pi/self%omega               ! pulsation period
+               self%pulse_T   = 2.0_dp*pi/self%omega               ! pulsation period
                if (n == 1) then
                   msg = 'Unsteady case requires more than one forcing component'
                   call nek_stop_error(msg, this_module, 'init_flow')
@@ -532,7 +559,7 @@
             end do
          end subroutine compute_fshape
 
-         real(dp) pure function get_forcing(self, t) result(f)
+         real(dp) pure function forcing_amplitude(self, t) result(f)
             class(helix), intent(in) :: self
             real(dp), intent(in) :: t
             !! time
@@ -548,12 +575,7 @@
                   f = f + 2.0_dp * real(dpds * eiwt)
                end do
             end if
-         end function get_forcing
-
-         real(dp) pure function get_period(self) result(T)
-            class(helix), intent(in) :: self
-            T = self%pulse_T
-         end function get_period
+         end function forcing_amplitude
 
          subroutine compute_bf_forcing(self, t)
             class(helix), intent(in) :: self
@@ -563,7 +585,7 @@
             integer :: ix, iy, iz, ie
             real(dp) :: fs, phi
             real(dp), dimension(lx1,ly1,lz1,lelv) :: ffx, ffy, ffz
-            fs = self%get_forcing(t) / self%curv_radius
+            fs = self%forcing_amplitude(t) / self%curv_radius
 
             phi = self%phi
             do ie = 1, nelv
@@ -667,17 +689,16 @@
                call lk_timer%start('neklab_helix_save_2d')
                self%nsave = self%nsave + 1
                ! save data to buffer
-               write(msg,'(A,I5,A,I5,A,E12.5,A,F12.8)') 'Save 2D data: ', self%nsave, '/', lbuf, 
-     $         ', time=', time, ', dt=', dt
+               write(msg,'(A,I5,A,I5,A,E12.5,A,F12.8)') 'Save 2D field ', self%nsave, '/', lbuf, ', time=', time, ', dt=', dt
                call logger%log_debug(msg, this_module, 'save_2d_fields')
-               if (nid == 0) print *, msg
+               if (nid == 0) print '(A,A)', 'neklab_helix: ', trim(msg)
                do iseg = 1, self%n2d_gown
                   ie  = self%id2d(iseg, 1)
                   ifc = self%id2d(iseg, 2)
                   call ftovec(self%vx2d(1,1,iseg,self%nsave), u, ie, ifc, nx1, ny1, nz1)
 		         	call ftovec(self%vy2d(1,1,iseg,self%nsave), v, ie, ifc, nx1, ny1, nz1)
 		         	call ftovec(self%vz2d(1,1,iseg,self%nsave), w, ie, ifc, nx1, ny1, nz1)
-                  if (level <= debug_level) then
+                  if (level == all_level) then
                      xavg  = sum(self%x2d (:,:,iseg))/nxy
                      yavg  = sum(self%y2d (:,:,iseg))/nxy
                      vxavg = sum(self%vx2d(:,:,iseg,self%nsave))/nxy
@@ -687,7 +708,12 @@
                   end if
                   call lk_timer%stop('neklab_helix_save_2d')
                end do
+               ! save timestep information and record minimum dt
                self%dt2d(self%nsave) = dt
+               if (lastep == 0) then ! exclude the potentially very short last step
+                  self%min_dt = min(dt, self%min_dt)
+                  self%max_dt = max(dt, self%max_dt)
+               end if
                ! save data to file when buffer is full
                if (self%nsave == lbuf .or. lastep == 1) call self%outpost_2d()
             else
@@ -771,7 +797,7 @@
             isl  = isize/4
             write(fname,'(A,A,I3.3,A)') iname, '2dtorus', iout, '.fld'
             write(msg,'(A,I5,4X,A,A)') 'Outpost 2D data: ', self%nsave, 'fname: ', trim(fname)
-            call nek_log_message(msg, this_module, 'outpost_2d_fields')
+            call nek_log_information(msg, this_module, 'outpost_2d_fields')
             if (nid == 0) then
                call byte_open(fname, ierr)
                if (ierr /= 0) call nek_stop_error('Error opening file '//trim(fname), procedure='outpost_2d_fields')
@@ -991,7 +1017,7 @@
             param(12) = -abs(self%dt2d(ifld_)) ! negative to force the stepsize in settime
             write(msg,'(A,I5,"/",I5,A,I5,A,F10.6)') 'Set field ', ifld_, lbuf, ' (', ifld, '), dt= ', -param(12)
             call logger%log_debug(msg, this_module, 'set_baseflow')
-            if (nid == 0) print *, msg
+            if (nid == 0) print '(A,A)', 'neklab_helix: ', trim(msg)
             do ie = 1, nelv
             iseg = self%lsegment(ie) ! local segment
             do iz = 1, lz1
@@ -1011,15 +1037,18 @@
             call lk_timer%stop('neklab_helix_set_baseflow')
          end subroutine set_baseflow
 
-         subroutine compute_mflow_fft(self, period)
+         subroutine compute_mflow_fft(self, period, var_dt)
             ! only for constant dt
             class(helix), intent(inout) :: self
             real(dp), optional, intent(in) :: period
+            logical, optional, intent(in) :: var_dt
             ! internal
-            integer :: i, j, nperiod, nprint
+            integer :: i, j
             real(dp) :: ubar, tau, dtau, twopi, pd
+            logical :: var_dt_
+            real(dp) :: ubar_old, tau_old, dt0, dfftv1, dfftv2
+            var_dt_ = optval(var_dt, .false.)
             pd = optval(period, self%pulse_T)
-
             if (self%if_fft) then
                if (pd /= 0.0_dp) then
                   call lk_timer%start('neklab_helix_compute_mflow_fft')
@@ -1028,75 +1057,115 @@
                   ubar = self%compute_ubar(vx,vy,vz)
                   tau  = time/pd
                   dtau = dt/pd
-                  ! fill up fft array
-                  self%fftv(1) = self%fftv(1) + ubar*dtau
-                  j = 1
-                  do i = 2, 2*nfft, 2
-                     self%fftv(i)   = self%fftv(i)   + ubar*cos(j*twopi*tau)*dtau
-                     self%fftv(i+1) = self%fftv(i+1) + ubar*sin(j*twopi*tau)*dtau
-                     j = j + 1
-                  end do
-                  self%fft_time = self%fft_time + dt
-                  if (nid == 0) print *, 'compute mflow fft', dtau, self%fft_time
-                  nperiod = nint(tau)
-                  if (abs(time - nperiod*pd) < dt/10.0_dp) then ! at period
-                     self%fft_rtime = self%fft_time ! total integration time since last call
-                     j = 1
-                     call copy(self%mflow, self%fftv, 2*nfft+1)
-                     self%mflow_amplitude(1) = self%mflow(1)
-                     self%mflow_phase(1) = 0.0_dp
-                     do i = 2, 2*nfft, 2
-                        j = j + 1
-                        self%mflow_amplitude(j) = sqrt(self%mflow(i)**2 + self%mflow(i+1)**2)
-                        self%mflow_phase(j) = atan2(self%mflow(i+1),self%mflow(i))
-                     end do
-                     if (nid == 0) then
-                        nprint = (nf+1)/2
-                        print *, 'period mflow fft cmplx', self%fft_time, self%mflow(:nf)
-                        print *, 'period mflow fft amp  ', self%fft_time, self%mflow_amplitude(:nprint)
-                        print *, 'period mflow fft phase', self%fft_time, self%mflow_phase(:nprint)
-                        print *, 'period mflow fft shift', dt, self%mflow_phase(:nprint)/self%omega
+                  if (var_dt_) then ! variable timestep integration
+                     ! get ubar and time of previous timestep
+                     ubar_old = self%ubar_lag
+                     tau_old = (time - dt)/pd
+                     if (ubar*ubar_old < 0.0) then ! zero crossing
+                        ! find zero crossing
+                        dt0 = -(ubar - ubar_old)/ubar_old
+                        ! fill up fft array
+                        self%fftv(1) = self%fftv(1) + (ubar_old*dt0 + ubar*(1 - dt0))*0.5*dtau
+                        j = 1
+                        do i = 2, 2*nfft, 2
+                           dfftv1 = ubar_old*cos(j*twopi*tau_old)*   dt0
+                           dfftv2 = ubar    *cos(j*twopi*tau    )*(1-dt0)
+                           self%fftv(i)   = self%fftv(i)   + (dfftv1 + dfftv2)*0.5*dtau
+                           dfftv1 = ubar_old*sin(j*twopi*tau_old)*   dt0
+                           dfftv2 = ubar    *sin(j*twopi*tau    )*(1-dt0)
+                           self%fftv(i+1) = self%fftv(i+1) + (dfftv1 + dfftv2)*0.5*dtau
+                           j = j + 1
+                        end do
+                     else
+                        ! fill up fft array
+                        self%fftv(1) = self%fftv(1) + (ubar_old + ubar)*0.5*dtau
+                        j = 1
+                        do i = 2, 2*nfft, 2
+                           dfftv1 = ubar_old*cos(j*twopi*tau_old)
+                           dfftv2 = ubar    *cos(j*twopi*tau    )
+                           self%fftv(i)   = self%fftv(i)   + (dfftv1 + dfftv2)*0.5*dtau
+                           dfftv1 = ubar_old*sin(j*twopi*tau_old)
+                           dfftv2 = ubar    *sin(j*twopi*tau    )
+                           self%fftv(i+1) = self%fftv(i+1) + (dfftv1 + dfftv2)*0.5*dtau
+                           j = j + 1
+                        end do
                      end if
-                     self%fftv = 0.0_dp
-                     self%fft_time = 0.0_dp               ! reset integration time
+                     ! update lagged ubar
+                     self%ubar_lag = ubar
+                  else ! constant timestep
+                     ! fill up fft array
+                     self%fftv(1) = self%fftv(1) + ubar*dtau
+                     j = 1
+                     do i = 2, 2*nfft, 2
+                        self%fftv(i)   = self%fftv(i)   + ubar*cos(j*twopi*tau)*dtau
+                        self%fftv(i+1) = self%fftv(i+1) + ubar*sin(j*twopi*tau)*dtau
+                        j = j + 1
+                     end do
                   end if
+                  ! increment integration time
+                  self%fft_time = self%fft_time + dt
+                  if (nid == 0) print '(A,2(1X,F16.8))', 'neklab_helix: Compute mflow fft', dtau, self%fft_time
                   call lk_timer%stop('neklab_helix_compute_mflow_fft')
                else
-                  call nek_log_message('Period not set or zero. FFT not computed', this_module, 'compute_mflow_fft')
+                  call nek_log_message('Period not set or zero. FT not computed', this_module, 'compute_mflow_fft')
                   self%if_fft = .false.
                end if
             end if
          end subroutine compute_mflow_fft
 
-         subroutine print_mflow_fft(self, period, nout, if_amplitude)
+         subroutine extract_mflow_fft(self, if_amplitude)
             ! only for constant dt
-            class(helix), intent(in) :: self
-            real(dp), optional, intent(in) :: period
-            integer, optional, intent(in) :: nout
+            class(helix), intent(inout) :: self
             logical, optional, intent(in) :: if_amplitude
             ! internal
-            real(dp) :: tau, pd
-            integer :: nout_
+            real(dp) :: pd_chk
+            integer :: i, j, nprint
             logical :: if_amplitude_
             character(len=1024) :: msg
-            character(len=128), parameter :: fmt = '(A,2(1X,F16.8),1X,A,*(1X,E15.8))'
-            pd = optval(period, self%pulse_T)
-            nout_ = optval(nout, (nf+1)/2)
-            nout_ = min(max(nout_,1),nfft)
+            character(len=128), parameter :: fmt = '(A,1X,F16.8,1X,A,*(1X,F16.8))'
             if_amplitude_ = optval(if_amplitude, .true.)
-            if (pd /= 0.0_dp .and. self%if_fft) then
-               tau = self%fft_rtime/pd
-               if (if_amplitude_) then
-                  write(msg,fmt) 'Period',self%fft_rtime,tau,'massflow FFT amp  ',self%mflow_amplitude(:nout_)
-                  call nek_log_message(msg, this_module)
-                  write(msg,fmt) 'Period',self%fft_rtime,tau,'massflow FFT phase',self%mflow_phase(:nout_)
-                  call nek_log_message(msg, this_module)
-               else
-                  write(msg,fmt) 'Period',self%fft_rtime,tau,'massflow FFT',self%mflow(:2*nout_-1)
-                  call nek_log_message(msg, this_module)
-               end if
+            ! extract the computed FFT data, compute amplitudes and phases
+            self%fft_rtime = self%fft_time ! total integration time since last call
+            call copy(self%mflow, self%fftv, 2*nfft+1)
+            self%mflow_amplitude(1) = self%mflow(1)
+            self%mflow_phase(1) = 0.0_dp
+            j = 1
+            do i = 2, 2*nfft, 2
+               j = j + 1
+               self%mflow_amplitude(j) = sqrt(self%mflow(i)**2 + self%mflow(i+1)**2)
+               self%mflow_phase(j)     = atan2(self%mflow(i+1),self%mflow(i))
+            end do
+            self%fftv = 0.0_dp
+            self%fft_time = 0.0_dp               ! reset integration time
+            ! sanity period check
+            pd_chk = self%fft_rtime/self%pulse_T
+            ! print result
+            if (if_amplitude_) then
+               nprint = (nf+1)/2
+               write(msg,fmt) 'Period',self%fft_rtime,'massflow FT amplitude  ',self%mflow_amplitude(:nprint)
+               call nek_log_message(msg, this_module)
+               write(msg,fmt) 'Period',self%fft_rtime,'massflow FT phase angle',self%mflow_phase(:nprint)
+               call nek_log_message(msg, this_module)
+               write(msg,fmt) 'Period',self%fft_rtime,'massflow FT t-shift    ',self%mflow_phase(:nprint)/self%omega
+               call nek_log_debug(msg, this_module)
+            else
+               write(msg,fmt) 'Period',self%fft_rtime,'massflow FT cmplx',self%mflow(:nf)
+               call nek_log_message(msg, this_module)
             end if
-         end subroutine print_mflow_fft
+            if (abs(pd_chk - 1.0_dp) > 1.0e-06) then
+               write(msg, '(A,E15.8,A,2(F16.8,1X))') 'Period check: ', pd_chk - 1.0_dp, ': ', self%pulse_T, self%fft_rtime
+               call nek_log_message(msg, this_module)
+               call nek_stop_error('Period check failed. Maybe the integration time does not equal the period precisely.')
+            end if
+         end subroutine extract_mflow_fft
+
+         subroutine reset_mflow_fft(self)
+            class(helix), intent(inout) :: self
+            self%ubar_lag = self%compute_ubar(vx, vy, vz) ! compute ubar at t = 0
+            ! zero out data arrays
+            self%fftv = 0.0_dp
+            self%fft_time = 0.0_dp               ! reset integration time
+         end subroutine reset_mflow_fft
 
          subroutine save_base(self, ifsave)
             class(helix), intent(inout) :: self
@@ -1110,6 +1179,9 @@
             self%nload = 0
             self%save_2d_base = .true.
             self%if_newton = .true.
+            self%min_dt = 100.0_dp
+            self%max_dt = 0.0_dp
+            call self%reset_mflow_fft()
          end subroutine
 
          logical pure function is_steady(self) result(steady)
@@ -1128,24 +1200,23 @@
             self%dpds = self%dpds + dpds
          end subroutine set_dpds
 
-         subroutine get_dpds_all(self, dpds)
+         subroutine get_dpds(self, dpds, phase)
             class(helix), intent(in) :: self
             real(dp), dimension(nf), intent(out) :: dpds
+            real(dp), optional, allocatable, intent(out) :: phase(:)
+            ! internal
+            integer :: i, j
             dpds = self%dpds
-         end subroutine get_dpds_all
-
-         real(dp) pure function get_dpds(self, i) result(dpds_i)
-            class(helix), intent(in) :: self
-            integer, intent(in) :: i
-            dpds_i = self%dpds(i)
-         end function get_dpds
-
-         subroutine add_dpds(self, df, i)
-            class(helix), intent(inout) :: self
-            real(dp), intent(in) :: df
-            integer, intent(in) :: i
-            self%dpds(i) = self%dpds(i) + df
-         end subroutine add_dpds
+            if (present(phase)) then
+               allocate(phase((nf+1)/2))
+               phase = 0.0_dp
+               j = 1
+               do i = 2, nf, 2
+                  j = j + 1
+                  phase(j) = atan2(dpds(i+1),dpds(i))
+               end do
+            end if
+         end subroutine get_dpds
 
          subroutine get_fshape(self, fshape)
             class(helix), intent(in) :: self
@@ -1164,6 +1235,66 @@
             real, dimension(lx1,ly1,lz1,lelv), intent(out) :: alpha
             call copy(alpha, self%alpha, lv)
          end subroutine get_alpha
+
+         real(dp) pure function get_period(self) result(T)
+            class(helix), intent(in) :: self
+            T = self%pulse_T
+         end function get_period
+
+         integer pure function get_nf(self) result(n)
+            class(helix), intent(in) :: self
+            n = nf
+         end function get_nf
+
+         real(dp) pure function get_Wo(self) result(Wo)
+            class(helix), intent(in) :: self
+            Wo = self%womersley
+         end function get_Wo
+
+         integer function get_nsteps(self) result(ns)
+            class(helix), intent(in) :: self
+            ns = 0
+            if (self%nsteps /= 0) then
+               ns = self%nsteps
+            else
+               call nek_stop_error('nsteps not computed.', procedure='get_nsteps')
+            end if
+         end function get_nsteps
+
+         subroutine set_nsteps(self, ns)
+            class(helix), intent(inout) :: self
+            integer, intent(in) :: ns
+            if (ns /= 0) then
+               self%nsteps = ns
+            else
+               call nek_log_message('input is zero. nsteps not set.', procedure='set_nsteps')
+            end if
+         end subroutine set_nsteps
+
+         subroutine get_dt_minmax(self, dt_minmax)
+            class(helix), intent(in) :: self
+            real(dp), dimension(2), intent(out) :: dt_minmax
+            if (self%min_dt == 100.0_dp) then
+               call nek_log_message('min_dt not computed.', procedure='get_dt_minmax')
+            end if
+            if (self%max_dt == 0.0_dp) then
+               call nek_log_message('max_dt not computed.', procedure='get_dt_minmax')
+            end if
+            if (self%min_dt /= 100.0_dp .and. self%max_dt /= 0.0_dp) then
+               dt_minmax(1) = self%min_dt
+               dt_minmax(2) = self%max_dt
+            end if
+         end subroutine get_dt_minmax
+
+         real(dp) function get_ubar_lag(self) result(ubar_lag)
+            class(helix), intent(in) :: self
+            ubar_lag = 0.0_dp
+            if (self%ubar_lag /= 0.0_dp) then
+               ubar_lag = self%ubar_lag
+            else
+               call nek_stop_error('ubar_lag not computed.', procedure='get_ubar_lag')
+            end if
+         end function get_ubar_lag
 
          logical pure function is_lowner(self, ie) result(is_owner)
             class(helix), intent(in) :: self

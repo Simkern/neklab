@@ -325,8 +325,13 @@
 		! determine an approximation of the integration error for the mass flux
 				call pipe%get_dt_minmax(dt_minmax)
 				tol_mf_inexact = (sum(dt_minmax)*0.5)**2/100.0
-				write(msg,'(A,1X,E16.8)') 'approximate mass flow computation error: ', tol_mf_inexact
+				write(msg,'(A,1X,E16.8)') 'Approximate mass flow computation error: ', tol_mf_inexact
             call nek_log_message(msg, module=this_module, procedure='mflow_newton')
+            if (tol_mf_inexact > tol_mf) then
+               write(msg,'(A,1X,E16.8)') 'Reset tolerance for mass flow to tol= ', tol_mf_inexact
+               call nek_log_message(msg, module=this_module, procedure='mflow_newton')
+               tol_mf = tol_mf_inexact
+            end if
 
       ! stamp logs
             call pipe%parameter_summary()

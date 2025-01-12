@@ -6,14 +6,14 @@
 stopAt = endTime
 endTime = 87.19522467106364
 
-dt = -3.963419303e-03  # 4.471549982e-03
+#dt = -3.963419303e-03  # 4.471549982e-03
 timeStepper = bdf3
 variableDt = yes
 targetCFL = 0.5
 
 writeControl = runTime
 writeInterval = 0.1
-writeDoublePrecision = no
+writeDoublePrecision = yes
 dealiasing = yes
 
 filtering = explicit
@@ -43,3 +43,4 @@ density = 1.0
 viscosity = -1700.0
 advection = yes
 writeToFieldFile = yes
+

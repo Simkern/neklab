@@ -4,16 +4,16 @@
 [GENERAL] 
 #startFrom = BF_torus0.f00001
 stopAt = endTime
-endTime = 1.0681415022205297 #8.719522467106364
+endTime = 8.719522467106364 #1.0681415022205297 #8.719522467106364
 
-dt = 0
+#dt = 0
 timeStepper = bdf3
 variableDt = yes
 targetCFL = 0.5
 
 writeControl = runTime
 writeInterval = 100.
-writeDoublePrecision = no
+writeDoublePrecision = yes
 dealiasing = yes
 
 filtering = explicit

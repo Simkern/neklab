@@ -10,7 +10,7 @@
             real(dp) :: ubar_old, tau_old, dt0, dfftv1, dfftv2
             var_dt_ = optval(var_dt, .false.)
             pd = optval(period, self%pulse_T)
-            if (self%if_fft) then
+            if (self%is_save_fft()) then
                if (pd /= 0.0_dp) then
                   call lk_timer%start('neklab_helix_compute_mflow_fft')
                   twopi = 8.0_dp*atan(1.0_dp)
@@ -69,7 +69,7 @@
                   call lk_timer%stop('neklab_helix_compute_mflow_fft')
                else
                   call nek_log_message('Period not set or zero. FT not computed', this_module, 'compute_mflow_fft')
-                  self%if_fft = .false.
+                  call self%set_save_fft(.false.)
                end if
             end if
          end procedure compute_mflow_fft

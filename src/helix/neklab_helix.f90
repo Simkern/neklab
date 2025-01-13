@@ -89,7 +89,8 @@
             logical :: save_2d_usrt = .true.! save us,ur,ut in addition to vx,vy,vz?
             logical :: save_2d_base = .false.
             logical :: if_newton    = .false. ! are we in newton mode?
-            logical, public :: if_fft = .false. ! compute the FT of the streamwise mass flow us on the fly
+            logical :: if_floquet   = .false. ! are we in floquet mode?
+            logical :: if_fft = .false. ! compute the FT of the streamwise mass flow us on the fly
             real(dp), dimension(2*nfft + 1) :: fftv ! temporary array for mass flow FT computation
             real(dp), dimension(2*nfft + 1) :: mflow ! FT of the streamwise mass flow 
             real(dp), dimension(nfft + 1) :: mflow_amplitude ! FT amplitude of the streamwise mass flow 
@@ -112,7 +113,6 @@
             ! helix_utils
             procedure, pass(self), public :: init_geom
             procedure, pass(self), public :: init_flow
-            procedure, pass(self), public :: reset_newton
             procedure, pass(self), public :: compute_fshape
             procedure, pass(self), public :: compute_bf_forcing
             procedure, pass(self), public :: compute_usrt
@@ -129,14 +129,22 @@
             procedure, pass(self), public :: load_2d_fields
             procedure, pass(self), public :: set_baseflow
             procedure, pass(self), public :: compute_2d_usrt
-            procedure, pass(self), public :: save_base
+            procedure, pass(self), public :: set_2d_mode
             ! helix_mflow_fft
             procedure, pass(self), public :: reset_mflow_fft
             procedure, pass(self), public :: compute_mflow_fft
             procedure, pass(self), public :: extract_mflow_fft
             procedure, pass(self), public :: get_mflow_fft
             ! helix_getters_setters
+            procedure, pass(self), public :: set_save_base
+            procedure, pass(self), public :: set_save_fft
+            procedure, pass(self), public :: set_newton
+            procedure, pass(self), public :: set_floquet
             procedure, pass(self), public :: is_steady
+            procedure, pass(self), public :: is_newton
+            procedure, pass(self), public :: is_floquet
+            procedure, pass(self), public :: is_save_2d
+            procedure, pass(self), public :: is_save_fft
             procedure, pass(self), public :: is_lowner
             procedure, pass(self), public :: is_gowner
             procedure, pass(self), public :: get_period
@@ -269,10 +277,10 @@
                class(helix), intent(inout) :: self
             end subroutine compute_2d_usrt
 
-            module subroutine save_base(self, ifsave)
+            module subroutine set_2d_mode(self, mode)
                class(helix), intent(inout) :: self
-               logical, intent(in) :: ifsave
-            end subroutine save_base
+               character(len=*), intent(in) :: mode
+            end subroutine set_2d_mode
 
             !-----------------------------------------------------
             ! neklab_helix % helix_mflow_fft
@@ -306,13 +314,55 @@
             ! neklab_helix % helix_gs
             !
             ! Type-bound procedures
+
+            ! mode switches
+
+            module subroutine set_save_base(self, if_save)
+               class(helix), intent(inout) :: self
+               logical, intent(in) :: if_save
+            end subroutine set_save_base
+
+            module subroutine set_save_fft(self, if_save_fft)
+               class(helix), intent(inout) :: self
+               logical, intent(in) :: if_save_fft
+            end subroutine set_save_fft
+
+            module subroutine set_newton(self, if_newton)
+               class(helix), intent(inout) :: self
+               logical, intent(in) :: if_newton
+            end subroutine set_newton
+
+            module subroutine set_floquet(self, if_floquet)
+               class(helix), intent(inout) :: self
+               logical, intent(in) :: if_floquet
+            end subroutine set_floquet
             
             ! logicals
 
-            module pure function is_steady(self) result(steady)
+            module pure function is_steady(self) result(if_steady)
                class(helix), intent(in) :: self
-               logical :: steady
+               logical :: if_steady
             end function is_steady
+
+            module pure function is_newton(self) result(if_newton)
+               class(helix), intent(in) :: self
+               logical :: if_newton
+            end function is_newton
+
+            module pure function is_floquet(self) result(if_floquet)
+               class(helix), intent(in) :: self
+               logical :: if_floquet
+            end function is_floquet
+
+            module pure function is_save_2d(self) result(if_save_2d_base)
+               class(helix), intent(in) :: self
+               logical :: if_save_2D_base
+            end function is_save_2d
+
+            module pure function is_save_fft(self) result(if_save_fft)
+               class(helix), intent(in) :: self
+               logical :: if_save_fft
+            end function is_save_fft
 
             module pure function is_lowner(self, ie) result(is_owner)
                class(helix), intent(in) :: self
@@ -463,7 +513,10 @@
             call pipe%compute_fshape()
 
             ! switch on FT in the unsteady case
-            if (nf > 1) pipe%if_fft = .true.           
+            if (nf > 1) then
+               !call pipe%set_save_fft(.true.)
+               pipe%if_fft = .true.
+            end if
 
          end subroutine helix_pipe
       

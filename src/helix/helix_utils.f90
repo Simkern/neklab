@@ -325,15 +325,5 @@
             ubar = num/den  ! "1/r"-weighted volumetric average of streamwise velocity
             call lk_timer%stop('neklab_helix_compute_ubar')
          end procedure compute_ubar
-
-         module procedure reset_newton
-            self%noutn = 0
-            self%nload = 0
-            self%save_2d_base = .true.
-            self%if_newton = .true.
-            self%min_dt = 100.0_dp
-            self%max_dt = 0.0_dp
-            call self%reset_mflow_fft()
-         end procedure
       
       end submodule helix_utils

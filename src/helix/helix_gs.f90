@@ -3,11 +3,52 @@
 
       contains
 
+         !! MODE SWITCHES
+
+         module procedure set_save_base
+            self%save_2d_base = if_save
+         end procedure set_save_base
+
+         module procedure set_save_fft
+            self%if_fft = if_save_fft
+         end procedure set_save_fft
+         
+         module procedure set_newton
+            self%if_newton = if_newton
+         end procedure
+
+         module procedure set_floquet
+            self%if_floquet = if_floquet
+         end procedure
+
+         module procedure reset_mflow_fft
+            self%ubar_lag = self%compute_ubar(vx, vy, vz) ! compute ubar at t = 0
+            ! zero out data arrays
+            self%fftv = 0.0_dp
+            self%fft_time = 0.0_dp               ! reset integration time
+         end procedure reset_mflow_fft
+
          !! LOGICAL FUNCTIONS
 
          module procedure is_steady
-            steady = self%if_steady
+            if_steady = self%if_steady
          end procedure is_steady
+
+         module procedure is_newton
+            if_newton = self%if_newton
+         end procedure is_newton
+
+         module procedure is_floquet
+            if_floquet = self%if_floquet
+         end procedure is_floquet
+
+         module procedure is_save_2d
+            if_save_2d_base = self%save_2d_base
+         end procedure is_save_2d
+
+         module procedure is_save_fft
+            if_save_fft = self%if_fft
+         end procedure is_save_fft
 
          module procedure is_lowner
             is_owner = .false.

@@ -172,9 +172,12 @@
          module procedure outpost_2d
             if (self%nsave > 0) then
                call lk_timer%start('neklab_helix_outpost_2d')
-               if (self%if_newton) then
+               if (self%is_newton()) then
                   self%noutn = self%noutn + 1
                   call self%outpost_2d_fields(iname='n', iout=self%noutn)
+               else if (self%is_floquet()) then
+                  self%noutn = self%noutn + 1
+                  call self%outpost_2d_fields(iname='f', iout=self%noutn)
                else
                   self%noutc = self%noutc + 1
                   call self%outpost_2d_fields(iname='c', iout=self%noutc)
@@ -190,36 +193,6 @@
                call nek_log_message('No 2D data to outpost.', this_module, 'outpost')
             end if
          end procedure outpost_2d
-
-         module procedure compute_2d_usrt
-            ! this routine will overwrite self%v[xyz]2d
-            integer, parameter :: iz = 1
-            integer :: ix, iy, ie, is, ib
-            real(dp) :: phi, a, s
-            real(dp) :: utmp, vtmp, ux, uy, uz
-            phi = self%phi
-            do is = 1, self%n2d_gown ! only for the first slice
-               ie = self%id2d(is, 1)
-               do iy = 1, ly1
-               do ix = 1, lx1
-                  s = self%as(ix,iy,iz,ie)
-                  a = self%alpha(ix,iy,iz,ie)
-                  ! iterate over buffer
-                  do ib = 1, lbuf
-                     ux = self%vx2d(ix,iy,is,ib)
-                     uy = self%vy2d(ix,iy,is,ib)
-                     uz = self%vz2d(ix,iy,is,ib)
-                     ! overwrite v[xyz]2d with u[srt]2d
-                     self%vx2d(ix,iy,is,ib) = cos(phi)*( cos(s)*ux -sin(s)*uy) + sin(phi)*uz
-                     utmp                   = sin(s)*ux + cos(s)*uy
-                     vtmp                   = sin(phi)*(-cos(s)*ux -sin(s)*uy) + cos(phi)*uz
-                     self%vy2d(ix,iy,is,ib) = cos(a)*utmp + sin(a)*vtmp
-                     self%vz2d(ix,iy,is,ib) = sin(a)*utmp - cos(a)*vtmp
-                  end do ! lbuf
-               end do    ! lx1
-               end do    ! ly1
-            end do       ! self%n2d_gown
-         end procedure compute_2d_usrt
          
          module procedure outpost_2d_fields
             integer, allocatable :: n2d_gown(:)
@@ -341,8 +314,10 @@
             ! functions
             logical, external :: if_byte_swap_test
             call lk_timer%start('neklab_helix_load_2d')
-            if (self%if_newton) then
+            if (self%is_newton()) then
                write(fname,'("n2dtorus",I3.3,".fld")') idx
+            else if (self%is_floquet()) then
+               write(fname,'("f2dtorus",I3.3,".fld")') idx
             else
                write(fname,'("c2dtorus",I3.3,".fld")') idx
             end if
@@ -430,7 +405,7 @@
             real(dp) :: s, phi, u, v, w
             character(len=128) :: msg
             phi = self%phi
-            if (self%if_newton) then
+            if (self%is_newton() .or. (self%is_floquet() .and. .not. self%is_save_2d()) ) then
                ifld_ = ifld - (self%noutn-1)*lbuf
                if (ifld_ > self%nload) then
                   ! load next file
@@ -469,19 +444,57 @@
             call lk_timer%stop('neklab_helix_set_baseflow')
          end procedure set_baseflow
 
-         module procedure save_base
-            self%save_2d_base = ifsave
-         end procedure save_base
+         module procedure compute_2d_usrt
+            ! this routine will overwrite self%v[xyz]2d
+            integer, parameter :: iz = 1
+            integer :: ix, iy, ie, is, ib
+            real(dp) :: phi, a, s
+            real(dp) :: utmp, vtmp, ux, uy, uz
+            phi = self%phi
+            do is = 1, self%n2d_gown ! only for the first slice
+               ie = self%id2d(is, 1)
+               do iy = 1, ly1
+               do ix = 1, lx1
+                  s = self%as(ix,iy,iz,ie)
+                  a = self%alpha(ix,iy,iz,ie)
+                  ! iterate over buffer
+                  do ib = 1, lbuf
+                     ux = self%vx2d(ix,iy,is,ib)
+                     uy = self%vy2d(ix,iy,is,ib)
+                     uz = self%vz2d(ix,iy,is,ib)
+                     ! overwrite v[xyz]2d with u[srt]2d
+                     self%vx2d(ix,iy,is,ib) = cos(phi)*( cos(s)*ux -sin(s)*uy) + sin(phi)*uz
+                     utmp                   = sin(s)*ux + cos(s)*uy
+                     vtmp                   = sin(phi)*(-cos(s)*ux -sin(s)*uy) + cos(phi)*uz
+                     self%vy2d(ix,iy,is,ib) = cos(a)*utmp + sin(a)*vtmp
+                     self%vz2d(ix,iy,is,ib) = sin(a)*utmp - cos(a)*vtmp
+                  end do ! lbuf
+               end do    ! lx1
+               end do    ! ly1
+            end do       ! self%n2d_gown
+         end procedure compute_2d_usrt
          
-         module procedure reset_newton
-            self%noutn = 0
-            self%nload = 0
-            self%save_2d_base = .true.
-            self%if_newton = .true.
-            self%min_dt = 100.0_dp
-            self%max_dt = 0.0_dp
-            call self%reset_mflow_fft()
-         end procedure
+         module procedure set_2d_mode
+            if (trim(mode)=='newton') then
+            !if (mode==1) then
+               self%noutn = 0
+               self%nload = 0
+               self%min_dt = 100.0_dp
+               self%max_dt = 0.0_dp
+               call self%reset_mflow_fft()
+               call self%set_newton(.true.)
+               call self%set_floquet(.false.)
+               call self%set_save_base(.true.)
+            else if (trim(mode)=='floquet') then
+            !else if (mode==2) then
+               self%noutn = 0
+               self%nload = 0
+               call self%set_floquet(.true.)
+               call self%set_newton(.false.)
+            else
+               call nek_stop_error('Selected mode '//trim(mode)//' is invalid.', this_module, 'set_2d_mode')
+            end if
+         end procedure set_2d_mode
 
       ! Helper functions
 

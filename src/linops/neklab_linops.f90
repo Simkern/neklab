@@ -95,6 +95,9 @@
       
       ! --> Type.
          type, extends(abstract_linop_rdp), public :: floquet_linop
+            type(nek_dvector) :: baseflow
+            logical :: baseflow_computed = .false.
+            real(dp) :: tau = 0.0_dp
          contains
             private
             procedure, pass(self), public :: matvec => floquet_matvec

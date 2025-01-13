@@ -18,7 +18,7 @@
      $                                     ptol        = atol*0.1)
       ! Intgrate the nonlinear equations forward
                time = 0.0_dp
-               call pipe%reset_newton()         ! reset output counter to overwrite output files, compute ubar_lag
+               call pipe%set_2d_mode('newton')       ! reset output counter to overwrite output files, compute ubar_lag
                istep = 0
                do while (lastep == 0)
                   istep = istep + 1
@@ -57,7 +57,7 @@
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
       ! Integrate the equations forward in time.
                time = 0.0_dp
-               call pipe%reset_newton()         ! reset output counter to load baseflow files in order
+               call pipe%set_2d_mode('newton')         ! reset output counter to load baseflow files in order
                do istep = 1, pipe%get_nsteps()
                   call pipe%set_baseflow(vx, vy, vz, istep) ! sets the baseflow field and the appropriate timestep
                   call nek_advance()
@@ -91,7 +91,7 @@
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
       ! Integrate the equations forward in time.
                time = 0.0_dp
-               call pipe%reset_newton()         ! reset output counter to load baseflow files in order
+               call pipe%set_2d_mode('newton')         ! reset output counter to load baseflow files in order
                do istep = 1, pipe%get_nsteps()
                   call pipe%set_baseflow(vx, vy, vz, istep) ! sets the baseflow field and the appropriate timestep
                   call nek_advance()

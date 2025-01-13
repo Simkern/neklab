@@ -28,6 +28,7 @@
          character(len=*), parameter, private :: this_module = 'neklab_analysis'
       
          public :: linear_stability_analysis_fixed_point
+         public :: linear_stability_analysis_periodic_orbit
          public :: transient_growth_analysis_fixed_point
          public :: newton_fixed_point_iteration
          public :: newton_periodic_orbit
@@ -99,6 +100,69 @@
       
             return
          end subroutine linear_stability_analysis_fixed_point
+
+         subroutine linear_stability_analysis_periodic_orbit(floquet_operator, kdim, nev, adjoint, X0)
+            type(floquet_linop), intent(inout) :: floquet_operator
+      !! Floquet perator whose stability properties are to be investigated.
+            integer, intent(in) :: kdim
+      !! Maximum dimension of the Krylov subspace.
+            integer, intent(in) :: nev
+      !! Desired number of eigenpairs to converge.
+            logical, intent(in), optional :: adjoint
+      !! Whether direct or adjoint analysis should be conducted.
+		type(nek_dvector), optional, intent(in) :: X0
+	!! Initial guess for the eigenvectors
+      
+      ! Eigenvalue computation related variables.
+            type(nek_dvector), allocatable :: eigvecs(:)
+            complex(kind=dp), allocatable :: eigvals(:)
+            real(kind=dp), allocatable :: residuals(:)
+            integer :: info
+      
+      ! Miscellaneous.
+            real(kind=dp) :: alpha
+            integer :: i
+            logical :: adjoint_
+            character(len=3) :: file_prefix
+      
+      ! Set up logging
+            call logger_setup(nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
+      
+      ! Optional parameters.
+            if (present(adjoint)) then
+               adjoint_ = adjoint
+            else
+               adjoint_ = .false.
+            end if
+      
+      ! Allocate eigenvectors and initialize Krylov basis.
+            allocate (eigvecs(nev)); call zero_basis(eigvecs)
+      
+      ! Run the eigenvalue analysis.
+		call eigs(floquet_operator, eigvecs, eigvals, residuals, info, x0=X0, kdim=kdim, transpose=adjoint_)
+      
+      ! Transform eigenspectrum to continuous-time representation.
+            eigvals = log(eigvals)/floquet_operator%tau
+      
+      ! Determine the file prefix.
+            file_prefix = merge("adj", "dir", adjoint_)
+      
+      ! Save eigenspectrum to disk.
+            call save_eigenspectrum(eigvals, residuals, trim(file_prefix)//"_eigenspectrum.npy")
+      
+      ! Export eigenfunctions to disk.
+            call outpost_dnek(eigvecs(:nev), file_prefix)
+
+		call logger%log_message('Exiting eigenvalue computation.', module=this_module)
+
+      ! Finalize exptA timings
+            call floquet_operator%finalize_timer()
+      ! Finalize timing
+            call logger_setup(logfile='lightkrylov_tmr.log', nio=0, log_level=warning_level, log_stdout=.false., log_timestamp=.true.)
+            call timer%finalize()
+      
+            return
+         end subroutine linear_stability_analysis_periodic_orbit
       
          subroutine transient_growth_analysis_fixed_point(exptA, nsv, kdim)
             type(exptA_linop), intent(inout) :: exptA

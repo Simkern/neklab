@@ -55,6 +55,7 @@
       
       ! Implementation of the standard linear operators.
          public :: exptA_linop
+         public :: floquet_linop
          public :: resolvent_linop
       
       ! Implementation of the abstract systems and Jacobians
@@ -76,6 +77,7 @@
       
       ! Stability analysis exports.
          public :: linear_stability_analysis_fixed_point
+         public :: linear_stability_analysis_periodic_orbit
          public :: transient_growth_analysis_fixed_point
       
       ! OTD exports.

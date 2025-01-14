@@ -8,6 +8,7 @@
          use neklab_vectors
          use neklab_utils, only: nek2vec, vec2nek
          use neklab_nek_setup, only: setup_nonlinear_solver, setup_linear_solver
+         use neklab_nek_setup, only: nek_stop_error, nek_log_message
          use neklab_helix
          implicit none
          include "SIZE"

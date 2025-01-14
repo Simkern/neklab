@@ -197,7 +197,7 @@
          module procedure outpost_2d_fields
             integer, allocatable :: n2d_gown(:)
             integer, allocatable :: n2d_elmap(:)
-            integer :: ierr, itmp, i, nxy, ip, ibuf, iseg, len, i_own
+            integer :: ierr, itmp, i, nxy, ip, ibuf, iseg, length, i_own
             integer :: wdsl, isl, isend(lelv)
             character(len=128)  :: fname, msg
             character(len=1024) :: head, ftm
@@ -265,11 +265,11 @@
             else
                call crecv(nid,itmp,isize)                  ! hand shake
                call csend(nid,self%n2d_gown,isize,0,0)     ! send number of elements
-               len = self%n2d_gown
+               length = self%n2d_gown
                do i = 1, self%n2d_gown
                   isend(i) = lglel(self%id2d(i,1))       
                end do
-               call csend(nid,isend(:len),len*isize,0,0)   ! send global element map
+               call csend(nid,isend(:length),length*isize,0,0)   ! send global element map
             endif
             call bcast(n2d_gown, np*isize)         ! broadcast to all procs
             call bcast(n2d_elmap, self%nelf*isize) ! broadcast to all procs
@@ -298,9 +298,8 @@
             ! only nid 0 will read
             integer ierr, hdrsize
             real*4 test_pattern
-            integer :: nxr, nyr, nelfr, nsaver, lbufr, wdsizr, len
-            integer :: wdsl, isl, itmp, ip, nxy, i, ie, ieg, iel, iseg, gseg, nelf
-            real rtmpv(lx1*ly1)
+            integer :: nxr, nyr, nelfr, nsaver, lbufr, wdsizr, length
+            integer :: wdsl, isl, nxy, i, ie, ieg, iel, iseg, gseg, nelf
             integer, allocatable :: global_map(:)
             integer, allocatable :: gmap_index(:)
             real(dp), allocatable :: slicedata(:,:,:,:)
@@ -308,7 +307,6 @@
             real(dp) :: timer
             character(len=132) :: hdr, fname, msg
             character(len=4)   :: sdummy
-            character(len=3)   :: fid
             common /CTMP1/ fldum(lx1*ly1*lelv)
             real fldum
             ! functions
@@ -369,17 +367,17 @@
             call bcast(global_map, nelf*isize) ! broadcast global element map
             call sort_index(global_map, gmap_index)
             ! initialize data and prepare arrays
-            len = 3*nxy*nelf
+            length = 3*nxy*nelf
             allocate(slicedata(lx1,ly1,nelf,3))
-            call rzero(slicedata, len)
+            call rzero(slicedata, length)
             ! load data one timestep at a time
             do i = 1, nsaver
                if (nid == 0) then ! read v[xyz]2d for all elements at the current timestep
-                  call byte_read(slicedata, len*wdsl, ierr)
-                  if (if_byte_sw) call byte_reverse(slicedata, len, ierr)
+                  call byte_read(slicedata, length*wdsl, ierr)
+                  if (if_byte_sw) call byte_reverse(slicedata, length, ierr)
                   if (ierr /= 0) call stop_error('Error reading element data', procedure='load_and_distribute_slice')
                end if
-               call bcast(slicedata, len*wdsize) ! broadcast 2D data to all procs
+               call bcast(slicedata, length*wdsize) ! broadcast 2D data to all procs
                ! distribute to local segment owners
                do iseg = 1, self%n2d_lown
                   gseg = self%id2d(iseg,3)  ! global segment
@@ -399,6 +397,51 @@
             call nek_log_information(msg, this_module, 'load_2d_fields')
             call lk_timer%stop('neklab_helix_load_2d')
          end procedure load_2d_fields
+
+         module procedure get_nsteps_from_header
+            ! only nid 0 will read
+            integer ierr, hdrsize
+            real*4 test_pattern
+            integer :: nxr, nyr, nelfr, lbufr
+            integer :: wdsl, isl
+            real(dp) :: timer
+            character(len=132) :: hdr, msg
+            character(len=4)   :: sdummy
+            ! functions
+            logical, external :: if_byte_swap_test
+            hdrsize = 116
+            if (nid == 0) then
+               call byte_open(fname,ierr)
+               if (ierr /= 0) call nek_stop_error('Error opening file '//trim(fname), procedure='get_nsteps_from_header')
+               ! read header
+               if (ierr == 0) then
+                  call blank     (hdr,hdrsize)
+                  call byte_read (hdr,hdrsize/4,ierr)
+               endif
+               if (ierr == 0) then
+                  call byte_read (test_pattern,1,ierr)
+                  if_byte_sw = if_byte_swap_test(test_pattern,ierr) ! determine endianess
+               endif
+               call nek_log_debug('header: '//trim(hdr), this_module, 'get_nsteps_from_header')
+               ! read wdsize from header
+               read(hdr,*) sdummy, wdsizr
+               wdsl = wdsizr/4
+               isl  = isize/4
+               ! read metadata
+               call byte_read(nxr,    isl, ierr)
+               call byte_read(nyr,    isl, ierr)
+               call byte_read(nelfr,  isl, ierr)
+               call byte_read(timer, wdsl, ierr)
+               call byte_read(nsaver, isl, ierr)
+               call byte_read(lbufr,  isl, ierr)
+               write(msg,'(A,3(1X,I0),1X,E15.7,2(1X,I0))') 'metadata: ', nxr, nyr, nelfr, timer, nsaver, lbufr
+               call nek_log_debug(msg, this_module, 'get_nsteps_from_header')
+               call byte_close(ierr)
+               if (ierr /= 0) call nek_stop_error('Error closing file '//trim(fname), procedure='get_nsteps_from_header')
+            end if
+            write(msg,'(3X,A,A,I0,A)') trim(fname), ': ', nsaver, ' timesteps.'
+            call nek_log_message(msg, this_module, 'get_nsteps_from_header')
+         end procedure get_nsteps_from_header
 
          module procedure set_baseflow
             integer  :: ie, ix, iy, iz, iseg, ifld_
@@ -500,7 +543,7 @@
             real(dp), intent(in) :: slicedata(:,:,:)
             integer, intent(in) :: n2d_gown(:)
             ! internal
-            integer :: nxy, idum, wdsl, isl, len, ierr, ip
+            integer :: nxy, idum, wdsl, isl, length, ierr, ip
             real rtmpv1(lx1*ly1*lelv), rtmpv(lx1*ly1*lelv)
             real*4 rtmpv2(2*lx1*ly1*lelv)
             equivalence (rtmpv1,rtmpv2)
@@ -509,34 +552,34 @@
             isl  = isize/4
             if (nid == 0) then
                ! master writes if there are data
-               len = nxy*n2d_gown(nid+1)
+               length = nxy*n2d_gown(nid+1)
                if (wdsl.eq.2) then
-                  call copy(rtmpv1,slicedata,len)
-                  call byte_write(rtmpv2,len*wdsl,ierr)
+                  call copy(rtmpv1,slicedata,length)
+                  call byte_write(rtmpv2,length*wdsl,ierr)
                else
-                  call copyX4(rtmpv2,slicedata,len)
-                  call byte_write(rtmpv2,len,ierr)
+                  call copyX4(rtmpv2,slicedata,length)
+                  call byte_write(rtmpv2,length,ierr)
                end if
                ! get data from other procs and write to file
                do ip = 1, np-1
-                  len = nxy*n2d_gown(ip+1)
+                  length = nxy*n2d_gown(ip+1)
                   call csend(ip,idum,isize,ip,0) ! hand shake
-                  call crecv2(ip,rtmpv,len*wdsize,ip)
+                  call crecv2(ip,rtmpv,length*wdsize,ip)
                   ! write data
                   if (wdsl.eq.2) then
-                     call copy(rtmpv1,rtmpv,len)
-                     call byte_write(rtmpv2,len*wdsl,ierr)
+                     call copy(rtmpv1,rtmpv,length)
+                     call byte_write(rtmpv2,length*wdsl,ierr)
                   else
-                     call copyX4(rtmpv2,rtmpv,len)
-                     call byte_write(rtmpv2,len,ierr)
+                     call copyX4(rtmpv2,rtmpv,length)
+                     call byte_write(rtmpv2,length,ierr)
                   endif
                end do
                if (ierr /= 0) call nek_stop_error('Error writing slice data', procedure='gather_and_write_slice')
             else 
                ! send data to master
                call crecv2(nid,idum,isize,0) ! hand shake
-               len = nxy*n2d_gown(nid+1)
-               call csend(nid,slicedata,len*wdsize,0,0)
+               length = nxy*n2d_gown(nid+1)
+               call csend(nid,slicedata,length*wdsize,0,0)
             end if
          end subroutine gather_and_write_slice
       

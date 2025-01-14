@@ -129,6 +129,7 @@
             procedure, pass(self), public :: outpost_2d
             procedure, pass(self), public :: outpost_2d_fields
             procedure, pass(self), public :: load_2d_fields
+            procedure, pass(self) :: get_nsteps_from_header
             procedure, pass(self), public :: set_baseflow
             procedure, pass(self), public :: compute_2d_usrt
             procedure, pass(self), public :: set_2d_mode
@@ -273,6 +274,13 @@
                class(helix), intent(inout) :: self
                integer, intent(in) :: idx
             end subroutine load_2d_fields
+
+            module subroutine get_nsteps_from_header(self, fname, nsaver)
+               ! only nid 0 will read
+               class(helix), intent(in) :: self
+               character(len=132), intent(in) :: fname
+               integer, intent(out) :: nsaver
+            end subroutine get_nsteps_from_header
 
             module subroutine set_baseflow(self, basex, basey, basez, ifld)
                class(helix), intent(inout) :: self

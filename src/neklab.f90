@@ -74,6 +74,7 @@
          public :: newton_periodic_orbit
          public :: newton_forced_periodic_orbit_torus
          public :: mflow_newton_periodic_orbit_torus
+         public :: shift_mflow_phase_torus
       
       ! Stability analysis exports.
          public :: linear_stability_analysis_fixed_point

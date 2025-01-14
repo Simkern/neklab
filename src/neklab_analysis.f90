@@ -34,6 +34,7 @@
          public :: newton_periodic_orbit
          public :: newton_forced_periodic_orbit_torus
          public :: mflow_newton_periodic_orbit_torus
+         public :: shift_mflow_phase_torus
          public :: otd_analysis
       
       contains
@@ -360,7 +361,7 @@
             nmf = size(mflow_target) ! number of mass flow Fourier components to converge
 		      write(fmt1,'("(A,",I0,"(1X,F16.10),A,*(F16.10,1X))")') nmf
 		      write(fmt2,'("(A,",I0,"(1X,F16.10),A,E16.8)")') nmf
-            nf  = pipe%get_nf()      ! bumber of (complex!) forcing components
+            nf  = pipe%get_nf()      ! number of real forcing components (real and imaginary parts counted individually)
             if (nmf > nfft) then
                write(msg,'(A,I0,A,I0,A)') 'nmf= ', nmf, ' > nfft= ', nfft,'. Increase nfft in neklab_helix.'
                call nek_stop_error(msg, module=this_module, procedure='mflow_newton')
@@ -514,6 +515,56 @@
                call nek_stop_error(msg, module=this_module, procedure='mflow_newton')
             end if
          end subroutine mflow_newton_periodic_orbit_torus
+
+         subroutine shift_mflow_phase_torus(bf)
+            type(nek_dvector), intent(inout) :: bf
+         !! Current baseflow to be shifted
+            ! internal
+            integer :: i, nmf, nf
+            real(dp) :: phase_dt, Tend
+            real(dp), allocatable :: dpds(:), phase_angle(:)
+            character(len=128) :: msg
+            real(dp), parameter :: tol_dt = 1.0e-08_dp
+            nf = pipe%get_nf()         ! number of real forcing components (real and complex parts counted individually)
+            allocate(dpds(nf))
+            call pipe%get_dpds(dpds, phase_angle)
+            nmf = size(phase_angle)    ! number of complex forcing components
+            call nek_log_message('Current forcing:', this_module, 'shift_mflow_phase_torus')
+            call pipe%forcing_summary()
+            do i = 2, nmf              ! the first component is purely real, phase is zero by construction
+               phase_dt = phase_angle(i)/pipe%get_omega()
+               if (abs(phase_dt) < tol_dt) then
+      ! We adjust dpds without running the solver
+                  write(msg,'(A,I0,A,F16.8)') 'Component ', i, ': phase_delta (dt) is small: ph_dt= ', phase_dt 
+                  call nek_log_message(msg, this_module, 'shift_mflow_phase_torus')                  
+               else
+      ! Set the initial condition for nonlinear solve
+                  call vec2nek(vx, vy, vz, pr, t, bf)
+                  if (phase_dt > 0.0_dp) then ! we need to reduce the phase -> find new initial time and adjust dpds
+                     Tend = phase_dt ! Set final time
+                  else                             ! we need to increase the phase
+                     Tend = pipe%get_period() + phase_dt ! Set final time
+                  end if
+      ! Set appropriate tolerances and Nek status
+                  call setup_nonlinear_solver(variable_dt=.true., endtime=Tend, cfl_limit=0.4_dp)
+                  time = 0.0_dp
+                  call pipe%set_save_base(.false.)
+                  call pipe%set_save_fft(.false.)
+                  istep = 0
+                  do while (lastep == 0)
+                     istep = istep + 1
+                     call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
+                     call nek_advance()
+                  end do
+      ! Retrieve baseflow 
+                  call nek2vec(bf, vx, vy, vz, pr, t)
+               end if
+      ! adjust dpds
+               call pipe%shift_dpds_phase(i, 0.0_dp)
+            end do
+            call nek_log_message('Updated forcing:', this_module, 'shift_mflow_phase_torus')
+            call pipe%forcing_summary()
+         end subroutine shift_mflow_phase_torus
       
          subroutine otd_analysis(OTD, opts_)
             type(nek_otd), intent(inout) :: OTD

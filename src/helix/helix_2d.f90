@@ -476,7 +476,6 @@
          
          module procedure set_2d_mode
             if (trim(mode)=='newton') then
-            !if (mode==1) then
                self%noutn = 0
                self%nload = 0
                self%min_dt = 100.0_dp
@@ -486,7 +485,6 @@
                call self%set_floquet(.false.)
                call self%set_save_base(.true.)
             else if (trim(mode)=='floquet') then
-            !else if (mode==2) then
                self%noutn = 0
                self%nload = 0
                call self%set_floquet(.true.)

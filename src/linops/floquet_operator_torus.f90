@@ -2,24 +2,24 @@
          implicit none
       contains
          module procedure floquet_init
-         ! internal
-            logical :: existfile
-            character(len=128) :: msg
-         ! Determine whether to solve for the baseflow or not
-            inquire(file='f2dtorus001.fld', exist=existfile)
-            if (existfile) then
-               self%baseflow_computed = .true.
-               msg = "Files f2dtorus001.fld exists. No not solve for baseflow"
-               call logger%log_message(msg, module=this_module, procedure="init_floquet")
-            else
-               self%baseflow_computed = .false.
-               msg = "Solve for baseflow at first iteration."
-               call logger%log_message(msg, module=this_module, procedure="init_floquet")
-               ! Set the baseflow for computation
-               call vec2nek(vx, vy, vz, pr, t, self%baseflow)
-            end if
-            self%tau = pipe%get_period()
-            self%is_initialized = .true.
+      ! internal
+         logical :: existfile
+         character(len=128) :: msg
+      ! Determine whether to solve for the baseflow or not
+         inquire(file='f2dtorus001.fld', exist=existfile)
+         if (existfile) then
+            self%baseflow_computed = .true.
+            msg = "Files f2dtorus001.fld exists. No not solve for baseflow"
+            call logger%log_message(msg, module=this_module, procedure="init_floquet")
+         else
+            self%baseflow_computed = .false.
+            msg = "Solve for baseflow at first iteration."
+            call logger%log_message(msg, module=this_module, procedure="init_floquet")
+      ! Set the baseflow for computation
+            call vec2nek(vx, vy, vz, pr, t, self%baseflow)
+         end if
+         self%tau = pipe%get_period()
+         self%is_initialized = .true.
          end procedure floquet_init
       
          module procedure floquet_matvec

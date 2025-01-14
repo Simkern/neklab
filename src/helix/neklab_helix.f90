@@ -91,6 +91,7 @@
             logical :: if_newton    = .false. ! are we in newton mode?
             logical :: if_floquet   = .false. ! are we in floquet mode?
             logical :: if_fft = .false. ! compute the FT of the streamwise mass flow us on the fly
+            logical :: fft_is_extracted = .false. ! has the FT data been collected?
             real(dp), dimension(2*nfft + 1) :: fftv ! temporary array for mass flow FT computation
             real(dp), dimension(2*nfft + 1) :: mflow ! FT of the streamwise mass flow 
             real(dp), dimension(nfft + 1) :: mflow_amplitude ! FT amplitude of the streamwise mass flow 
@@ -118,7 +119,7 @@
             procedure, pass(self), public :: compute_usrt
             procedure, pass(self), public :: compute_ubar
             procedure, pass(self), public :: forcing_amplitude
-            procedure, pass(self), public :: shift_dpds_phase
+            procedure, pass(self), public :: shift_mflow_phase
             procedure, pass(self), public :: setup_summary
             procedure, pass(self), public :: parameter_summary
             procedure, pass(self), public :: forcing_summary
@@ -146,6 +147,7 @@
             procedure, pass(self), public :: is_floquet
             procedure, pass(self), public :: is_save_2d
             procedure, pass(self), public :: is_save_fft
+            procedure, pass(self), public :: is_extracted_fft
             procedure, pass(self), public :: is_lowner
             procedure, pass(self), public :: is_gowner
             procedure, pass(self), public :: get_period
@@ -222,11 +224,11 @@
                !! time
             end function forcing_amplitude
 
-            module subroutine shift_dpds_phase(self, icomp, target_phase_angle)
+            module subroutine shift_mflow_phase(self, icomp, target_mflow_phase)
                class(helix), intent(inout) :: self
                integer, intent(in) :: icomp
-               real(dp), intent(in) :: target_phase_angle
-            end subroutine shift_dpds_phase
+               real(dp), intent(in) :: target_mflow_phase
+            end subroutine shift_mflow_phase
 
             module subroutine setup_summary(self)
                class(helix), intent(in) :: self
@@ -312,9 +314,10 @@
                logical, optional, intent(in) :: if_amplitude
             end subroutine extract_mflow_fft
 
-            module subroutine get_mflow_fft(self, mflow, if_amplitude)
+            module subroutine get_mflow_fft(self, mflow, phase, if_amplitude)
                class(helix), intent(in) :: self
                real(dp), allocatable, intent(out) :: mflow(:)
+               real(dp), optional, allocatable, intent(out) :: phase(:)
                logical, optional, intent(in) :: if_amplitude
             end subroutine get_mflow_fft
 
@@ -371,6 +374,11 @@
                class(helix), intent(in) :: self
                logical :: if_save_fft
             end function is_save_fft
+
+            module pure function is_extracted_fft(self) result(is_extracted)
+               class(helix), intent(in) :: self
+               logical :: is_extracted
+            end function is_extracted_fft
 
             module pure function is_lowner(self, ie) result(is_owner)
                class(helix), intent(in) :: self

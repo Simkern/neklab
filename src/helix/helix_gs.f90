@@ -21,13 +21,6 @@
             self%if_floquet = if_floquet
          end procedure
 
-         module procedure reset_mflow_fft
-            self%ubar_lag = self%compute_ubar(vx, vy, vz) ! compute ubar at t = 0
-            ! zero out data arrays
-            self%fftv = 0.0_dp
-            self%fft_time = 0.0_dp               ! reset integration time
-         end procedure reset_mflow_fft
-
          !! LOGICAL FUNCTIONS
 
          module procedure is_steady
@@ -49,6 +42,10 @@
          module procedure is_save_fft
             if_save_fft = self%if_fft
          end procedure is_save_fft
+
+         module procedure is_extracted_fft
+            is_extracted = self%fft_is_extracted
+         end procedure is_extracted_fft
 
          module procedure is_lowner
             is_owner = .false.

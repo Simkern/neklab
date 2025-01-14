@@ -114,6 +114,7 @@
                call nek_log_message(msg, this_module)
                call nek_stop_error('Period check failed. Maybe the integration time does not equal the period precisely.')
             end if
+            self%fft_is_extracted = .true.
          end procedure extract_mflow_fft
 
          module procedure reset_mflow_fft
@@ -121,17 +122,33 @@
             ! zero out data arrays
             self%fftv = 0.0_dp
             self%fft_time = 0.0_dp               ! reset integration time
+            self%fft_is_extracted = .false.
+            call self%set_save_fft(.true.)
          end procedure reset_mflow_fft
 
          module procedure get_mflow_fft
             logical :: if_amplitude_
+            character(len=128) :: msg
             if_amplitude_ = optval(if_amplitude, .true.)
-            if (if_amplitude_) then
-               allocate(mflow(nfft+1))
-               mflow = self%mflow_amplitude
+            if (self%is_extracted_fft()) then
+               if (if_amplitude_) then
+                  allocate(mflow(nfft+1))
+                  mflow = self%mflow_amplitude
+                  if (present(phase)) then
+                     allocate(phase(nfft+1))
+                     phase = self%mflow_phase
+                  end if
+               else
+                  allocate(mflow(2*nfft+1))
+                  mflow = self%mflow
+                  if (present(phase)) then
+                     msg = 'To obtain phase information, use if_amplitude = .true.. No phase information returned.'
+                     call nek_log_message(msg, this_module, 'get_mflow_fft')
+                  end if
+               end if
             else
-               allocate(mflow(2*nfft+1))
-               mflow = self%mflow
+               msg = 'mflow FT data has not been extracted.'
+               call nek_stop_error(msg, this_module, 'get_mflow_fft')
             end if
          end procedure get_mflow_fft
       

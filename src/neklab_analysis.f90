@@ -516,27 +516,36 @@
             end if
          end subroutine mflow_newton_periodic_orbit_torus
 
-         subroutine shift_mflow_phase_torus(bf)
+         subroutine shift_mflow_phase_torus(bf, nmf)
             type(nek_dvector), intent(inout) :: bf
-         !! Current baseflow to be shifted
+      !! Current baseflow to be shifted
+            integer, intent(in) :: nmf
+      !! number of mass flow components to consider
             ! internal
-            integer :: i, nmf, nf
+            integer :: i
             real(dp) :: phase_dt, Tend
-            real(dp), allocatable :: dpds(:), phase_angle(:)
+            real(dp), allocatable :: mflow(:), phase(:)
+            logical :: save_base_old, save_fft_old
             character(len=128) :: msg
-            real(dp), parameter :: tol_dt = 1.0e-08_dp
-            nf = pipe%get_nf()         ! number of real forcing components (real and complex parts counted individually)
-            allocate(dpds(nf))
-            call pipe%get_dpds(dpds, phase_angle)
-            nmf = size(phase_angle)    ! number of complex forcing components
+            real(dp), parameter :: tol_dt = 1.0e-04_dp
             call nek_log_message('Current forcing:', this_module, 'shift_mflow_phase_torus')
             call pipe%forcing_summary()
-            do i = 2, nmf              ! the first component is purely real, phase is zero by construction
-               phase_dt = phase_angle(i)/pipe%get_omega()
+            call pipe%get_mflow_fft(mflow, phase, if_amplitude=.true.)
+            write(msg,'(A,*(1X,F16.8))') 'mflow phase: ', phase(:nmf)
+            call nek_log_message(msg, this_module, 'shift_mflow_phase_torus')
+            write(msg,'(A,*(1X,F16.8))') 'phase target:', 0.0_dp*phase(:nmf) 
+            call nek_log_message(msg, this_module, 'shift_mflow_phase_torus')
+            ! save old logical flags
+            save_base_old = pipe%is_save_2d(); call pipe%set_save_base(.false.)
+            save_fft_old = pipe%is_save_fft(); call pipe%set_save_fft(.false.)
+            do i = 2, nmf            ! the first component is purely real, phase is zero by construction
+               phase_dt = phase(i)/pipe%get_omega()
+               write(msg,'(A,I0,A,F16.8)') 'Component ', i, ': phase_delta (dt) = ', phase_dt 
+               call nek_log_message(msg, this_module, 'shift_mflow_phase_torus')
                if (abs(phase_dt) < tol_dt) then
       ! We adjust dpds without running the solver
-                  write(msg,'(A,I0,A,F16.8)') 'Component ', i, ': phase_delta (dt) is small: ph_dt= ', phase_dt 
-                  call nek_log_message(msg, this_module, 'shift_mflow_phase_torus')                  
+                  msg = 'phase delta is very small. Baseflow not shifted but dpds rotated.'
+                  call nek_log_message(msg, this_module, 'shift_mflow_phase_torus')
                else
       ! Set the initial condition for nonlinear solve
                   call vec2nek(vx, vy, vz, pr, t, bf)
@@ -548,8 +557,6 @@
       ! Set appropriate tolerances and Nek status
                   call setup_nonlinear_solver(variable_dt=.true., endtime=Tend, cfl_limit=0.4_dp)
                   time = 0.0_dp
-                  call pipe%set_save_base(.false.)
-                  call pipe%set_save_fft(.false.)
                   istep = 0
                   do while (lastep == 0)
                      istep = istep + 1
@@ -560,10 +567,13 @@
                   call nek2vec(bf, vx, vy, vz, pr, t)
                end if
       ! adjust dpds
-               call pipe%shift_dpds_phase(i, 0.0_dp)
+               call pipe%shift_mflow_phase(i, 0.0_dp)
             end do
             call nek_log_message('Updated forcing:', this_module, 'shift_mflow_phase_torus')
             call pipe%forcing_summary()
+            ! reset logical flags
+            call pipe%set_save_base(save_base_old)
+            call pipe%set_save_fft(save_fft_old)
          end subroutine shift_mflow_phase_torus
       
          subroutine otd_analysis(OTD, opts_)

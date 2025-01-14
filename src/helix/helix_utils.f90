@@ -235,7 +235,6 @@
          module procedure forcing_amplitude
             integer :: i
             complex(dp) :: eiwt, dpds
-
             f = self%dpds(1)
             if (.not.self%if_steady) then
                eiwt = cexp(imag * self%omega * t)
@@ -269,6 +268,31 @@
             call set_neklab_forcing(ffx, ffy, ffz, ipert=0)
 
          end procedure compute_bf_forcing
+
+         module procedure shift_dpds_phase
+            integer :: i
+            real(dp) :: dpdsr, dpdsi, alpha, dalpha, dt_phase, pd, prop
+            real(dp) :: dpds(nf)
+            real(dp), allocatable :: phase_angle(:)
+            character(len=128) :: msg
+            ! extract current forcing components
+            call pipe%get_dpds(dpds, phase_angle)
+            i = 2*(icomp-1)
+            dpdsr = self%dpds(i)
+            dpdsi = self%dpds(i+1)
+            alpha = phase_angle(icomp)
+            dalpha = alpha - target_phase_angle
+            dt_phase = dalpha/pipe%get_omega()
+            pd = pipe%get_period()
+            prop = dt_phase/pd*100
+            write(msg,'(A,I0)') 'adjusting forcing component: ', icomp
+            call nek_log_message(msg,'neklab_helix','shift_dpds_phase')
+            write(msg,'(2(A,F16.8),A,F9.5,A)') 'dt_phase= ', dt_phase , ', T= ', pd, ' (', prop, ' %)'
+            call nek_log_message(msg,'neklab_helix','shift_dpds_phase')
+            ! update forcing (rotation)
+            self%dpds(i  ) = dpdsr*cos(dalpha) - dpdsi*sin(dalpha)
+            self%dpds(i+1) = dpdsr*sin(dalpha) + dpdsi*cos(dalpha)
+         end procedure shift_dpds_phase
 
          module procedure compute_usrt
             integer :: ix, iy, iz, ie

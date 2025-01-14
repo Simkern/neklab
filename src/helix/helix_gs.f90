@@ -92,6 +92,10 @@
             T = self%pulse_T
          end procedure get_period
 
+         module procedure get_omega
+            omega = self%omega
+         end procedure get_omega
+
          module procedure get_nf
             n = nf
          end procedure get_nf

@@ -118,6 +118,7 @@
             procedure, pass(self), public :: compute_usrt
             procedure, pass(self), public :: compute_ubar
             procedure, pass(self), public :: forcing_amplitude
+            procedure, pass(self), public :: shift_dpds_phase
             procedure, pass(self), public :: setup_summary
             procedure, pass(self), public :: parameter_summary
             procedure, pass(self), public :: forcing_summary
@@ -148,6 +149,7 @@
             procedure, pass(self), public :: is_lowner
             procedure, pass(self), public :: is_gowner
             procedure, pass(self), public :: get_period
+            procedure, pass(self), public :: get_omega
             procedure, pass(self), public :: get_Wo
             procedure, pass(self), public :: get_dpds
             procedure, pass(self), public :: get_nf
@@ -219,6 +221,12 @@
                real(dp) :: f
                !! time
             end function forcing_amplitude
+
+            module subroutine shift_dpds_phase(self, icomp, target_phase_angle)
+               class(helix), intent(inout) :: self
+               integer, intent(in) :: icomp
+               real(dp), intent(in) :: target_phase_angle
+            end subroutine shift_dpds_phase
 
             module subroutine setup_summary(self)
                class(helix), intent(in) :: self
@@ -382,6 +390,11 @@
                class(helix), intent(in) :: self
                real(dp) :: T
             end function get_period
+
+            module pure function get_omega(self) result(omega)
+               class(helix), intent(in) :: self
+               real(dp) :: omega
+            end function get_omega
 
             module pure function get_Wo(self) result(Wo)
                class(helix), intent(in) :: self

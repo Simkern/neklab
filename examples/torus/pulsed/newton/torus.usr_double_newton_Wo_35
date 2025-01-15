@@ -1,0 +1,378 @@
+c-----------------------------------------------------------------------
+      subroutine uservp (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      udiff =0.0d0
+      utrans=0.0d0
+      end
+c-----------------------------------------------------------------------
+      subroutine userf(ix,iy,iz,ieg)
+      use neklab
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      ffx = 0.0d0
+      ffy = 0.0d0
+      ffz = 0.0d0
+      
+      if (jp == 0) call neklab_forcing(ffx,ffy,ffz,ix,iy,iz,ieg,jp)
+      
+      end
+c-----------------------------------------------------------------------
+      subroutine userq(ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      qvol = 0.0d0
+      source = 0.0d0
+      end
+c-----------------------------------------------------------------------
+      subroutine userchk
+      use stdlib_logger, only: debug_level, information_level
+      use stdlib_linalg, only: inv, det
+      use LightKrylov_Constants
+      use LightKrylov_Timing, only: timer => global_lightkrylov_timer
+      use LightKrylov_Logger
+      use neklab
+      use neklab_helix
+      use neklab_nek_setup
+      implicit none     
+      include "SIZE"
+      include "TOTAL"
+      
+      ! System for which we seek a fixed point
+      type(nek_system_torus), allocatable :: sys
+      ! State vectors
+      type(nek_dvector) :: bf, ref
+      ! Tolerance for the Newton solver
+      real(dp) :: tol, df0, df, pd, ubar, rnorm, determinant
+      ! flow parameters
+      real, parameter :: womersley   = 35.0d0
+      ! corresponds to Q = 1%
+      real, parameter :: dp0ds       = 7.946035446259826e-02
+      real, parameter :: dp1dsr      = 1.21760314083-03 !6.088015703926592e-04
+      real, parameter :: dp1dsi      = 2.420482327e-02  !1.210241163576931e-02
+		real(dp), dimension(3) :: dpds, dpds0, dpds_tmp
+      real(dp), dimension(2), parameter :: mflow_target = [ 1.0_dp, 0.1_dp ]
+      real(dp), dimension(2):: mf_old, mf_new, dmf, mf_err, deltaf
+      real(dp), dimension(2,2) :: jac
+      real(dp), allocatable :: mflow_old(:), mflow_new(:)
+      real(dp), dimension(1) :: phase
+      integer, parameter :: max_frc_iter = 10
+      integer :: tol_mode, log_level, i
+      integer :: frc_iter, icomp
+      character(len=128) :: msg, ident, fname
+      character(len=3) :: fid
+      logical :: existfile
+
+      log_level = information_level
+      
+      if (istep.eq.0) then
+         ! Set flow parameters
+         dpds0 = [ dp0ds, dp1dsr, dp1dsi ]
+         phase(1) = atan2(dp1dsi,dp1dsr)
+         call pipe%init_flow(dpds0, womersley)
+         pd = pipe%get_period()
+	   		
+         call load_fld('rsttorus0.f00001')
+         call nek2vec(bf, vx, vy, vz, pr, t)
+			
+	      ! parameters
+         tol = 1e-6_dp
+         tol_mode = 2
+         
+         ! define system
+         sys = nek_system_torus()
+         sys%jacobian = nek_jacobian_torus()
+         sys%jacobian%X = bf
+
+         !! NONLINEAR SOLVER VIA SYSTEM
+         ! Set up logging & timing
+         call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.false.)
+         call timer%initialize(); call pipe%setup_summary(); call pipe%parameter_summary()
+         ! run solver and compute residual
+         call sys%response(bf, ref, 1e-8)
+         ! compute residual norm
+         rnorm = ref%norm()
+         write(msg,'(A,E15.8)') 'rnorm_respose_init= ', rnorm
+         call nek_log_message(msg, procedure='userchk')
+         ! Finalize system timings and rename logfiles
+         call sys%finalize_timer(); call timer%finalize()
+         call rename('lightkrylov_timer.log','lightkrylov_base_response_init_timer.log')
+         call rename('lightkrylov.log','lightkrylov_base_response_init.log')
+         call setup_linear_solver(recompute_dt=.true.,cfl_limit = 0.5_dp)
+        
+         !! BASELINE NEWTON
+         ! Set up logging & timing
+         call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.false.)
+         call timer%initialize(); call pipe%setup_summary(); call pipe%parameter_summary()
+         ! Run Newton
+         call newton_forced_periodic_orbit_torus(sys, bf, tol, tol_mode)
+         ! print mflow FFT
+         call pipe%get_mflow_fft(mflow_new, if_amplitude=.true.)
+         write(msg,'(A,*(1X,F16.8))') 'base newton: mf_new= ', mflow_new(:2)
+         call nek_log_message(msg, procedure='userchk')
+         ! Finalize system timings and rename logfiles
+         call sys%finalize_timer(); call timer%finalize()
+         call rename('lightkrylov.log','lightkrylov_base_nwt.log')
+         
+         !! df NEWTON
+         ! Set up logging & timing
+         call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.false.)
+         call timer%initialize(); call pipe%setup_summary(); call pipe%parameter_summary()
+         ! define perturbation size
+         df0 = min(1e-6_dp,100*tol)
+         ! set reference forcing
+         dpds = dpds0
+         write(msg,'(A,*(1X,F16.8))') 'mflow newton:    base forcing=',dpds
+         call nek_log_message(msg, procedure='userchk')
+         write(msg,'(A,*(1X,F16.8))') 'mflow newton: cos(ph),sin(ph)=',cos(phase(1)), sin(phase(1))
+         call nek_log_message(msg, procedure='userchk')
+         write(msg,'(A,*(1X,F16.8))') 'mflow newton:            |df|=',df0
+         call nek_log_message(msg, procedure='userchk')
+
+         ! save reference solution
+         call nek2vec(ref, vx, vy, vz, pr, t)
+         call pipe%get_mflow_fft(mflow_old, if_amplitude=.true.)
+         mf_err = mflow_old(:2) - mflow_target
+         write(msg,'(A,*(1X,F16.8))') 'mflow newton:          mf_old=', mflow_old(:2)
+         call nek_log_message(msg, procedure='userchk')
+         write(msg,'(A,*(1X,F16.8))') 'mflow newton:          mf_err=', mf_err
+         call nek_log_message(msg, procedure='userchk')
+         call nek_log_message('mflow newton: Reference solution set.', procedure='userchk')
+         ! df newton
+         df_loop: do frc_iter = 1, max_frc_iter
+            write(ident,'(A,I0,A)') 'mflow newton ', frc_iter,': '       
+            do icomp = 1, size(mflow_target) ! we need to compute dmf/df for all components
+               !
+               ! get dmf/df for component icomp
+               !
+               ! Set flow parameters
+               dpds_tmp = dpds
+               write(msg,'(A,A,*(1X,F16.8))')    trim(ident),'     dpds=', dpds_tmp
+               call nek_log_message(msg, procedure='userchk')
+               if (icomp == 1) then ! steady part
+                  df = df0
+                  dpds_tmp(1) = dpds_tmp(1) + df
+                  write(msg,'(A,A,*(1X,F16.8))') trim(ident),'    df(1)=', df
+                  call nek_log_message(msg, procedure='userchk')
+               else
+                  df = 20*df0
+                  dpds_tmp(2) = dpds_tmp(2) + cos(phase(1))*df
+                  dpds_tmp(3) = dpds_tmp(3) + sin(phase(1))*df
+                  write(msg,'(A,A,*(1X,F16.8))') trim(ident),'  df(2:3)=', cos(phase(1))*df, sin(phase(1))*df
+                  call nek_log_message(msg, procedure='userchk')
+               end if
+               write(msg,'(A,A,*(1X,F16.8))')    trim(ident),' dpds_new=',dpds_tmp
+               call nek_log_message(msg, procedure='userchk')
+               call pipe%init_flow(dpds_tmp, womersley)
+               call pipe%compute_bf_forcing(0.0_dp)
+               write(fid,'("df",I1)') icomp
+               write(fname,'(A,A,I5.5)') fid, 'torus0.f', frc_iter
+               inquire(file=fname, exist=existfile)
+               if (existfile) then
+                  call load_fld(fname)
+                  call nek2vec(bf, vx, vy, vz, pr, t)
+                  ! compute mass flow FFT by running the nonlinear solver once
+                  time = 0.0_dp
+                  ! setup solver
+                  call setup_nonlinear_solver(recompute_dt=.true.,cfl_limit = 0.5_dp)
+                  call nek_status(full_summary=.true.)
+                  ! run solver
+                  do istep = 1, nsteps
+                     call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
+                     call nek_advance()
+                     call pipe%compute_mflow_fft(period=pd) ! integrate Fourier coefficients
+                  end do
+               else
+                  ! reset baseflow
+                  call bf%zero()
+                  call bf%add(ref)
+                  ! Run Newton
+                  call newton_forced_periodic_orbit_torus(sys, bf, tol, tol_mode)
+                  call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, fid)
+               end if
+               call pipe%get_mflow_fft(mflow_new, if_amplitude=.true.)
+                  
+               ! get difference and compute gradient
+               dmf = mflow_new(:2) - mflow_old(:2)
+               do i = 1, 2
+                  write(msg,'(A,I0,",",I0,A,F16.8)') trim(ident),icomp, i,': |df|  = ', df
+                  call nek_log_message(msg, procedure='userchk')
+                  write(msg,'(A,I0,",",I0,A,F16.8)') trim(ident),icomp, i,': mf_new= ', mflow_new(i)
+                  call nek_log_message(msg, procedure='userchk')
+                  write(msg,'(A,I0,",",I0,A,F16.8)') trim(ident),icomp, i,': dmf   = ', dmf(i)
+                  call nek_log_message(msg, procedure='userchk')
+                  if (abs(dmf(i)) < 1e-07) then
+                     write(msg,'(A,I0,",",I0,A)')    trim(ident),icomp, i,': mflow difference too small to be accurate. Ignore.'
+                     call nek_log_message(msg, procedure='userchk')
+                     jac(icomp,i) = 0.0_dp
+                  else
+                     jac(icomp,i) = dmf(i)/df
+                  end if
+                  write(msg,'(A,I0,",",I0,A,F16.8)') trim(ident),icomp, i,': dmf/df= ', jac(icomp,i)
+                  call nek_log_message(msg, procedure='userchk')
+               end do
+            end do ! icomp
+            write(msg,'(A,A)') trim(ident), 'mf jacobian'
+            call nek_log_message(msg, procedure='userchk')
+            do icomp = 1, size(mflow_target)
+               write(msg,'(4X,*(1X,F16.8))') jac(icomp,:)
+               call nek_log_message(msg, procedure='userchk')
+            end do
+            call nekgsync()
+            !determinant = det(jac)
+            !
+            ! update
+            !
+            !if (determinant/=0.0_dp) then
+            !   deltaf = - matmul(inv(jac), mf_err)
+            !else
+            !   deltaf = 0.0_dp
+            !   do i = 1, 2
+            !      if (jac(i,i) /= 0.0_dp) deltaf(i) = - mf_err(i)/jac(i,i)
+            !   end do
+            !end if
+            deltaf = - matmul(inv(jac), mf_err)
+            write(msg,'(A,A,*(1x,F16.8))') trim(ident), '             |deltaf|=', deltaf
+            call nek_log_message(msg, procedure='userchk')
+            write(msg,'(A,A,*(1X,F16.8))') trim(ident), '         base forcing=', dpds
+            call nek_log_message(msg, procedure='userchk')  
+            ! Set flow parameters
+            dpds(1) = dpds(1) + deltaf(1) ! update reference forcing
+            dpds(2) = dpds(2) + cos(phase(1))*deltaf(2)
+            dpds(3) = dpds(3) + sin(phase(1))*deltaf(2)
+            write(msg,'(A,A,*(1X,F16.8))') trim(ident), ' updated base forcing=', dpds
+            call nek_log_message(msg, procedure='userchk')
+			   call pipe%init_flow(dpds, womersley)
+            call pipe%compute_bf_forcing(0.0_dp)
+            ! reset baseflow
+            call bf%zero()
+            call bf%add(ref)
+            ! Run Newton
+            call newton_forced_periodic_orbit_torus(sys, bf, tol, tol_mode)
+            call pipe%get_mflow_fft(mflow_old, if_amplitude=.true.)
+            mf_err = mflow_old(:2) - mflow_target
+            write(msg,'(A,A,*(1X,F16.8))') trim(ident), ' mf_new=', mflow_old(:2)
+            call nek_log_message(msg, procedure='userchk')
+            write(msg,'(A,A,*(1X,F16.8))') trim(ident), ' mf_err=', mf_err
+            call nek_log_message(msg, procedure='userchk')
+            if (sum(abs(mf_err)) < tol) exit df_loop ! converged
+            call nek2vec(ref, vx, vy, vz, pr, t) ! update reference solution
+            call nek_log_message(trim(ident)//' Reference solution reset.', procedure='userchk')
+         end do df_loop
+         call pipe%get_mflow_fft(mflow_old, if_amplitude=.true.)
+         mf_err = mflow_old(:2) - mflow_target
+         if (sum(abs(mf_err)) > tol) then
+            write(msg,'(A,I0,A)') 'Mass flux not converged after ', max_frc_iter, 'steps.'
+            call nek_stop_error(msg, procedure='userchk')
+         end if
+         call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
+         ! Finalize system timings
+         call sys%finalize_timer(); call timer%finalize()
+         call rename('lightkrylov.log','lightkrylov_mflow_nwt.log')
+         
+         time = 0.0_dp
+         call nek2vec(bf, vx, vy, vz, pr, t)
+         ! Set up logging & timing
+         call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.false.)
+         call timer%initialize(); call pipe%setup_summary(); call pipe%parameter_summary()
+         call setup_nonlinear_solver(recompute_dt=.true.,cfl_limit = 0.5_dp)
+         call nek_status(full_summary=.true.)
+         do istep = 1, nsteps
+            call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
+            call nek_advance()
+            call pipe%compute_mflow_fft(period=pd) ! integrate Fourier coefficients
+            ubar = pipe%compute_ubar(vx,vy,vz)
+            write(msg,'(3(F12.8,1X),A,F12.8)') time, time/pd, mod(time,pd), 'massflow_post UBAR: ', ubar
+            call nek_log_message(msg, procedure='userchk')
+         end do
+         call pipe%print_mflow_fft(nout=2)
+         call nek2vec(ref, vx, vy, vz, pr, t)
+         call ref%sub(bf)
+         rnorm = ref%norm()
+         write(msg,'(A,E15.8)') 'rnorm_post= ', rnorm
+         call nek_log_message(msg, procedure='userchk')
+         ! Finalize system timings
+         call timer%finalize()
+         call rename('lightkrylov.log','lightkrylov_base_post.log')
+
+         call nek_end()
+      end if
+
+      return
+
+      end
+c----------------------------------------------------------------------------------
+      subroutine userbc(i,j,k,iside,eg)
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      integer i,j,k,iside,eg
+      if (JP.eq.0) then ! velocity
+            ux = 1.0d0
+            uy = 0.0d0
+            uz = 0.0d0
+            temp=0.0d0
+         else           ! perturbation
+            ux = 0.0d0
+            uy = 0.0d0
+            uz = 0.0d0
+            temp=0.0d0
+         endif
+      end
+c-----------------------------------------------------------------------
+      subroutine useric(i,j,k,eg)
+      implicit none 
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      integer i,j,k,eg
+        if (JP.eq.0) then ! velocity
+            ux = 1.0d0
+            uy = 0.0d0
+            uz = 0.0d0
+            temp=0.0d0
+         else             ! perturbation
+            ux = 0.0d0
+            uy = 0.0d0
+            uz = 0.0d0
+            temp=0.0d0
+         endif
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      call setbc(1,1,'W  ')
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat2
+      use stdlib_logger, only: debug_level, information_level
+      use LightKrylov_Logger
+      use neklab_helix
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      ! geometry parameters
+      real, parameter :: delta       = 0.3d0
+      real, parameter :: diameter    = 2.0d0
+      real, parameter :: pitch_s     = 0.0d0
+      real, parameter :: length      = 1.0d0
+      ! mesh parameters
+      integer, parameter :: nslices  = 5
+      integer, parameter :: nelf     = 108
+      if (istep.eq.0) then
+         ! Setup logger
+         call logger_setup(nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
+         ! Initialize type, set geometry and compute forcing distribution
+         call helix_pipe(delta, diameter, pitch_s, length, nslices, nelf)
+      endif
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat3
+      end
+c-----------------------------------------------------------------------

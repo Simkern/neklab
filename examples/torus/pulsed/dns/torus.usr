@@ -30,101 +30,65 @@ c-----------------------------------------------------------------------
 c-----------------------------------------------------------------------
       subroutine userchk
       use neklab
+      use neklab_nek_setup
       use neklab_helix
       use LightKrylov_Logger
       implicit none     
       include "SIZE"
       include "TOTAL"
       
-      ! System for which we seek a fixed point
-      type(nek_system_torus), allocatable :: sys
       ! State vectors
-      type(nek_dvector) :: bf, bf_out
-      ! Tolerance for the Newton solver
-      real(dp) :: tol, ubar, ubar_old, norm, pd
+      type(nek_dvector) :: bf
       ! flow parameters
       real, parameter :: womersley   = 35.0d0
-      ! corresponds to Q = 1%
-      real, parameter :: dp0ds       = 7.9486896e-2 !7.966035446259826e-02
-      real, parameter :: dp1dsr      = 6.088015703926612e-04
-      real, parameter :: dp1dsi      = 1.210241163576931e-02
+      ! corresponds to Q = 17%
+      real, parameter :: dp0ds       = 8.1187279029228190e-02_dp  !7.966035446259826e-02
+      real, parameter :: dp1dsr      = 2.0700294919047971e-02_dp  !6.088015703926612e-04
+      real, parameter :: dp1dsi      = 4.1150274152849475e-01_dp  !1.210241163576931e-02
       real(dp), dimension(3) :: dpds
-      integer :: i, j, outpost_step, ip, nperiod
       character(len=128) :: msg
 
       if (istep == 0) then
          call load_fld('rsttorus0.f00001') ! start from steady state
          call nek2vec(bf, vx, vy, vz, pr, t)
-         time = 0.0_dp
 
-	      pd = sqrt(dp1dsr**2 + dp1dsi**2)
-	      if (nid == 0) print *, 'dpds INFO:', dp0ds, dp1dsr, dp1dsi
-	      if (nid == 0) print *, 'dpds INFO:', dp0ds + 2.0*pd, dp0ds - 2.0*pd
-         
-         ! fully real
-         call vec2nek(vx, vy, vz, pr, t, bf)
-         dpds = [ dp0ds, sqrt(dp1dsr**2 + dp1dsi**2), 0.0_dp ]
-         call pipe%init_flow(dpds, womersley)
-         pd = pipe%get_period()
-         nperiod = 5
-         
-         call setup_nonlinear_solver(recompute_dt=.true., endtime=pd,
-     $               cfl_limit = 0.5_dp)
-         
-         do ip = 1, nperiod
-            do istep = 1, nsteps
-               call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
-               call nek_advance()
-               call pipe%compute_mflow_fft(period=pd)      ! integrate Fourier coefficients
-               ubar = pipe%compute_ubar(vx,vy,vz)
-               if (nid == 0) print *, time, time/pd, mod(time,pd), 'massflow1 UBAR:', ubar     
-            end do
-            call pipe%print_mflow_fft(nout=2)
-         end do
-         
-         ! fully imaginary
-         call vec2nek(vx, vy, vz, pr, t, bf)
-         time = 0.0_dp
-         dpds = [ dp0ds, 0.0_dp, sqrt(dp1dsr**2 + dp1dsi**2) ]
-         call pipe%init_flow(dpds, womersley)
-         pd = pipe%get_period()
-         
-         call setup_nonlinear_solver(recompute_dt=.true., endtime=pd,
-     $                cfl_limit = 0.5_dp)
-         
-         do ip = 1, nperiod
-            do istep = 1, nsteps
-               call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
-               call nek_advance()
-               call pipe%compute_mflow_fft(period=pd)      ! integrate Fourier coefficients
-               ubar = pipe%compute_ubar(vx,vy,vz)
-               if (nid == 0) print *, time, time/pd, mod(time,pd), 'massflow2 UBAR:', ubar     
-            end do
-            call pipe%print_mflow_fft(nout=2)
-         end do
-         
-	 ! actual
-         call vec2nek(vx, vy, vz, pr, t, bf)
-         time = 0.0_dp
          dpds = [ dp0ds, dp1dsr, dp1dsi ]
          call pipe%init_flow(dpds, womersley)
-         pd = pipe%get_period()
-         
-         call setup_nonlinear_solver(recompute_dt=.true., endtime=pd,
-     $                cfl_limit = 0.5_dp)
-         
-         do ip = 1, nperiod
-            do istep = 1, nsteps
-               call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
-               call nek_advance()
-               call pipe%compute_mflow_fft(period=pd)      ! integrate Fourier coefficients
-               ubar = pipe%compute_ubar(vx,vy,vz)
-               if (nid == 0) print *, time, time/pd, mod(time,pd), 'massflow3 UBAR:', ubar     
-            end do
-            call pipe%print_mflow_fft(nout=2)
-         end do
 
-         call nek_end()
+         write(msg,'(A,I0)') 'Prerun ', i
+         call nek_log_message(msg, procedure='userchk')
+         call setup_nonlinear_solver(variable_dt = .true., 
+     $                               endtime     = pipe%get_period(), 
+     $                               cfl_limit   = 0.4_dp)
+         call vec2nek(vx, vy, vz, pr, t, bf)
+         time = 0.0_dp
+         istep = 0
+         call pipe%reset_mflow_fft()
+         do while (lastep == 0)
+            istep = istep + 1
+            call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
+            call nek_advance()
+            call pipe%compute_mflow_fft(var_dt = .true.) ! integrate Fourier coefficients
+         end do
+         call pipe%extract_mflow_fft()
+            
+         call shift_mflow_phase_torus(bf, 2)
+
+         call vec2nek(vx, vy, vz, pr, t, bf)
+         
+         call setup_nonlinear_solver(variable_dt = .true., 
+     $                               endtime     = pipe%get_period(), 
+     $                               cfl_limit   = 0.4_dp)
+         time = 0.0_dp
+         istep = 0
+         call pipe%reset_mflow_fft()
+         do while (lastep == 0)
+            istep = istep + 1
+            call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
+            call nek_advance()
+            call pipe%compute_mflow_fft(var_dt = .true.) ! integrate Fourier coefficients
+         end do
+         call pipe%extract_mflow_fft()
       end if
       
       return
@@ -193,7 +157,7 @@ c-----------------------------------------------------------------------
       integer, parameter :: nelf     = 108
       if (istep.eq.0) then
          ! Setup Logger
-	 call logger_setup(nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
+	   call logger_setup(nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
          ! Initialize type
          call helix_pipe(delta, diameter, pitch_s, length, nslices, nelf)
       end if

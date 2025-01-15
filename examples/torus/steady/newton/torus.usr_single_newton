@@ -41,56 +41,65 @@ c-----------------------------------------------------------------------
       include "TOTAL"
       
       ! System for which we seek a fixed point
-      type(nek_system), allocatable :: sys
+      type(nek_system_torus), allocatable :: sys
       ! State vectors
-      type(nek_dvector) :: bf
+      type(nek_dvector) :: bf, ref
       ! Tolerance for the Newton solver
-      real(dp) :: tol, ubar_old, ubar_new, deltaf, df, du, dfdu, dmf
+      real(dp) :: tol
       ! flow parameters
-      real, parameter :: dpds0 = 7.9486896e-2
-      real(dp), dimension(1) :: dpds, dpds_tmp
+      real, parameter :: dp0ds = 7.9486896e-2
+      real(dp), dimension(1) :: dpds
       real(dp), dimension(1), parameter :: mflow_target = [ 1.0_dp ]
       integer :: tol_mode, inwt, log_level
-      character(len=128) :: msg
-      character(len=3) :: fid
       
       log_level = information_level
 
-      inwt = 0
       if (istep.eq.0) then
 	   ! Set flow parameters
-         dpds = [ dpds0 ]
+         dpds = [ dp0ds ]
 	   call pipe%init_flow(dpds)
-         call pipe%compute_bf_forcing(0.0_dp)
 			
 	   call load_fld('rsttorus0.f00001')
          call nek2vec(bf, vx, vy, vz, pr, t)
 
          ! parameters
-         tol = 1e-6_dp
+         tol      = 1e-8_dp
          tol_mode = 2
-         df = 100*tol
          
          ! define system
-         sys = nek_system()
-         sys%jacobian = nek_jacobian()
+         sys = nek_system_torus()
+         sys%jacobian = nek_jacobian_torus()
          sys%jacobian%X = bf
-         ubar_old = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
-         write(msg,'(A,E15.8)') 'u_bar_init= ', ubar_old
-         call logger%log_message(msg, procedure='userchk')
          
-         ! Set up logging & timing
+         !
+         ! run nonlinear check
+         !
          call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
          call timer%initialize(); call pipe%setup_summary(); call pipe%parameter_summary()
+         call compute_nonlinear_period_torus(ref, bf, save_2d = .false., variable_dt = .true., if_fft = .true., if_res = .true.)
+         call timer%finalize()
+         call rename('lightkrylov_timer.log','lightkrylov_nonlinear_init_timer.log')
+         call rename('lightkrylov.log',      'lightkrylov_nonlinear_init.log')
+         
+         !
          ! Run Newton
-         inwt = inwt + 1
-         call newton_fixed_point_iteration(sys, bf, tol, tol_mode)
-         call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
-         ! Finalize system timings
-         call sys%finalize_timer(); call timer%finalize()
-         ubar_old = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
-         write(msg,'(A,E15.8)') 'u_bar= ', ubar_old
-         call nek_log_message(msg, procedure='userchk')
+         !
+         call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
+         call timer%initialize(); call pipe%setup_summary(); call pipe%parameter_summary()
+         call newton_fixed_point_torus(sys, bf, tol, tol_mode)
+         call sys%finalize_timer(); call sys%jacobian%finalize_timer(); call timer%finalize()
+         call rename('lightkrylov_timer.log','lightkrylov_nwt_timer.log')
+         call rename('lightkrylov.log',      'lightkrylov_nwt.log')
+         
+         !
+         ! run nonlinear check
+         !
+         call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
+         call timer%initialize(); call pipe%setup_summary(); call pipe%parameter_summary()
+         call compute_nonlinear_period_torus(ref, bf, save_2d = .true., variable_dt = .true., if_fft = .true., if_res = .true.)
+         call timer%finalize()
+         call rename('lightkrylov_timer.log','lightkrylov_nonlinear_post_timer.log')
+         call rename('lightkrylov.log',      'lightkrylov_nonlinear_post.log')
          call nek_end()
       end if
 

@@ -65,7 +65,7 @@
                   end if
                   ! increment integration time
                   self%fft_time = self%fft_time + dt
-                  if (nid == 0) print '(A,2(1X,F16.8))', 'neklab_helix: Compute mflow fft', dtau, self%fft_time
+                  if (nid == 0) print '(A,2(F18.12),F12.6)', 'neklab_helix: Compute mflow fft ', self%fft_time, pd, self%fft_time/pd
                   call lk_timer%stop('neklab_helix_compute_mflow_fft')
                else
                   call nek_log_message('Period not set or zero. FT not computed', this_module, 'compute_mflow_fft')
@@ -75,12 +75,13 @@
          end procedure compute_mflow_fft
 
          module procedure extract_mflow_fft
-            real(dp) :: pd_chk
+            real(dp) :: pd, pd_chk
             integer :: i, j, nprint
             logical :: if_amplitude_
             character(len=1024) :: msg
             character(len=128), parameter :: fmt = '(A,1X,F16.8,1X,A,*(1X,F16.8))'
             if_amplitude_ = optval(if_amplitude, .true.)
+            pd = optval(period, self%pulse_T)
             ! extract the computed FFT data, compute amplitudes and phases
             self%fft_rtime = self%fft_time ! total integration time since last call
             call copy(self%mflow, self%fftv, 2*nfft+1)
@@ -95,7 +96,7 @@
             self%fftv = 0.0_dp
             self%fft_time = 0.0_dp               ! reset integration time
             ! sanity period check
-            pd_chk = self%fft_rtime/self%pulse_T
+            pd_chk = self%fft_rtime/pd
             ! print result
             if (if_amplitude_) then
                nprint = (nf+1)/2
@@ -109,8 +110,8 @@
                write(msg,fmt) 'Period',self%fft_rtime,'massflow FT cmplx',self%mflow(:nf)
                call nek_log_message(msg, this_module)
             end if
-            if (abs(pd_chk - 1.0_dp) > 1.0e-06) then
-               write(msg, '(A,E15.8,A,2(F16.8,1X))') 'Period check: ', pd_chk - 1.0_dp, ': ', self%pulse_T, self%fft_rtime
+            if (abs(pd_chk - 1.0_dp) > 1.0e-06_dp) then
+               write(msg, '(A,E15.8,A,2(F16.8,1X))') 'Period check: ', pd_chk - 1.0_dp, ': ', pd, self%fft_rtime
                call nek_log_message(msg, this_module)
                call nek_stop_error('Period check failed. Maybe the integration time does not equal the period precisely.')
             end if

@@ -6,19 +6,19 @@
          !! MODE SWITCHES
 
          module procedure set_save_base
-            self%save_2d_base = if_save
+            self%save_2d_base = log_flag_change(if_save, pipe%save_2d_base, 'save_2d_base')
          end procedure set_save_base
 
          module procedure set_save_fft
-            self%if_fft = if_save_fft
+            self%if_fft = log_flag_change(if_save_fft, pipe%if_fft, 'if_fft')
          end procedure set_save_fft
          
          module procedure set_newton
-            self%if_newton = if_newton
+            self%if_newton = log_flag_change(if_newton, pipe%if_newton, 'if_newton')
          end procedure
 
          module procedure set_floquet
-            self%if_floquet = if_floquet
+            self%if_floquet = log_flag_change(if_floquet, pipe%if_floquet, 'if_floquet')
          end procedure
 
          !! LOGICAL FUNCTIONS
@@ -177,5 +177,21 @@
                call nek_log_message('input is zero. nsteps not set.', procedure='set_nsteps')
             end if
          end procedure set_nsteps
+
+         !! HELPER ROUTINE
+
+         logical function log_flag_change(new_flag, old_flag, flag_name) result(out_flag)
+            logical, intent(in) :: new_flag
+            logical, intent(in) :: old_flag
+            character(len=*), intent(in) :: flag_name
+            if (new_flag .neqv. old_flag) then
+               if (new_flag) then
+                  call nek_log_message(trim(flag_name)//' switched ON.', this_module, 'set_logical')
+               else
+                  call nek_log_message(trim(flag_name)//' switched OFF.', this_module, 'set_logical')
+               end if
+            end if
+            out_flag = new_flag
+         end function log_flag_change
       
       end submodule helix_getters_setters

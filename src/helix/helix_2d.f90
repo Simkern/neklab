@@ -165,7 +165,7 @@
                ! save data to file when buffer is full
                if (self%nsave == lbuf .or. lastep == 1) call self%outpost_2d()
             else
-               call nek_log_information('Baseflow saving turned off', this_module, 'save_2d_fields')
+               call nek_log_debug('Baseflow saving turned off', this_module, 'save_2d_fields')
             end if
          end procedure save_2d_fields
          

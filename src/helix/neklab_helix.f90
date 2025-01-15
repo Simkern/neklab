@@ -315,10 +315,11 @@
                real(dp), optional, intent(in) :: period
                logical, optional, intent(in) :: var_dt
             end subroutine compute_mflow_fft
-
-            module subroutine extract_mflow_fft(self, if_amplitude)
+            
+            module subroutine extract_mflow_fft(self, period, if_amplitude)
                ! only for constant dt
                class(helix), intent(inout) :: self
+               real(dp), optional, intent(in) :: period
                logical, optional, intent(in) :: if_amplitude
             end subroutine extract_mflow_fft
 

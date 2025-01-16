@@ -49,10 +49,7 @@ c-----------------------------------------------------------------------
       ! flow parameters
       real, parameter :: dp0ds = 7.9486896e-2
       real(dp), dimension(1) :: dpds
-      real(dp), dimension(1), parameter :: mflow_target = [ 1.0_dp ]
-      integer :: tol_mode, inwt, log_level
-      
-      log_level = information_level
+      integer :: tol_mode
 
       if (istep.eq.0) then
 	   ! Set flow parameters
@@ -71,35 +68,21 @@ c-----------------------------------------------------------------------
          sys%jacobian = nek_jacobian_torus()
          sys%jacobian%X = bf
          
-         !
          ! run nonlinear check
          !
-         call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
-         call timer%initialize(); call pipe%setup_summary(); call pipe%parameter_summary()
-         call compute_nonlinear_period_torus(ref, bf, save_2d = .false., variable_dt = .true., if_fft = .true., if_res = .true.)
-         call timer%finalize()
-         call rename('lightkrylov_timer.log','lightkrylov_nonlinear_init_timer.log')
-         call rename('lightkrylov.log',      'lightkrylov_nonlinear_init.log')
+         call compute_nonlinear_period_torus(ref, bf, save_2d = .false., variable_dt = .false., if_fft = .true., if_res = .true.)
          
-         !
          ! Run Newton
          !
-         call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
-         call timer%initialize(); call pipe%setup_summary(); call pipe%parameter_summary()
-         call newton_fixed_point_torus(sys, bf, tol, tol_mode)
-         call sys%finalize_timer(); call sys%jacobian%finalize_timer(); call timer%finalize()
-         call rename('lightkrylov_timer.log','lightkrylov_nwt_timer.log')
-         call rename('lightkrylov.log',      'lightkrylov_nwt.log')
+         call newton_fixed_point_iteration(sys, bf, tol, tol_mode)
          
-         !
          ! run nonlinear check
          !
-         call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
-         call timer%initialize(); call pipe%setup_summary(); call pipe%parameter_summary()
-         call compute_nonlinear_period_torus(ref, bf, save_2d = .true., variable_dt = .true., if_fft = .true., if_res = .true.)
-         call timer%finalize()
-         call rename('lightkrylov_timer.log','lightkrylov_nonlinear_post_timer.log')
-         call rename('lightkrylov.log',      'lightkrylov_nonlinear_post.log')
+         call compute_nonlinear_period_torus(ref, bf, save_2d = .false., variable_dt = .false., if_fft = .true., if_res = .true.)
+         
+         ! finalize timers
+         call timer%finalize(); call sys%jacobian%finalize_timer(); call timer%finalize()
+         
          call nek_end()
       end if
 

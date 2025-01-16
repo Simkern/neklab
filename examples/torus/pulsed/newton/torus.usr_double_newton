@@ -48,23 +48,21 @@ c-----------------------------------------------------------------------
       ! Tolerance for the Newton solver
       real(dp) :: tol, tol_mf
       ! flow parameters
-      real, parameter :: womersley   = 35.0d0
+      !real, parameter :: womersley   = 35.0d0
       ! corresponds to Q = 0.1%
-      real, parameter :: dp0ds       = 7.945994987500288e-02
-      real, parameter :: dp1dsr      = 6.089552728290498e-05
-      real, parameter :: dp1dsi      = 1.210190262497429e-03
-      !real, parameter :: womersley   = 100.0d0
+      !real, parameter :: dp0ds       = 7.945994987500288e-02
+      !real, parameter :: dp1dsr      = 6.089552728290498e-05
+      !real, parameter :: dp1dsi      = 1.210190262497429e-03
+      real, parameter :: womersley   = 100.0d0
       ! corresponds to Q = 0.1%
-      !real, parameter :: dp0ds       = 7.945994655600840e-02
-      !real, parameter :: dp1dsr      = 1.421324613149435e-04
-      !real, parameter :: dp1dsi      = 9.711524243252648e-03
+      real, parameter :: dp0ds       = 7.945994655600840e-02
+      real, parameter :: dp1dsr      = 1.421324613149435e-04
+      real, parameter :: dp1dsi      = 9.711524243252648e-03
 	real(dp), dimension(3) :: dpds
       real(dp), dimension(2), parameter :: mflow_target = [ 1.0_dp, 0.001_dp ]
-      integer :: tol_mode, log_level, max_nwt_iter, nmf
-      character(len=128) :: msg, fname
+      integer :: tol_mode, max_nwt_iter, nmf
+      character(len=128) :: msg
 
-      log_level = information_level
-      
       if (istep.eq.0) then
          nmf = size(mflow_target)
          ! Set flow parameters
@@ -85,55 +83,29 @@ c-----------------------------------------------------------------------
          sys%jacobian = nek_jacobian_torus_upo()
          sys%jacobian%X = bf
 
-         !
          ! run nonlinear check
          !
-         call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
-         call timer%initialize(); call pipe%setup_summary(); call pipe%parameter_summary()
          call compute_nonlinear_period_torus(ref, bf, save_2d = .false., variable_dt = .true., if_fft = .true., if_res = .true.)
-         call timer%finalize()
-         call rename('lightkrylov_timer.log','lightkrylov_nonlinear_init_timer.log')
-         call rename('lightkrylov.log',      'lightkrylov_nonlinear_init.log')
          
+         ! run base Newton
          !
-         ! Run initial Newton
-         !
-         call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
-         call timer%initialize(); call pipe%setup_summary(); call pipe%parameter_summary()
-         call newton_forced_periodic_orbit_torus(sys, bf, tol, tol_mode)    
-         call sys%finalize_timer(); sys%jacobian%finalize_timer; call timer%finalize()
-         call rename('lightkrylov_timer.log','lightkrylov_base_nwt_timer.log')
-         call rename('lightkrylov.log',      'lightkrylov_base_nwt.log')
+         call newton_fixed_point_iteration(sys, bf, tol, tol_mode)    
          
+         ! run mflow Newton
          !
-         ! Run mflow Newton
-         !
-         call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
-         call timer%initialize(); call pipe%setup_summary(); call pipe%parameter_summary()
-         call mflow_newton_periodic_orbit_torus(sys, bf, mflow_target, tol, tol_mf, tol_mode, max_nwt_iter)
-         call sys%finalize_timer(); sys%jacobian%finalize_timer; call timer%finalize()
-         call rename('lightkrylov_timer.log','lightkrylov_mflow_nwt_timer.log')
-         call rename('lightkrylov.log',      'lightkrylov_mflow_nwt.log')
+         call mflow_newton(sys, bf, mflow_target, tol, tol_mf, tol_mode,max_nwt_iter)
 
+         ! shift phase
          !
-         ! Shift phase
-         !
-         call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
-         call timer%initialize(); call pipe%setup_summary(); call pipe%parameter_summary()
          call shift_mflow_phase_torus(bf, nmf)
-         call timer%finalize()
-         call rename('lightkrylov_timer.log','lightkrylov_mflow_shift_timer.log')
-         call rename('lightkrylov.log',      'lightkrylov_mflow_shift.log')
 
-         !
          ! run nonlinear check
          !
-         call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
-         call timer%initialize(); call pipe%setup_summary(); call pipe%parameter_summary()
          call compute_nonlinear_period_torus(ref, bf, save_2d = .true., variable_dt = .true., if_fft = .true., if_res = .true.)
-         call timer%finalize()
-         call rename('lightkrylov_timer.log','lightkrylov_nonlinear_post_timer.log')
-         call rename('lightkrylov.log',      'lightkrylov_nonlinear_post.log')
+         
+         ! finalize timers
+         !
+         call timer%finalize(); call sys%jacobian%finalize_timer(); call timer%finalize()
 
          call nek_end()
       end if

@@ -285,19 +285,19 @@
             if (ifpert) then
                if (full_summary_) then
                   call nek_log_message('LINEAR MODE:', this_module, 'nek_status', nekfmt)
-                  write (msg, '(A,L8)') padl('ifpert: ', 20), ifpert
+                  write (msg, '(A,L15)') padl('ifpert: ', 20), ifpert
                   call nek_log_message(msg, this_module, 'nek_status', nekfmt)
-                  write (msg, '(A,I8)') padl('npert: ', 20), npert
+                  write (msg, '(A,I15)') padl('npert: ', 20), npert
                   call nek_log_message(msg, this_module, 'nek_status', nekfmt)
                   if (ifadj) then
-                     write (msg, '(A,L8)') padl('adjoint mode: ', 20), ifadj
+                     write (msg, '(A,L15)') padl('adjoint mode: ', 20), ifadj
                      call nek_log_message(msg, this_module, 'nek_status', nekfmt)
                   end if
                   if (ifbase) then
-                     write (msg, '(A,L8)') padl('solve for baseflow: ', 20), ifbase
+                     write (msg, '(A,L15)') padl('solve for baseflow: ', 20), ifbase
                      call nek_log_message(msg, this_module, 'nek_status', nekfmt)
                   end if
-                  write (msg, '(A,L8)') padl('OIFS: ', 20), ifchar
+                  write (msg, '(A,L15)') padl('OIFS: ', 20), ifchar
                   call nek_log_message(msg, this_module, 'nek_status', nekfmt)
                else
                   call nek_log_message('LINEAR MODE', this_module, 'nek_status', nekfmt)
@@ -305,7 +305,7 @@
             else
                if (full_summary_) then
                   call nek_log_message('NONLINEAR MODE:', this_module, 'nek_status', nekfmt)
-                  write (msg, '(A,L8)') padl('OIFS: ', 20), ifchar
+                  write (msg, '(A,L15)') padl('OIFS: ', 20), ifchar
                   call nek_log_message(msg, this_module, 'nek_status', nekfmt)
                else
                   call nek_log_message('NONLINEAR MODE', this_module, 'nek_status', nekfmt)
@@ -327,7 +327,7 @@
                end if
                call nek_log_message(msg, this_module, 'nek_status', nekfmt)
                if (nsteps > 0) then
-                  write (msg, '(A,I8)') padl('nsteps: ', 20), nsteps
+                  write (msg, '(A,I15)') padl('nsteps: ', 20), nsteps
                   call nek_log_message(msg, this_module, 'nek_status', nekfmt)
                end if
                write (msg, '(A,F15.4)') padl('target CFL: ', 20), param(26)
@@ -416,13 +416,14 @@
             character(len=*), optional, intent(in) :: prefix
             character(len=*), optional, intent(in) :: module
             character(len=*), optional, intent(in) :: procedure
-            character(len=128) :: fmt
+            character(len=128) :: fmt, fmt_string
             ! internal
             character(len=128) :: mod, pfx, prc
             pfx = optval(trim(prefix), '')
             mod = optval(trim(module)//' %', '')
             prc = optval(trim(procedure)//' :', '')
-            write(fmt,'("(",A,",1X,A)")') '"'//trim(pfx)//' '//trim(mod)//' '//trim(prc)//'"'
+            fmt_string = trim(pfx)//' '//trim(mod)//' '//trim(prc)
+            write(fmt,'("(",A,",1X,A)")') '"'//adjustl(trim(fmt_string))//'"'
          end function default_fmt
       
       end module neklab_nek_setup

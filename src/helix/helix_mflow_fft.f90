@@ -104,8 +104,10 @@
                call nek_log_message(msg, this_module)
                write(msg,fmt) 'Period',self%fft_rtime,'massflow FT phase angle',self%mflow_phase(:nprint)
                call nek_log_message(msg, this_module)
-               write(msg,fmt) 'Period',self%fft_rtime,'massflow FT t-shift    ',self%mflow_phase(:nprint)/self%omega
-               call nek_log_debug(msg, this_module)
+               if (self%omega /= 0.0_dp) then
+                  write(msg,fmt) 'Period',self%fft_rtime,'massflow FT t-shift    ',self%mflow_phase(:nprint)/self%omega
+                  call nek_log_debug(msg, this_module)
+               end if
             else
                write(msg,fmt) 'Period',self%fft_rtime,'massflow FT cmplx',self%mflow(:nf)
                call nek_log_message(msg, this_module)

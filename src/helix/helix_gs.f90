@@ -190,6 +190,12 @@
                else
                   call nek_log_message(trim(flag_name)//' switched OFF.', this_module, 'set_logical')
                end if
+            else
+               if (new_flag) then
+                  call nek_log_information(trim(flag_name)//' switched ON. (unchanged)', this_module, 'set_logical')
+               else
+                  call nek_log_information(trim(flag_name)//' switched OFF. (unchanged)', this_module, 'set_logical')
+               end if
             end if
             out_flag = new_flag
          end function log_flag_change

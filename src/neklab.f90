@@ -74,18 +74,14 @@
       
       ! Baseflow computation
          public :: newton_fixed_point_iteration
-         public :: newton_periodic_orbit
       
       ! Stability analysis exports.
          public :: linear_stability_analysis_fixed_point
-         public :: linear_stability_analysis_periodic_orbit
          public :: transient_growth_analysis_fixed_point
 
       ! Torus
-         public :: newton_fixed_point_torus
-         public :: newton_forced_periodic_orbit_torus
-         public :: mflow_newton_periodic_orbit_torus
-         public :: mflow_newton_fixed_point_torus
+         public :: linear_stability_analysis_periodic_orbit
+         public :: mflow_newton
          public :: shift_mflow_phase_torus
          public :: compute_nonlinear_period_torus
       

@@ -11,6 +11,8 @@
          use LightKrylov, only: newton, newton_dp_opts
          use LightKrylov_Logger
          use LightKrylov_Timing, only: timer => global_lightkrylov_timer
+         use LightKrylov_AbstractVectors, only: abstract_vector_rdp
+         use LightKrylov_AbstractSystems, only: abstract_system_rdp
          use neklab_vectors
          use neklab_linops
          use neklab_utils
@@ -30,7 +32,6 @@
          public :: linear_stability_analysis_fixed_point
          public :: transient_growth_analysis_fixed_point
          public :: newton_fixed_point_iteration
-         public :: newton_periodic_orbit
          public :: otd_analysis
       
       contains
@@ -140,9 +141,9 @@
          end subroutine transient_growth_analysis_fixed_point
       
          subroutine newton_fixed_point_iteration(sys, bf, tol, tol_mode)
-            type(nek_system), intent(inout) :: sys
+            class(abstract_system_rdp), intent(inout) :: sys
       !! System for which a fixed point is sought
-            type(nek_dvector), intent(inout) :: bf
+            class(abstract_vector_rdp), intent(inout) :: bf
       !! Initial guess for the fixed point
             real(dp), intent(inout) :: tol
       !! Absolute tolerance for the Newton solver
@@ -169,49 +170,19 @@
       
       ! Outpost initial condition.
             file_prefix = 'nwt'
-            call outpost_dnek(bf, file_prefix)
+            select type (bf)
+            type is (nek_dvector)
+               call outpost_dnek(bf, file_prefix)
+            type is (nek_ext_dvector)
+               call outpost_ext_dnek(bf, file_prefix)
+            class default
+               call nek_stop_error('bf is of unrecognized type!', module=this_module, procedure='newton_fixed_point_iteration')
+            end select
 
 		      call logger%log_message('Exiting newton iteration.', module=this_module)
       
             return
          end subroutine newton_fixed_point_iteration
-      
-         subroutine newton_periodic_orbit(sys, bf, tol, tol_mode)
-            type(nek_system_upo), intent(inout) :: sys
-      !! System for which a fixed point is sought
-            type(nek_ext_dvector), intent(inout) :: bf
-      !! Initial guess for the fixed point
-            real(dp), intent(inout) :: tol
-      !! Absolute tolerance for the Newton solver
-            integer, optional, intent(in) :: tol_mode
-      
-      ! Misc
-            integer :: info, tol_mode_
-            type(newton_dp_opts) :: opts
-      !type(gmres_dp_opts)  :: gmres_opts
-            character(len=3) :: file_prefix
-
-            ! Set up logging
-            call logger%log_message('Starting newton iteration.', module=this_module)
-      
-      ! Define options for the Newton solver
-            opts = newton_dp_opts(maxiter=40, ifbisect=.true.)
-      
-      ! Call to LightKrylov.
-            if (tol_mode_ == 1) then
-               call newton(sys, bf, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_constant_tol)
-            else
-		         call newton(sys, bf, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_dynamic_tol)
-		      end if
-      
-      ! Outpost initial condition.
-            file_prefix = 'nwt'
-            call outpost_ext_dnek(bf, file_prefix)
-
-            call logger%log_message('Exiting newton iteration.', module=this_module)
-      
-            return
-         end subroutine newton_periodic_orbit
       
          subroutine otd_analysis(OTD, opts_)
             type(nek_otd), intent(inout) :: OTD

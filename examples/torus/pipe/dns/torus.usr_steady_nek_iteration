@@ -12,7 +12,7 @@ c-----------------------------------------------------------------------
       include 'SIZE'
       include 'TOTAL'
       include 'NEKUSE'
-      ffx = 0.0d0 !8.0d0/1700.0d0 !0.0d0
+      ffx = 0.0d0
       ffy = 0.0d0
       ffz = 0.0d0
       
@@ -41,26 +41,17 @@ c-----------------------------------------------------------------------
       include "SIZE"
       include "TOTAL"
       
-      ! System for which we seek a fixed point
-      type(nek_system_torus_upo), allocatable :: sys
-      ! State vectors
-      type(nek_dvector) :: bf, ref
-      ! Tolerance for the Newton solver
-      real(dp) :: tol, tol_mf
       ! flow parameters
       real, parameter :: womersley   = 0.0_dp
-	   real(dp), dimension(1) :: dpds
+	real(dp), dimension(1) :: dpds
       real(dp), dimension(1), parameter :: mflow_target = [ 1.0_dp ]
-      integer :: tol_mode, max_nwt_iter, nmf
-      real, dimension(lx1,ly1,lz1,lelv) :: xtmp, ytmp, ztmp
       real(dp) :: ubar
       character(len=128) :: msg
 
       if (istep.eq.0) then
-         nmf = size(mflow_target)
          ! Set flow parameters
          dpds = [ 32.0d0/pipe%get_diameter()**2*cpfld(1,1) ]
-	      call pipe%init_flow(dpds, womersley)
+         call pipe%init_flow(dpds, womersley)
       end if
       ubar = pipe%compute_ubar(vx,vy,vz)
       if (nid == 0) print *, 'CHK: time=', time, 'ubar=', ubar
@@ -95,7 +86,7 @@ c-----------------------------------------------------------------------
       include 'NEKUSE'
       integer i,j,k,eg
         if (JP.eq.0) then ! velocity
-            ux = 2.0*(1.0d0 - (y**2 + z**2))
+            ux = 2.0d0*(1.0d0 - (y**2 + z**2))
             uy = 0.0d0
             uz = 0.0d0
             temp=0.0d0

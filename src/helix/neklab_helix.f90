@@ -190,8 +190,9 @@
             !
             ! Type-bound procedures
 
-            module subroutine init_geom(self)
+            module subroutine init_geom(self, if_debug)
                class(helix), intent(inout) :: self
+               logical, optional, intent(in) :: if_debug
             end subroutine init_geom
 
             module subroutine init_flow(self, dpds, womersley)
@@ -262,8 +263,9 @@
             !
             ! Type-bound procedures           
 
-            module subroutine init_2d_geom(self)
+            module subroutine init_2d_geom(self, if_debug)
                class(helix), intent(inout) :: self
+               logical, optional, intent(in) :: if_debug
             end subroutine init_2d_geom
 
             module subroutine save_2d_fields(self, u, v, w)
@@ -629,7 +631,7 @@
             call lk_timer%add_timer('neklab_helix_compute_mflow_fft', start=.false.)
 
             ! intialize geometry
-            call pipe%init_geom()
+            call pipe%init_geom(if_debug)
             ! compute forcing distribution
             call pipe%compute_fshape()
 

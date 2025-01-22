@@ -4,15 +4,19 @@
       contains
 
          module procedure init_2d_geom
-            integer :: ie, iel, ieg, iseg, iface, isl, level, nxy
+            integer :: ie, iel, ieg, iseg, iface, isl, nxy
             integer, dimension(lelv) :: islice
             integer, dimension(:), allocatable :: unique_segments, segment_owner, segment_count
             integer, dimension(:), allocatable :: idx ! for findloc
             logical, dimension(:), allocatable :: segment_found
+            ! for debug
+            logical :: debug
             character(len=3) :: fid
             integer :: fileid
             ! functions
             integer, external :: iglsum
+
+            debug = optval(if_debug, .false.)
 
             ! Sort local elements according to 2D mesh. 
             ! Here we use a trick that relies on the particular structure of meshes extruded
@@ -51,15 +55,12 @@
                self%lsegment(ie) = idx(1)
             end do
       
-            call logger%configuration(level=level)
-            if (level <= debug_level) then
+            if (debug) then
                print '(A,2(I0,1X),A,*(1X,I3))', 'DEBUG 2dmap: ', nid, self%n2d_lown, 'unique streamwise segments:   ', unique_segments(:self%n2d_lown)
                print '(A,2(I0,1X),A,*(1X,I3))', 'DEBUG 2dmap: ', nid, self%n2d_lown, '# of elements in segment:     ', segment_count(:self%n2d_lown)
                print '(A,2(I0,1X),A,*(1X,I3))', 'DEBUG 2dmap: ', nid, self%n2d_lown, 'local element local  s. owner:', segment_owner(:self%n2d_lown)
                print '(A,2(I0,1X),A,*(1X,L3))', 'DEBUG 2dmap: ', nid, self%n2d_lown, 'local element global s. owner:', self%gowner(:self%n2d_lown)
                print '(A,2(I0,1X),A,I0)'      , 'DEBUG 2dmap: ', nid, self%n2d_lown, 'globally owned: ', self%n2d_gown
-            end if
-            if (level == all_level) then
                call nekgsync()
                do ie = 1, nelv
                   call cfill(vz(1,1,1,ie), 1.0_dp*nid, lx1*ly1*lz1)
@@ -87,7 +88,7 @@
                        end if
 		      	      end do
                   end if
-                  if (level <= debug_level) then
+                  if (debug) then
                      print '(A,I3,A,4(1X,I4),A,3X,F17.8,3x,F17.8)', 'DEBUG 2dmap: ', nid, ' el', lglel(ie), ie, iseg, self%gsegment(ie),  
      &                           ': ', sum(self%x2d(:,:,iseg))/nxy, sum(self%y2d(:,:,iseg))/nxy
                   end if
@@ -105,7 +106,7 @@
             self%n2d   = iglsum(self%n2d_gown,1)
             self%nload = 0
             if (self%n2d /= self%nelf) call stop_error('Inconsistent elements in 2D mesh!', module=this_module, procedure='init_geom')
-            if (level <= debug_level) then
+            if (debug) then
                call nekgsync()
                print '(A,I3,A,*(1x,I0))', 'DEBUG 2dmap: ', nid, ', nelv2iseg: ', self%lsegment(:nelv)
                write(fid,'(I3.3)') nid
@@ -157,7 +158,7 @@
                   call lk_timer%stop('neklab_helix_save_2d')
                end do
                ! save timestep information and record minimum dt
-               self%dt2d(self%nsave) = dt
+               self%dt2d(self%nsave) = dt_level
                if (lastep == 0) then ! exclude the potentially very short last step
                   self%min_dt = min(dt, self%min_dt)
                   self%max_dt = max(dt, self%max_dt)

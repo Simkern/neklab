@@ -101,12 +101,12 @@
 
             if (self%is_sym()) then
                ! half mesh
-               call rescale_x(xm1,      0.0_dp,self%radius) ! x in [  0, r ]
+               call rescale_x(xm1,0.0_dp,self%radius)       ! x in [  0, r ]
             else
                call rescale_x(xm1,-self%radius,self%radius) ! x in [ -r, r ]
             end if
-            call rescale_x(ym1,-self%radius,self%radius) ! y in [ -r, r ]
-            call rescale_x(zm1,0.0_dp,1.0_dp)            ! z in [  0, 1 ]
+            call rescale_x(ym1,-self%radius,self%radius)    ! y in [ -r, r ]
+            call rescale_x(zm1,0.0_dp,1.0_dp)               ! z in [  0, 1 ]
             
             !  rotate mesh to set the center of the pipe along x-axis
             call copy(tmp,  xm1, lv)
@@ -134,7 +134,7 @@
             call nek_log_message('Mesh rescaled and rotated.', this_module, 'init_geom')
 
             ! Set up and extract 2D geometry
-            call self%init_2d_geom()
+            call self%init_2d_geom(if_debug)
 
             ! Morph the mesh into a torus
             if (self%is_torus()) then

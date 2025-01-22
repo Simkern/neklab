@@ -30,6 +30,12 @@
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
                write (msg, '(A,I8)') padl('nel/slice:', 20), pipe%nelf
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,L8)') padl('symmetry:', 20), pipe%if_sym
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,L8)') padl('toroidal mesh', 20), pipe%if_torus
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,L8)') padl('helical mesh', 20), pipe%if_helix
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
             else
                call nek_log_warning('helix instance not initialized', module=this_module, fmt='(A)')
             end if
@@ -77,19 +83,13 @@
          end procedure forcing_summary
 
          module procedure init_geom
-            real(dp) :: xmin, xmax, helix_r, s_angle, invnv
+            real(dp) :: minv, maxv, torus_r, s_angle
             real(dp) :: x_torus, y_torus, z_torus, sweep, r
             real(dp), dimension(lx1,ly1,lz1,lelv) :: tmp, pipe_r
-            integer :: ix, iy, iz, ie, iel, ieg, iseg, iface, isl, level, nxy
-            integer :: fileid
-            integer, dimension(lelv) :: islice
-            integer, dimension(:), allocatable :: unique_segments, segment_owner, segment_count
-            integer, dimension(:), allocatable :: idx ! for findloc
-            logical, dimension(:), allocatable :: segment_found
-            character(len=3) :: fid
+            integer :: ix, iy, iz, ie, itmp, nxy
+            character(len=128) :: msg
             ! functions
             real(dp), external :: glmax, glmin
-            integer, external :: iglsum
 
             if (self%is_initialized) call stop_error('Attempting to reinitialize the mesh', this_module, 'init_geom')
             call lk_timer%start('neklab_helix_init_geom')
@@ -99,47 +99,73 @@
             pi = 4.0_dp*atan(1.0_dp)
             nxy = lx1*ly1
 
-            call rescale_x(xm1,-self%radius,self%radius) ! x in [ -r, r ]
+            if (self%is_sym()) then
+               ! half mesh
+               call rescale_x(xm1,      0.0_dp,self%radius) ! x in [  0, r ]
+            else
+               call rescale_x(xm1,-self%radius,self%radius) ! x in [ -r, r ]
+            end if
             call rescale_x(ym1,-self%radius,self%radius) ! y in [ -r, r ]
             call rescale_x(zm1,0.0_dp,1.0_dp)            ! z in [  0, 1 ]
-
-         !  rotate mesh to set the center of the pipe along x-axis
+            
+            !  rotate mesh to set the center of the pipe along x-axis
             call copy(tmp,  xm1, lv)
             call copy(xm1,  zm1, lv)   ! x <--  z
             call copy(zm1, -tmp, lv)   ! z <-- -x
             call copy(self%zax,zm1,lv) ! zax set before curvature in z is added!
 
             ! rescale the new x axis
-            xmin = glmin(xm1,lv)
-            xmax = glmax(xm1,lv)
-            xm1 = self%sweep/(xmax-xmin) * xm1 ! x in [ 0, max_sweep_angle ]
-            call copy(self%sweep_angle,xm1,lv) ! save sweep angle
-            call copy(pipe_r,          ym1,lv) ! local distance from pipe center
+            if (self%is_torus()) then
+               minv = glmin(xm1,lv)
+               maxv = glmax(xm1,lv)
+               xm1 = self%sweep/(maxv-minv) * xm1 ! x in [ 0, max_sweep_angle ]
+               call copy(self%sweep_angle,xm1,lv) ! save sweep angle
+            end if
+            call copy(pipe_r, ym1,lv) ! local distance from pipe center
+            minv = glmin(xm1,lv); maxv = glmax(xm1,lv)
+            write(msg,'(2(A,F16.12),A)') 'x: min ', minv, ' max ', maxv, ' (streamwise)'
+            call nek_log_message(msg, this_module, 'init_geom')
+            minv = glmin(ym1,lv); maxv = glmax(ym1,lv)
+            write(msg,'(2(A,F16.12))') 'y: min ', minv, ' max ', maxv
+            call nek_log_message(msg, this_module, 'init_geom')
+            minv = glmin(zm1,lv); maxv = glmax(zm1,lv)
+            write(msg,'(2(A,F16.12))') 'z: min ', minv, ' max ', maxv
+            call nek_log_message(msg, this_module, 'init_geom')
+            call nek_log_message('Mesh rescaled and rotated.', this_module, 'init_geom')
 
             ! Set up and extract 2D geometry
             call self%init_2d_geom()
 
             ! Morph the mesh into a torus
-            helix_r = self%curv_radius
-            do ie = 1, nelv
-            do iz = 1, lz1
-            do iy = 1, ly1
-            do ix = 1, lx1
-               r     = pipe_r(ix,iy,iz,ie)
-               sweep = self%sweep_angle(ix,iy,iz,ie)
-               self%ox(ix,iy,iz,ie) = helix_r * sin(sweep)
-               self%oy(ix,iy,iz,ie) = helix_r * cos(sweep)
-               xm1(ix,iy,iz,ie)     = r * sin(sweep) + self%ox(ix,iy,iz,ie)
-               ym1(ix,iy,iz,ie)     = r * cos(sweep) + self%oy(ix,iy,iz,ie)
-            end do
-            end do
-            end do
-            end do
+            if (self%is_torus()) then
+               torus_r = self%curv_radius
+               do ie = 1, nelv
+               do iz = 1, lz1
+               do iy = 1, ly1
+               do ix = 1, lx1
+                  r     = pipe_r(ix,iy,iz,ie)
+                  sweep = self%sweep_angle(ix,iy,iz,ie)
+                  self%ox(ix,iy,iz,ie) = torus_r * sin(sweep)
+                  self%oy(ix,iy,iz,ie) = torus_r * cos(sweep)
+                  xm1(ix,iy,iz,ie)     = r * sin(sweep) + self%ox(ix,iy,iz,ie)
+                  ym1(ix,iy,iz,ie)     = r * cos(sweep) + self%oy(ix,iy,iz,ie)
+               end do
+               end do
+               end do
+               end do
+               write(msg,'(2(A,F16.12))') 'radius: ', torus_r
+               call nek_log_message(msg, this_module, 'init_geom')
+               minv = glmin(self%sweep_angle,lv); maxv = glmax(self%sweep_angle,lv)
+               write(msg,'(2(A,F16.12))') 'sweep: min ', minv, ' max ', maxv
+               call nek_log_message(msg, this_module, 'init_geom')
+               call nek_log_message('Mesh morphed into torus.', this_module, 'init_geom')
+            end if
             call copy(self%xax, xm1, lv) ! xax set before curvature in z is added!
             call copy(self%yax, ym1, lv) ! yax set before curvature in z is added!
+            
 
             ! Morph the torus into a helix
-            if (self%phi /= 0.0_dp) then
+            if (self%is_helix()) then
                do ie = 1, nelv
                do iz = 1, lz1
                do iy = 1, ly1
@@ -155,54 +181,65 @@
                enddo
                enddo
                enddo
+               minv = glmin(zm1,lv); maxv = glmax(zm1,lv)
+               write(msg,'(2(A,F16.12))') 'z: min ', minv, ' max ', maxv
+               call nek_log_message(msg, this_module, 'init_geom')
+               call nek_log_message('Mesh morphed into helix.', this_module, 'init_geom')
             end if
             param(59) = 1.   !  All elements deformed
 
-            ! Streamwise angle in the equatorial plane & angle within cross-sectional plane
-            self%as    = atan2(self%xax, self%yax) ! clockwise from y axis
+            ! Streamwise angle in the equatorial plane
+            if (self%is_helix() .or. self%is_torus()) then
+               self%as = atan2(self%xax, self%yax) ! clockwise from y axis
+            else
+               self%as = 0.0_dp ! straight pipe
+            end if
+            ! Angle within cross-sectional plane
             self%alpha = atan2(self%zax, pipe_r)
 
-            self%is_initialized = .true.
+            itmp = istep
+            istep = 0
             call comment() ! set internal variable ifcour for standard timestep logging (--> needs to be called at istep == 0)
+            istep = itmp
+            self%is_initialized = .true.
             call lk_timer%stop('neklab_helix_init_geom')
             
          end procedure init_geom
 
          module procedure init_flow
             integer :: i, n
-            character(len=128) :: msg, fmt
+            character(len=128) :: msg
             pi = 4.0_dp*atan(1.0_dp)
+            self%womersley = optval(womersley, 0.0_dp)
             n = size(dpds)
-            if (present(womersley)) then
+            write(msg,'(A,I0,A)') 'n = ', n, ' forcing components provided.'
+            call nek_log_information(msg, this_module, 'init_flow')
+            if (self%womersley /= 0.0_dp) then
                self%if_steady = .false.
-               self%womersley = womersley
+               call nek_log_information('Running unsteady case.', this_module, 'init_flow')
                self%omega     = (self%womersley**2)*cpfld(1,1)    ! pulsation frequency
                self%pulse_T   = 2.0_dp*pi/self%omega               ! pulsation period
                if (n == 1) then
-                  msg = 'Unsteady case requires more than one forcing component'
+                  write(msg,'(A,I0,A)') 'n > ', 1, ' forcing components required for unsteady case.'
                   call nek_stop_error(msg, this_module, 'init_flow')
                else if (mod(n,2)==0) then
                   msg = 'Unsteady case requires an uneven number of forcing components'
                   call nek_stop_error(msg, this_module, 'init_flow')
                end if
-               msg = 'Steady flow parameters set.'
-               call nek_log_message(msg, this_module, 'init_flow')
+               call nek_log_message('Steady flow parameters set.', this_module, 'init_flow')
             else
                self%if_steady = .true.
-               self%womersley = 0.0_dp   
+               call nek_log_message('Running steady case.', this_module, 'init_flow')
                self%omega     = 0.0_dp   
                self%pulse_T   = 0.0_dp  
                if (n > 1) then
-                  msg = 'Steady case requires only one forcing component'
-                  call nek_stop_error(msg, this_module, 'init_flow')
+                  write(msg,'(A,I0,A)') 'Components n > ', 1, ' will be ignored.'
+                  call nek_log_warning(msg, this_module, 'init_flow')
                end if
                call nek_log_message('Unsteady flow parameters set.', this_module, 'init_flow')
             end if
-            if (n /= nf) then
-               msg = 'The parameter nf in neklab_helix is not compatible with the inputs'
-               call nek_stop_error(msg, this_module, 'init_flow')
-            end if
-            self%dpds = dpds
+            self%dpds = 0.0_dp
+            self%dpds(:n) = dpds
             call pipe%compute_bf_forcing(0.0_dp) ! ensure that the forcing is set (in particular for steady flows)
             call nek_log_message('Baseflow forcing set.', this_module, 'init_flow')
             call self%parameter_summary()
@@ -212,24 +249,28 @@
             integer :: ix, iy, iz, ie
             real(dp) :: helix_r2, r, rr, alpha
             self%fshape = 0.0_dp
-            do ie = 1, lelv
-            do iz = 1, lz1
-            do iy = 1, ly1
-            do ix = 1, lx1
-               ! Distance from the origin in the equatorial plane
-               helix_r2 = self%xax(ix,iy,iz,ie)**2 + self%yax(ix,iy,iz,ie)**2
-               ! Distance from the pipe center in the equatorial plane
-               r = sqrt(helix_r2) - self%curv_radius
-               ! Azimuthal angle in the cross-sectional plane
-               alpha = atan2(r, self%zax(ix,iy,iz,ie))
-               ! Radial position in the cross-sectional plane
-               rr = sqrt(r**2 + self%zax(ix,iy,iz,ie)**2)
-               ! Compute fshape
-               self%fshape(ix,iy,iz,ie) = 1.0_dp / abs(1.0_dp + self%delta * rr * sin(alpha))
-            end do
-            end do
-            end do
-            end do
+            if (self%is_helix() .or. self%is_torus()) then
+               do ie = 1, lelv
+               do iz = 1, lz1
+               do iy = 1, ly1
+               do ix = 1, lx1
+                  ! Distance from the origin in the equatorial plane
+                  helix_r2 = self%xax(ix,iy,iz,ie)**2 + self%yax(ix,iy,iz,ie)**2
+                  ! Distance from the pipe center in the equatorial plane
+                  r = sqrt(helix_r2) - self%curv_radius
+                  ! Azimuthal angle in the cross-sectional plane
+                  alpha = atan2(r, self%zax(ix,iy,iz,ie))
+                  ! Radial position in the cross-sectional plane
+                  rr = sqrt(r**2 + self%zax(ix,iy,iz,ie)**2)
+                  ! Compute fshape
+                  self%fshape(ix,iy,iz,ie) = 1.0_dp / abs(1.0_dp + self%delta * rr * sin(alpha))
+               end do
+               end do
+               end do
+               end do
+            else
+               self%fshape = 1.0_dp
+            end if
          end procedure compute_fshape
 
          module procedure forcing_amplitude
@@ -249,20 +290,43 @@
             integer :: ix, iy, iz, ie
             real(dp) :: fs, phi
             real(dp), dimension(lx1,ly1,lz1,lelv) :: ffx, ffy, ffz
-            fs = self%forcing_amplitude(t) / self%curv_radius
 
-            phi = self%phi
-            do ie = 1, nelv
-            do iz = 1, lz1
-            do iy = 1, ly1
-            do ix = 1, lx1
-               ffx(ix,iy,iz,ie) =  fs * self%fshape(ix,iy,iz,ie) * cos(phi) * cos(self%as(ix,iy,iz,ie))
-               ffy(ix,iy,iz,ie) = -fs * self%fshape(ix,iy,iz,ie) * cos(phi) * sin(self%as(ix,iy,iz,ie))
-               ffz(ix,iy,iz,ie) =  fs * self%fshape(ix,iy,iz,ie) * sin(phi)
-            end do
-            end do
-            end do
-            end do
+            if (self%is_torus()) then
+               fs = self%forcing_amplitude(t) / self%curv_radius
+            else
+               fs = self%forcing_amplitude(t)
+            end if
+
+            if (self%is_helix()) then
+               phi = self%phi
+               do ie = 1, nelv
+               do iz = 1, lz1
+               do iy = 1, ly1
+               do ix = 1, lx1
+                  ffx(ix,iy,iz,ie) =  fs * self%fshape(ix,iy,iz,ie) * cos(phi) * cos(self%as(ix,iy,iz,ie))
+                  ffy(ix,iy,iz,ie) = -fs * self%fshape(ix,iy,iz,ie) * cos(phi) * sin(self%as(ix,iy,iz,ie))
+                  ffz(ix,iy,iz,ie) =  fs * self%fshape(ix,iy,iz,ie) * sin(phi)
+               end do
+               end do
+               end do
+               end do
+            else if (self%is_torus()) then
+               do ie = 1, nelv
+               do iz = 1, lz1
+               do iy = 1, ly1
+               do ix = 1, lx1
+                  ffx(ix,iy,iz,ie) =  fs * self%fshape(ix,iy,iz,ie) * cos(self%as(ix,iy,iz,ie))
+                  ffy(ix,iy,iz,ie) = -fs * self%fshape(ix,iy,iz,ie) * sin(self%as(ix,iy,iz,ie))
+               end do
+               end do
+               end do
+               end do
+               ffz = 0.0_dp
+            else
+               ffx = fs
+               ffy = 0.0_dp
+               ffz = 0.0_dp
+            end if
 
             ! set baseflow forcing
             call set_neklab_forcing(ffx, ffy, ffz, ipert=0)
@@ -275,47 +339,84 @@
             real(dp) :: dpds(nf)
             character(len=128) :: msg
             ! extract current forcing components
-            call self%get_dpds(dpds)
-            i = 2*(icomp-1)
-            dpdsr = self%dpds(i)
-            dpdsi = self%dpds(i+1)
-            ! get current mflow phase angle
-            dalpha = self%mflow_phase(icomp) - target_mflow_phase
-            dt_phase = dalpha/pipe%get_omega()
-            prop = dt_phase/pipe%get_period()*100
-            write(msg,'(A,I0)') 'adjusting forcing component: ', icomp
-            call nek_log_message(msg,'neklab_helix','shift_mflow_phase')
-            write(msg,'(3X,A,F16.8)') 'dalpha  = ', dalpha
-            call nek_log_message(msg,'neklab_helix','shift_mflow_phase')
-            write(msg,'(3X,A,F16.8,A,F10.5,A)') 'dt_phase= ', dt_phase , '  (', prop, ' % T)'
-            call nek_log_message(msg,'neklab_helix','shift_mflow_phase')
-            ! update forcing (rotation) to remove shift
-            self%dpds(i  ) = dpdsr*cos(dalpha) - dpdsi*sin(dalpha)
-            self%dpds(i+1) = dpdsr*sin(dalpha) + dpdsi*cos(dalpha)
+            if (.not.self%is_steady()) then
+               call self%get_dpds(dpds)
+               i = 2*(icomp-1)
+               dpdsr = self%dpds(i)
+               dpdsi = self%dpds(i+1)
+               ! get current mflow phase angle
+               dalpha = self%mflow_phase(icomp) - target_mflow_phase
+               dt_phase = dalpha/pipe%get_omega()
+               prop = dt_phase/pipe%get_period()*100
+               write(msg,'(A,I0)') 'adjusting forcing component: ', icomp
+               call nek_log_message(msg,'neklab_helix','shift_mflow_phase')
+               write(msg,'(3X,A,F16.8)') 'dalpha  = ', dalpha
+               call nek_log_message(msg,'neklab_helix','shift_mflow_phase')
+               write(msg,'(3X,A,F16.8,A,F10.5,A)') 'dt_phase= ', dt_phase , '  (', prop, ' % T)'
+               call nek_log_message(msg,'neklab_helix','shift_mflow_phase')
+               ! update forcing (rotation) to remove shift
+               self%dpds(i  ) = dpdsr*cos(dalpha) - dpdsi*sin(dalpha)
+               self%dpds(i+1) = dpdsr*sin(dalpha) + dpdsi*cos(dalpha)
+            end if
          end procedure shift_mflow_phase
 
          module procedure compute_usrt
             integer :: ix, iy, iz, ie
             real(dp) :: phi, a, s, ux, uy, uz, utmp, vtmp
-            phi = self%phi
-            do ie = 1, nelv
-            do iz = 1, lz1
-            do iy = 1, ly1
-            do ix = 1, lx1
-               s  = self%as(ix,iy,iy,ie)
-               a  = self%alpha(ix,iy,iy,ie)
-               ux = u(ix,iy,iy,ie)
-               uy = v(ix,iy,iy,ie)
-               uz = w(ix,iy,iy,ie)
-               utmp            = sin(s)*ux + cos(s)*uy
-               vtmp            = sin(phi) * (-cos(s)*ux - sin(s)*uy) + cos(phi)*uz
-               us(ix,iy,iz,ie) = cos(phi) * ( cos(s)*ux - sin(s)*uy) + sin(phi)*uz
-               ur(ix,iy,iz,ie) = cos(a) * utmp + sin(a) * vtmp
-               ut(ix,iy,iz,ie) = sin(a) * utmp - cos(a) * vtmp
-            end do
-            end do
-            end do
-            end do
+            if (self%is_helix()) then
+               phi = self%phi
+               do ie = 1, nelv
+               do iz = 1, lz1
+               do iy = 1, ly1
+               do ix = 1, lx1
+                  s  = self%as(ix,iy,iy,ie)
+                  a  = self%alpha(ix,iy,iy,ie)
+                  ux = u(ix,iy,iy,ie)
+                  uy = v(ix,iy,iy,ie)
+                  uz = w(ix,iy,iy,ie)
+                  utmp            = sin(s)*ux + cos(s)*uy
+                  vtmp            = sin(phi) * (-cos(s)*ux - sin(s)*uy) + cos(phi)*uz
+                  us(ix,iy,iz,ie) = cos(phi) * ( cos(s)*ux - sin(s)*uy) + sin(phi)*uz
+                  ur(ix,iy,iz,ie) = cos(a) * utmp + sin(a) * vtmp
+                  ut(ix,iy,iz,ie) = sin(a) * utmp - cos(a) * vtmp
+               end do
+               end do
+               end do
+               end do
+            else if (self%is_torus()) then
+               do ie = 1, nelv
+               do iz = 1, lz1
+               do iy = 1, ly1
+               do ix = 1, lx1
+                  s  = self%as(ix,iy,iy,ie)
+                  a  = self%alpha(ix,iy,iy,ie)
+                  ux = u(ix,iy,iy,ie)
+                  uy = v(ix,iy,iy,ie)
+                  utmp = sin(s)*ux + cos(s)*uy
+                  vtmp = w(ix,iy,iy,ie)
+                  us(ix,iy,iz,ie) = cos(s)*ux - sin(s)*uy
+                  ur(ix,iy,iz,ie) = cos(a) * utmp + sin(a) * vtmp
+                  ut(ix,iy,iz,ie) = sin(a) * utmp - cos(a) * vtmp
+               end do
+               end do
+               end do
+               end do
+            else
+               do ie = 1, nelv
+               do iz = 1, lz1
+               do iy = 1, ly1
+               do ix = 1, lx1
+                  a = self%alpha(ix,iy,iy,ie)
+                  utmp = v(ix,iy,iy,ie)
+                  vtmp = w(ix,iy,iy,ie)
+                  us(ix,iy,iz,ie) = u(ix,iy,iy,ie)
+                  ur(ix,iy,iz,ie) = cos(a) * utmp + sin(a) * vtmp
+                  ut(ix,iy,iz,ie) = sin(a) * utmp - cos(a) * vtmp
+               end do
+               end do
+               end do
+               end do
+            end if
          end procedure compute_usrt
             
          module procedure compute_ubar

@@ -21,6 +21,10 @@
             self%if_floquet = log_flag_change(if_floquet, pipe%if_floquet, 'if_floquet')
          end procedure
 
+         module procedure set_symmetry
+            self%if_sym = log_flag_change(if_sym, pipe%if_sym, 'if_sym')
+         end procedure
+
          !! LOGICAL FUNCTIONS
 
          module procedure is_steady
@@ -46,6 +50,18 @@
          module procedure is_extracted_fft
             is_extracted = self%fft_is_extracted
          end procedure is_extracted_fft
+
+         module procedure is_sym
+            mesh_is_sym = self%if_sym
+         end procedure is_sym
+
+         module procedure is_torus
+            mesh_is_torus = self%if_torus
+         end procedure is_torus
+
+         module procedure is_helix
+            mesh_is_helix = self%if_helix
+         end procedure is_helix
 
          module procedure is_lowner
             is_owner = .false.
@@ -84,6 +100,38 @@
          module procedure get_alpha
             call copy(alpha, self%alpha, lv)
          end procedure get_alpha
+
+         module procedure get_length
+            length = self%length
+         end procedure get_length
+
+         module procedure get_delta
+            delta = self%delta
+         end procedure get_delta
+
+         module procedure get_diameter
+            diameter = self%diameter
+         end procedure get_diameter
+
+         module procedure get_pitch_s
+            pitch_s = self%pitch_s
+         end procedure get_pitch_s
+
+         module procedure get_radius
+            radius = self%radius
+         end procedure get_radius
+
+         module procedure get_curv_radius
+            curv_radius = self%curv_radius
+         end procedure get_curv_radius
+
+         module procedure get_phi
+            phi = self%phi
+         end procedure get_phi
+
+         module procedure get_sweep
+            sweep = self%sweep
+         end procedure get_sweep
 
          module procedure get_period
             T = self%pulse_T

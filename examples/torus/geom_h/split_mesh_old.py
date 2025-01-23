@@ -4,6 +4,7 @@ import numpy as np
 from itertools import product
 import matplotlib.pyplot as plt
 import pymech as pm
+import pymech.meshtools as mt
 
 def add_h(s):
     return re.sub(r'(\d)(D\.rea)', r'_h\1\2', s)

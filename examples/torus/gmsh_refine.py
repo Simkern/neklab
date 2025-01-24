@@ -11,22 +11,23 @@ if __name__ == "__main__":
    plot_mesh = True
    half = False
    R = 1.0
-   rt = 0.55
+   rt = 0.55               # radial distance of top triple point from center
    #rt = 0.7
-   rb = 0.7
-   ra = (rt + rb)/2.0
-   RBt = 0.92
-   RBb = 0.95
-   tht = np.pi / 5.0
-   #tht = np.pi / 4.0
-   thb = np.pi / 3.0
+   rb = 0.7                # radial distance of bottom triple point from center
+   ra = (rt + rb)/2.0      # average radial distance
+   RBt = 0.92              # radial distance of top middle ring from center
+   RBb = 0.94              # radial distance of bottom middle ring from center
+   tht = np.pi / 6.0       # azimuthal angle (counted clockwise from the trig 0) of the top triple point
+   #tht = np.pi / 4.0   
+   thb = np.pi / 3.0       # azimuthal angle (counted anticlockwise from the trig 0) of the bottom triple point
    #thb = np.pi / 4.0
-   lambda_val   = 0.6
-   lambda_val_s = 0.4
-   dyc = 0.1
+   lambda_val_t = 0.75     # higher value means top arc of inner ring is less curved
+   lambda_val_b = 0.6      # higher value means bottom arc of inner ring is less curved
+   lambda_val_s = 0.5      # higher value means side arcs of inner rings are less curved
+   dyc = 0.04              # shifts the center of top arc of middle ring down by this amount
    Lz = 1
-   Ncv = 11 #7
-   Nch = 11 #7  --> needs to be uneven
+   Ncv = 11 #7             # number of points in vertical direction
+   Nch = 11 #7  --> needs to be uneven, points in horizontal direction
    NB = 1
    NM = 5 #3
    compressRatio_B = 0.85
@@ -35,8 +36,9 @@ if __name__ == "__main__":
 
    # Calculate coordinates based on the formulas
    # aux points
-   gamma = (-tht + thb)/2.0
-   lR   = lambda_val * R
+   gamma = (-tht + thb)/2.0 # half angle between triple points
+   lRt  = lambda_val_t * R
+   lRb  = lambda_val_b * R
    lRs  = lambda_val_s * R
    cost = np.cos(tht)
    sint = np.sin(tht)
@@ -51,7 +53,7 @@ if __name__ == "__main__":
    dyBt = RBt * sint
    Dxt  = R * cost
    Dyt  = R * sint
-   Dyxt = np.sqrt((dyt + lR)**2 + dxt**2) - lR # for the half mesh
+   Dyxt = np.sqrt((dyt + lRt)**2 + dxt**2) - lRt # for the half mesh
    RBC  = np.sqrt((dyc + dyBt)**2 + dxBt**2) - dyc
    
    # bottom
@@ -61,7 +63,7 @@ if __name__ == "__main__":
    dyBb = RBb * sinb
    Dxb  = R * cosb
    Dyb  = R * sinb
-   Dyxb = np.sqrt((dyb + lR)**2 + dxb**2) - lR # for the half mesh
+   Dyxb = np.sqrt((dyb + lRb)**2 + dxb**2) - lRb # for the half mesh
 
    # midpoint tb1
    xm = (dxt + dxb)/2.0
@@ -78,7 +80,7 @@ if __name__ == "__main__":
    ux  = dy/norm  # point in neg x dir
    uy  = -dx/norm
    ul = np.array([-ux, uy])
-   ur = np.array([ux, uy])
+   ur = np.array([ ux, uy])
    L   = np.sqrt((lRs + ra)**2 - h**2) # distance along bisector
    print(f'xm = {xm}')
    print(f'ym = {ym}')
@@ -105,10 +107,10 @@ if __name__ == "__main__":
    normB = np.sqrt(dxB**2 + dyB**2)
    hB   = normB/2.0
    hxB  = raB * cosg
-   uxB  = dyB/normB  # point in neg x dir
+   uxB  = dyB/normB
    uyB  = -dxB/normB
    ulB = np.array([-uxB, uyB])
-   urB = np.array([uxB, uyB])
+   urB = np.array([ uxB, uyB])
    eps = 0.05
    LB   = np.sqrt(RBb**2 - hB**2) # distance along bisector
    print(f'xmB = {xmB}')
@@ -133,16 +135,14 @@ if __name__ == "__main__":
    points_aux = np.array([
             [0, 0],
             ml + L*ul,      #[lR * cosg, lR * sing],
-            [0, -lR],
+            [0, -lRt],
             mr + L*ur,      #[-lR * cosg, lR * sing],
-            [0, lR],
+            [0, lRb],
             [0, -dyc],
             mlB + LB*ulB,      #[lR * cosg, lR * sing],
             mrB + LB*urB      #[-lR * cosg, lR * sing],
    ])
    naux = len(points_aux)
-   for point in points_aux:
-      print(f'point = {point}')
 
    # Block vertices
    if (half):
@@ -278,7 +278,7 @@ if __name__ == "__main__":
 
    if write_mesh:
       generate_gmsh_script(R, rt, rb, RBt, RBb, 
-                           tht, thb, lambda_val, lambda_val_s, dyc, 
+                           tht, thb, lambda_val_t, lambda_val_b, lambda_val_s, dyc, 
                            Lz, Nch, Ncv, NB, NM, 
                            compressRatio_B, compressRatio_M, 
                            Nz, half=half, 

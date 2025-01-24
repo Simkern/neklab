@@ -3,6 +3,7 @@ import copy
 import numpy as np
 from itertools import product
 import matplotlib.pyplot as plt
+from gmsh_plotter import compute_bisector
 
 # Function to create Point
 def create_point(ip, a, b, c, d):
@@ -29,7 +30,10 @@ def create_transfinite_line(lines, nc, progression=None, bump=None):
 def create_line_loop_surface(il, lines, surface_name):
     return f"Line Loop({il})={{ {', '.join(map(str, lines))} }};   Plane Surface({surface_name})={{ {surface_name} }};"
 
-def generate_gmsh_script(R, rt, rb, RBt, RBb, tht, thb, lambda1, lambda2, dyc, Lz, Nch, Ncv, NB, NM, compressRatio_B, compressRatio_M, Nz, half=False, meshDim=2, filename="pipe_mesh.geo"):
+def generate_gmsh_script(geom, mesh, half=False, meshDim=2, filename="pipe_mesh.geo"):
+    # Extract data
+    R, rt, rb, RBt, RBb, tht, thb, lambda1t, lambda1b, lambda2, dyc = geom.values()
+    Lz, Nch, Ncv, NB, NM, compressRatio_B, compressRatio_M, Nz, = mesh.values()
 
     # compute data
     ra = (rt + rb)/2.0
@@ -53,16 +57,12 @@ def generate_gmsh_script(R, rt, rb, RBt, RBb, tht, thb, lambda1, lambda2, dyc, L
     xm = (dxt + dxb)/2.0
     ym = (dyt - dyb)/2.0
     # bisector
-    dx = dxb - dxt
-    dy = - dyb - dyt
-    #m  = -dx/dy
-    norm = np.sqrt(dx**2 + dy**2)
-    h   = norm/2.0
-    ux  = dy/norm
-    uy  = -dx/norm
-    # distance along bisector
-    L   = np.sqrt((lambda2*R + ra)**2 - h**2)
-
+    _, ur, norm = compute_bisector(dxt, dyt, dxb, dyb)
+    ux  = ur[0]            # x-component of normalized bisector
+    uy  = ur[1]            # y-component of normalized bisector
+    h   = norm/2.0         # half-distance between arc points
+    L   = np.sqrt((lambda2*R + ra)**2 - h**2) # distance along bisector
+    # auxiliary points
     paux0 = [ -xm - L*ux, ym + L*uy ]
     paux1 = [  xm + L*ux, ym + L*uy ]
     
@@ -71,16 +71,12 @@ def generate_gmsh_script(R, rt, rb, RBt, RBb, tht, thb, lambda1, lambda2, dyc, L
     xmB = (dxBt + dxBb)/2.0
     ymB = (dyBt - dyBb)/2.0
     # bisector
-    dxB = dxBb - dxBt
-    dyB = - dyBb - dyBt
-    #m  = -dx/dy
-    norm = np.sqrt(dxB**2 + dyB**2)
-    hB   = norm/2.0
-    uxB  = dyB/norm
-    uyB  = -dxB/norm
-    # distance along bisector
-    LB   = np.sqrt(RBb**2 - hB**2)
-
+    _, urB, normB = compute_bisector(dxBt, dyBt, dxBb, dyBb)
+    uxB  = urB[0]           # x-component of normalized bisector
+    uyB  = urB[1]           # y-component of normalized bisector
+    hB   = normB/2.0         # half-distance between arc points
+    LB   = np.sqrt(RBb**2 - hB**2) # distance along bisector
+    # auxiliary points
     paux2 = [ -xmB - LB*uxB, ymB + LB*uyB ]
     paux3 = [  xmB + LB*uxB, ymB + LB*uyB ]
 
@@ -108,17 +104,18 @@ meshDim={meshDim};  //2 (2D mesh), 3 (3D mesh)
     grid_settings = f"""
 // GRID SETTINGS ///////////////////////////////////////
 //***** Geometrical parameters
-// Note: r<RB<R
+// Note: r*<RB*<R
 R={R};   //Pipe radius
 rt={rt};
 rb={rb};
 ra= (rt + rb)/2.0;
-RBt={RBt};    // 0.95                                                 //0.97;   
-RBb={RBb};    // 0.95                                                 //0.97;   
+RBt={RBt};
+RBb={RBb};
 tht={tht};  //theta top
 thb={thb};  //theta bottom
-lambda1={lambda1};   //=R_{{arc}}/R   0.3
-lambda2={lambda2};   //=R_{{arc}}/R   0.3
+lambda1t={lambda1t};   //=R_{{arc}}/R
+lambda1b={lambda1b};   //=R_{{arc}}/R
+lambda2={lambda2};     //=R_{{arc}}/R
 dyc = {dyc};
 Lz={Lz};   //length in z-dir (axial)
 //***** Grid Paramaters
@@ -144,7 +141,7 @@ Dxt=R*Cos(tht);
 Dyt=R*Sin(tht);"""
     if (half):
         geometry_creation += f"""
-Dyxt=Hypot(dyt + lambda1*R, dxt) - lambda1*R;
+Dyxt=Hypot(dyt + lambda1t*R, dxt) - lambda1t*R;
 RBC =Hypot(dyc + dyBt, dxBt) - dyc;"""
     geometry_creation += f"""
 dxb=rb*Cos(thb);
@@ -155,46 +152,44 @@ Dxb=R*Cos(thb);
 Dyb=R*Sin(thb);"""
     if (half):
         geometry_creation += f"""
-Dyxb=Hypot(dyb + lambda1*R, dxb) - lambda1*R;"""
+Dyxb=Hypot(dyb + lambda1b*R, dxb) - lambda1b*R;"""
 
     ipts = 0
     header = f"""
 //***** define points coordinates
 //auxiliary points (only help define the geometry)"""
     aux_points = [ header ]
-    ipts += 1; aux_points.append(create_point(ipts,        0,          0, 0, 1.0))
-         #create_point(2, 'lambda*R', 0, 0, 1.0),
-    ipts += 1; aux_points.append(create_point(ipts, paux0[0],   paux0[1], 0, 1.0))
-    ipts += 1; aux_points.append(create_point(ipts,        0,'-lambda1*R', 0, 1.0))
-         #create_point(4, '-lambda*R', 0, 0, 1.0),
-    ipts += 1; aux_points.append(create_point(ipts, paux1[0],   paux1[1], 0, 1.0))
-    ipts += 1; aux_points.append(create_point(ipts,        0, 'lambda1*R', 0, 1.0))
-    ipts += 1; aux_points.append(create_point(ipts,        0,     '-dyc', 0, 1.0))
-    ipts += 1; aux_points.append(create_point(ipts, paux2[0],   paux2[1], 0, 1.0))
-    ipts += 1; aux_points.append(create_point(ipts, paux3[0],   paux3[1], 0, 1.0))
+    ipts += 1; aux_points.append(create_point(ipts,        0,            0, 0, 1.0))
+    ipts += 1; aux_points.append(create_point(ipts, paux0[0],     paux0[1], 0, 1.0))
+    ipts += 1; aux_points.append(create_point(ipts,        0,'-lambda1t*R', 0, 1.0))
+    ipts += 1; aux_points.append(create_point(ipts, paux1[0],     paux1[1], 0, 1.0))
+    ipts += 1; aux_points.append(create_point(ipts,        0, 'lambda1b*R', 0, 1.0))
+    ipts += 1; aux_points.append(create_point(ipts,        0,       '-dyc', 0, 1.0))
+    ipts += 1; aux_points.append(create_point(ipts, paux2[0],     paux2[1], 0, 1.0))
+    ipts += 1; aux_points.append(create_point(ipts, paux3[0],     paux3[1], 0, 1.0))
 
     naux = ipts
     header = f"""
 //blocks vertices"""
     block_points = [ header ]
-    ipts += 1; block_points.append(create_point(ipts, 'dxt'  , 'dyt'  , 0.0, 1.0))
-    ipts += 1; block_points.append(create_point(ipts, 'dxb'  , '-dyb' , 0.0, 1.0))
+    ipts += 1;     block_points.append(create_point(ipts, 'dxt'  , 'dyt'  , 0.0, 1.0))
+    ipts += 1;     block_points.append(create_point(ipts, 'dxb'  , '-dyb' , 0.0, 1.0))
     if (half):
         ipts += 1; block_points.append(create_point(ipts, 0.0 , '-Dyxb' , 0.0, 1.0))
         ipts += 1; block_points.append(create_point(ipts, 0.0 , 'Dyxt'  , 0.0, 1.0))
     else:
         ipts += 1; block_points.append(create_point(ipts, '-dxb' , '-dyb' , 0.0, 1.0))
         ipts += 1; block_points.append(create_point(ipts, '-dxt' , 'dyt'  , 0.0, 1.0))
-    ipts += 1; block_points.append(create_point(ipts, 'dxBt' , 'dyBt' , 0.0, 1.0))
-    ipts += 1; block_points.append(create_point(ipts, 'dxBb' , '-dyBb', 0.0, 1.0))
+    ipts += 1;     block_points.append(create_point(ipts, 'dxBt' , 'dyBt' , 0.0, 1.0))
+    ipts += 1;     block_points.append(create_point(ipts, 'dxBb' , '-dyBb', 0.0, 1.0))
     if (half):
         ipts += 1; block_points.append(create_point(ipts, 0.0, '-RBb', 0.0, 1.0))
         ipts += 1; block_points.append(create_point(ipts, 0.0, 'RBC' , 0.0, 1.0))
     else:
         ipts += 1; block_points.append(create_point(ipts, '-dxBb', '-dyBb', 0.0, 1.0))
         ipts += 1; block_points.append(create_point(ipts, '-dxBt', 'dyBt' , 0.0, 1.0))
-    ipts += 1; block_points.append(create_point(ipts, 'Dxt'  , 'Dyt'  , 0.0, 1.0))
-    ipts += 1; block_points.append(create_point(ipts, 'Dxb'  , '-Dyb' , 0.0, 1.0))
+    ipts += 1;     block_points.append(create_point(ipts, 'Dxt'  , 'Dyt'  , 0.0, 1.0))
+    ipts += 1;     block_points.append(create_point(ipts, 'Dxb'  , '-Dyb' , 0.0, 1.0))
     if (half):
         ipts += 1; block_points.append(create_point(ipts, 0.0, '-R' , 0.0, 1.0))
         ipts += 1; block_points.append(create_point(ipts, 0.0, ' R' , 0.0, 1.0))
@@ -242,10 +237,6 @@ Dyxb=Hypot(dyb + lambda1*R, dxb) - lambda1*R;"""
     if (half):
         transfinite_lines = [
             header,
-            #create_transfinite_line([1, 4, 7], 'Nc2'),
-            #create_transfinite_line([2, 5, 8], 'Nc2'),
-            #create_transfinite_line([3, 6, 9], 'Nc2'),
-            #create_transfinite_line([18, 2, 5, 8], 'Nc'),
             create_transfinite_line([ 7, 4, 1, 3, 6, 9], 'Nc2'),
             create_transfinite_line([-18, 2, 5, 8],   'Ncv', progression='compressRatio_M'),
             create_transfinite_line([10, 11, 12, 13], 'NM', progression='compressRatio_M'),
@@ -254,9 +245,6 @@ Dyxb=Hypot(dyb + lambda1*R, dxb) - lambda1*R;"""
     else:
         transfinite_lines = [
             header,
-            #create_transfinite_line([1, 2, 3, 4], 'Nc', bump=1.0),
-            #create_transfinite_line([5, 6, 7, 8], 'Nc'),
-            #create_transfinite_line([9, 10, 11, 12], 'Nc'),
             create_transfinite_line([ 9, 5, 1, 3, 7, 11], 'Nch'),
             create_transfinite_line([-12, -8, -4, 2, 6, 10], 'Ncv', progression='compressRatio_M'),
             create_transfinite_line([13, 14, 15, 16], 'NM', progression='compressRatio_M'),
@@ -364,183 +352,3 @@ Mesh.Binary = 0;"""
         f.write(savemesh)
 
     print(f"Mesh script saved to {filename}")
-
-if __name__ == "__main__":
-   # Given parameters
-   half = False
-   R = 1.0
-   r = 0.7
-   RB = 0.92
-   th = np.pi / 4.0
-   #thh = th / 2.0
-   lambda_val = 0.8
-   Lz = 1
-   Nc = 7
-   NB = 1
-   NM = 3
-   compressRatio_B = 0.85
-   compressRatio_M = 0.87
-   Nz = 180
-
-   # Calculate coordinates based on the formulas
-   dx = r * np.cos(th)
-   dy = r * np.sin(th)
-   dxB = RB * np.cos(th)
-   dyB = RB * np.sin(th)
-   Dx = R * np.cos(th)
-   Dy = R * np.sin(th)
-   Dyx = np.sqrt((dx + lambda_val*R)**2 + dy**2) - lambda_val*R
-
-   points_aux = np.array([
-            [0, 0],
-            [lambda_val * R, 0],
-            [0, -lambda_val * R],
-            [-lambda_val * R, 0],
-            [0, lambda_val * R]
-   ])
-
-   # Block vertices
-   if (half):
-    points_block = np.array([
-        [dx, dy],
-        [dx, -dy],
-        [0.0, -Dyx],
-        [0.0, Dyx],
-        [dxB, dyB],
-        [dxB, -dyB],
-        [0.0, -RB],
-        [0.0, RB],
-        [Dx, Dy],
-        [Dx, -Dy],
-        [0.0, -R],
-        [0.0, R]
-    ])
-   else:
-    points_block = np.array([
-      [dx, dy],
-      [dx, -dy],
-      [-dx, -dy],
-      [-dx, dy],
-      [dxB, dyB],
-      [dxB, -dyB],
-      [-dxB, -dyB],
-      [-dxB, dyB],
-      [Dx, Dy],
-      [Dx, -Dy],
-      [-Dx, -Dy],
-      [-Dx, Dy]
-   ])
-
-   points = np.concatenate([points_aux, points_block], axis=0)
-
-   # Circle connections (correspond to the given circle definitions)
-   if (half):
-    circles = [
-        [9, 3, 6],
-        [6, 4, 7],
-        [7, 5, 8],
-        [13, 1, 10],
-        [10, 1, 11],
-        [11, 1, 12],
-        [17, 1, 14],
-        [14, 1, 15],
-        [15, 1, 16]
-    ]
-   else:
-      circles = [
-        [9, 3, 6],
-        [6, 4, 7],
-        [7, 5, 8],
-        [9, 2, 8],
-        [13, 1, 10],
-        [10, 1, 11],
-        [11, 1, 12],
-        [13, 1, 12],
-        [17, 1, 14],
-        [14, 1, 15],
-        [15, 1, 16],
-        [17, 1, 16]
-    ]
-
-   # Line connections (correspond to the given line definitions)
-   lines = [
-      [6, 10],
-      [7, 11],
-      [8, 12],
-      [9, 13],
-      [10, 14],
-      [11, 15],
-      [12, 16],
-      [13, 17],
-   ]
-   if (half):
-      lines = np.concatenate([ lines, [[8, 9]] ], axis=0)
-
-   
-   # Plot the points
-   fig, ax = plt.subplots(figsize=(10,8))
-
-   # Plot auxiliary points (group 1)
-   ax.scatter(points_aux[:, 0], points_aux[:, 1], color='blue', label='Auxiliary Points')
-
-   # Plot block vertices (group 2)
-   ax.scatter(points_block[:, 0], points_block[:, 1], color='red', label='Block Vertices')
-
-   # Annotate auxiliary points
-   for i, point in enumerate(points_aux):
-      ax.text(point[0], point[1], f'{i+1}', color='blue', fontsize=12, ha='right', va='bottom')
-
-   # Annotate block vertices
-   for i, point in enumerate(points_block):
-      ax.text(point[0], point[1], f'{points_aux.shape[0] + i+1}', color='red', fontsize=12, ha='right', va='bottom')
-
-   # Plot circles (connecting points according to the circle definitions)
-   for cidx, circle in enumerate(circles):
-      p1 = points[circle[0] - 1]  # Subtract 1 for 0-indexing
-      c  = points[circle[1] - 1]    #center
-      p2 = points[circle[2] - 1]
-
-      cc  = c[0] + 1j*c[1]
-      p1c = p1[0] + 1j*p1[1]
-      p2c = p2[0] + 1j*p2[1]
-      r1  = p1c - cc
-      r2  = p2c - cc
-      da  = np.angle(r2) - np.angle(r1)
-      if (abs(da) > np.pi):
-         da = 2*np.pi - abs(da)
-      alp = np.linspace(0,da,101, endpoint=True)
-      circ = cc + r1*np.exp(1j*alp)
-      
-      # Draw the circle segments
-      #ax.plot([p1[0], p2[0]], [p1[1], p2[1]], color='green', linestyle='-', linewidth=1)
-      ax.plot(np.real(circ), np.imag(circ), color='green', linestyle='-', linewidth=1)
-         
-      # Add annotation at the midpoint
-      ax.text(np.real(circ[50]), np.imag(circ[50]), f'{cidx+1}', color='green', fontsize=12, ha='left', va='bottom')
-
-   # Plot lines (connecting points according to the line definitions)
-   for lidx, line in enumerate(lines):
-      p1 = points[line[0] - 1]  # Subtract 1 for 0-indexing
-      p2 = points[line[1] - 1]
-      
-      # Draw the line connecting the two points
-      ax.plot([p1[0], p2[0]], [p1[1], p2[1]], color='purple', linestyle='-', linewidth=1)
-
-      # Calculate the midpoint for annotation
-      midpoint = [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2]
-      
-      # Add annotation at the midpoint
-      ax.text(midpoint[0], midpoint[1], f'{cidx+1+lidx+1}', color='purple', fontsize=12, ha='left', va='bottom')
-
-   # Example usage:
-   #generate_gmsh_script(R, r, RB, 'PI/4.', lambda_val, Lz, Nc, NB, NM, compressRatio_B, compressRatio_M, half=True)
-
-   # Labels and title
-   ax.set_xlabel('X')
-   ax.set_ylabel('Y')
-   ax.set_title('Plot of Points')
-   ax.legend()
-
-   # Display the plot
-   plt.axis('equal')
-   plt.show()

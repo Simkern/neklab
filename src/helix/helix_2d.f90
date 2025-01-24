@@ -158,7 +158,7 @@
                   call lk_timer%stop('neklab_helix_save_2d')
                end do
                ! save timestep information and record minimum dt
-               self%dt2d(self%nsave) = dt_level
+               self%dt2d(self%nsave) = dt
                if (lastep == 0) then ! exclude the potentially very short last step
                   self%min_dt = min(dt, self%min_dt)
                   self%max_dt = max(dt, self%max_dt)

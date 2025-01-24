@@ -206,13 +206,18 @@
          end procedure init_geom
 
          module procedure init_flow
-            integer :: i
+            integer :: i, n
             character(len=128) :: msg
             pi = 4.0_dp*atan(1.0_dp)
             self%womersley = optval(womersley, 0.0_dp)
-            self%nf = size(dpds)
-            write(msg,'(A,I0,A)') 'nf = ', self%nf, ' forcing components provided.'
+            n= size(dpds)
+            write(msg,'(A,I0,A)') 'nf = ', n, ' forcing components provided.'
             call nek_log_information(msg, this_module, 'init_flow')
+            if (n /= self%nf) then
+               self%nf = n
+               write(msg,'(A,I0)') 'Number of considered forcing components reset to nf = ', self%nf
+               call nek_log_warning(msg, this_module, 'init_flow')
+            end if
             if (self%womersley /= 0.0_dp) then
                self%if_steady = .false.
                call nek_log_information('Running unsteady case.', this_module, 'init_flow')

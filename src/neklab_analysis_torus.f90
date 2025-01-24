@@ -99,7 +99,7 @@
             return
          end subroutine linear_stability_analysis_periodic_orbit
 
-         subroutine mflow_newton(sys, bf, mflow_target, tol, tol_mf, tol_mode, maxiter_newton, save_part)
+         subroutine mflow_newton(sys, bf, mflow_target, tol, tol_mf, tol_mode, maxiter_newton)
             class(abstract_system_rdp), intent(inout) :: sys
       !! System for which a fixed point is sought
             type(nek_dvector), intent(inout) :: bf
@@ -114,15 +114,14 @@
       !! Use constant or dynamic tolerances in the Newton-Krylov solver
             integer, optional, intent(in) :: maxiter_newton
       !! Maximum number of newton steps to converge the mass flow rate
-            logical, optional, intent(in) :: save_part
-      !! Flag to save intermediate results fields
       ! internal
             type(nek_dvector) :: ref
             logical :: save_part_
             integer :: tol_mode_, maxiter_newton_
             integer :: nmf, nf, inwt, i, j
             real(dp) :: Wo, df0
-            real(dp), allocatable :: dpds(:), phase(:), dpds_tmp(:)
+            real(dp) :: dpds(lf), dpds_tmp(lf)
+            real(dp), allocatable :: phase(:)
             real(dp), allocatable :: mflow_old(:), mflow_new(:)
             real(dp), allocatable :: dmf(:), mf_err(:), deltaf(:), fpert(:)
             real(dp), allocatable :: jac(:,:)
@@ -136,13 +135,12 @@
       ! optional arguments
             tol_mode_       = optval(tol_mode, 1)
             maxiter_newton_ = optval(maxiter_newton, 10)
-            save_part_      = optval(save_part, .false.)
       ! preparation & checks
             Wo = pipe%get_Wo()
             nmf = size(mflow_target) ! number of mass flow Fourier components to converge
 	         write(fmt1,'("(A,",I0,"(1X,F16.10),A,*(F16.10,1X))")') nmf
 		      write(fmt2,'("(A,",I0,"(1X,F16.10),A,E16.8)")') nmf
-            nf  = pipe%get_nf()      ! number of real forcing components (real and imaginary parts counted individually)
+            nf = pipe%get_nf()      ! number of real forcing components (real and imaginary parts counted individually)
             if (nmf > nfft) then
                write(msg,'(A,I0,A,I0,A)') 'nmf= ', nmf, ' > nfft= ', nfft,'. Increase nfft in neklab_helix.'
                call nek_stop_error(msg, module=this_module, procedure='mflow_newton')
@@ -150,7 +148,6 @@
                write(msg,'(A,I0,A,I0,A)') 'nmf= ', nmf, ' and nf= ', nf, ' incompatible.'
                call nek_stop_error(msg, module=this_module, procedure='mflow_newton')
             end if
-            allocate(dpds(nf), dpds_tmp(nf))
             allocate(dmf(nmf), mf_err(nmf), deltaf(nmf), fpert(nmf))
             allocate(jac(nmf,nmf))
             df0 = min(1.0e-06_dp,100*tol) ! amplitude of forcing perturbation for finite difference approximation of gradient
@@ -281,6 +278,7 @@
                call nek2vec(ref, vx, vy, vz, pr, t)
                call pipe%get_dpds(dpds, phase)
                mf_err = mflow_old(:nmf) - mflow_target
+               ! stamp logfile
                call nek_log_information(step_id//'Final state:', module=this_module, procedure='mflow_newton')
                write(msg,fmt1) step_id//'mf_state = ', mflow_old(:nmf) , ' | ext= ', mflow_old(:nmf+1:5) 
                call nek_log_information(msg, module=this_module, procedure='mflow_newton')
@@ -288,16 +286,19 @@
                call nek_log_information(msg, module=this_module, procedure='mflow_newton')
                write(msg,fmt2) step_id//'mf_error = ', mf_err, ' | sum= ', sum(abs(mf_err))
                call nek_log_information(msg, module=this_module, procedure='mflow_newton')
+               ! convergence check
                if (sum(abs(mf_err)) < tol_mf) then
-		            write(msg,'(A,I0,A)') 'Newton iteration converged after ', inwt, ' iterations.'
+		         write(msg,'(A,I0,A)') 'Newton iteration converged after ', inwt, ' iterations.'
                   call nek_log_message(msg, module=this_module, procedure='mflow_newton')
                   exit df_loop ! converged
 					else
                   ! save intermediate solution
-                  if (save_part_) call outpost_dnek(bf, 'nwf')
+                  call set_fldindex('nwf', 1)
+                  call outpost_dnek(bf, 'nwf')
                end if
             end do df_loop
             call nek_log_message('Exiting mass flow Newton iteration.', module=this_module, procedure='mflow_newton')
+            call set_fldindex('BFN', 1)
             call outpost_dnek(bf, 'BFN')
             if (sum(abs(mf_err)) > tol_mf) then
                write(msg,'(A,I0,A)') 'Mass flux not converged after ', maxiter_newton_, 'steps.'
@@ -410,7 +411,7 @@
                   call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
                   call nek_advance()
                   call pipe%save_2d_fields(vx,vy,vz) ! outposts automatically at lastep == 1
-                  call pipe%compute_mflow_fft(var_dt = .true.) ! integrate Fourier coefficients
+                  if (get_fft) call pipe%compute_mflow_fft(period = pd, var_dt = .true.) ! integrate Fourier coefficients
                   ubar = pipe%compute_ubar(vx,vy,vz)
                   write(msg,'(3(F16.8,1X),A,F16.8)') time, time/pd, mod(time,pd), 'massflow UBAR: ', ubar
                   call nek_log_information(msg, this_module, 'compute_nonlinear_period')
@@ -420,13 +421,13 @@
                   call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
                   call nek_advance()
                   call pipe%save_2d_fields(vx,vy,vz) ! outposts automatically at lastep == 1
-                  call pipe%compute_mflow_fft()      ! integrate Fourier coefficients
+                  if (get_fft) call pipe%compute_mflow_fft(period = pd)      ! integrate Fourier coefficients
                   ubar = pipe%compute_ubar(vx,vy,vz)
                   write(msg,'(3(F16.8,1X),A,F16.8)') time, time/pd, mod(time,pd), 'massflow UBAR: ', ubar
                   call nek_log_information(msg, this_module, 'compute_nonlinear_period')
                end do
             end if
-            if (get_fft) call pipe%extract_mflow_fft()
+            if (get_fft) call pipe%extract_mflow_fft(period = pd)
       ! extract output
             call nek2vec(bf_out, vx, vy, vz, pr, t)
       ! compute periodic residual if requested

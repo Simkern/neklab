@@ -31,6 +31,8 @@
          public :: setup_nek, setup_nonlinear_solver, setup_linear_solver, nek_status
       ! Utilities for logging
          public :: nek_log_message, nek_log_warning, nek_log_information, nek_log_debug, nek_stop_error
+      ! Utilities for file handling
+         public :: set_fldindex
       
       contains
       
@@ -59,6 +61,8 @@
             real(dp) :: dt_old
             character(len=128) :: msg
             logical :: full_summary
+            logical :: iffxdt
+            common /FIXDT/ iffxdt
       
       ! Only print summary if we switch from linear to nonlinear solvers or vice versa
             full_summary = .false.
@@ -152,6 +156,7 @@
               
       ! Force constant timestep if requested
             if (variable_dt_) then
+               iffxdt = .false.
                ! always recompute dt and flush the internal dtold variable
                call compute_cfl(ctarg, vx, vy, vz, 1.0_dp)
                dt = param(26)/ctarg
@@ -184,6 +189,7 @@
                   if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
                end if
             else
+               iffxdt = .true.
                ! Recompute dt
                if (recompute_dt_) then
                   dt_old = dt
@@ -425,5 +431,20 @@
             fmt_string = trim(pfx)//' '//trim(mod)//' '//trim(prc)
             write(fmt,'("(",A,",1X,A)")') '"'//adjustl(trim(fmt_string))//'"'
          end function default_fmt
+         
+         subroutine set_fldindex(file_prefix, fldindex) !file numbering suffix counter
+            character(len=3) :: file_prefix
+            integer :: fldindex
+            ! internal
+            integer :: iprefix
+            integer :: nopen(99,2)
+            common /RES_WANT/ nopen
+            ! function
+            integer :: i_find_prefix
       
+      !     change prepost.f line 1094 from "save nopen" to "common /RES_WANT/ nopen"
+      
+            iprefix          = i_find_prefix(file_prefix,99)
+            nopen(iprefix,1) = fldindex - 1
+         end subroutine set_fldindex
       end module neklab_nek_setup

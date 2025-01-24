@@ -170,6 +170,7 @@
       
       ! Outpost initial condition.
             file_prefix = 'nwt'
+            call set_fldindex(file_prefix, 1)
             select type (bf)
             type is (nek_dvector)
                call outpost_dnek(bf, file_prefix)

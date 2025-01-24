@@ -10,67 +10,63 @@
             real(dp) :: ubar_old, tau_old, dt0, dfftv1, dfftv2
             var_dt_ = optval(var_dt, .false.)
             pd = optval(period, self%pulse_T)
+            if (pd == 0.0_dp) call nek_stop_error('Period not set or zero.', this_module, 'compute_mflow_fft')
             if (self%is_save_fft()) then
-               if (pd /= 0.0_dp) then
-                  call lk_timer%start('neklab_helix_compute_mflow_fft')
-                  twopi = 8.0_dp*atan(1.0_dp)
-                  ! compute period, current ubar and time constants
-                  ubar = self%compute_ubar(vx,vy,vz)
-                  tau  = time/pd
-                  dtau = dt/pd
-                  if (var_dt_) then ! variable timestep integration
-                     ! get ubar and time of previous timestep
-                     ubar_old = self%ubar_lag
-                     tau_old = (time - dt)/pd
-                     if (ubar*ubar_old < 0.0) then ! zero crossing
-                        ! find zero crossing
-                        dt0 = -(ubar - ubar_old)/ubar_old
-                        ! fill up fft array
-                        self%fftv(1) = self%fftv(1) + (ubar_old*dt0 + ubar*(1 - dt0))*0.5*dtau
-                        j = 1
-                        do i = 2, 2*nfft, 2
-                           dfftv1 = ubar_old*cos(j*twopi*tau_old)*   dt0
-                           dfftv2 = ubar    *cos(j*twopi*tau    )*(1-dt0)
-                           self%fftv(i)   = self%fftv(i)   + (dfftv1 + dfftv2)*0.5*dtau
-                           dfftv1 = ubar_old*sin(j*twopi*tau_old)*   dt0
-                           dfftv2 = ubar    *sin(j*twopi*tau    )*(1-dt0)
-                           self%fftv(i+1) = self%fftv(i+1) + (dfftv1 + dfftv2)*0.5*dtau
-                           j = j + 1
-                        end do
-                     else
-                        ! fill up fft array
-                        self%fftv(1) = self%fftv(1) + (ubar_old + ubar)*0.5*dtau
-                        j = 1
-                        do i = 2, 2*nfft, 2
-                           dfftv1 = ubar_old*cos(j*twopi*tau_old)
-                           dfftv2 = ubar    *cos(j*twopi*tau    )
-                           self%fftv(i)   = self%fftv(i)   + (dfftv1 + dfftv2)*0.5*dtau
-                           dfftv1 = ubar_old*sin(j*twopi*tau_old)
-                           dfftv2 = ubar    *sin(j*twopi*tau    )
-                           self%fftv(i+1) = self%fftv(i+1) + (dfftv1 + dfftv2)*0.5*dtau
-                           j = j + 1
-                        end do
-                     end if
-                     ! update lagged ubar
-                     self%ubar_lag = ubar
-                  else ! constant timestep
+               call lk_timer%start('neklab_helix_compute_mflow_fft')
+               twopi = 8.0_dp*atan(1.0_dp)
+               ! compute period, current ubar and time constants
+               ubar = self%compute_ubar(vx,vy,vz)
+               tau  = time/pd
+               dtau = dt/pd
+               if (var_dt_) then ! variable timestep integration
+                  ! get ubar and time of previous timestep
+                  ubar_old = self%ubar_lag
+                  tau_old = (time - dt)/pd
+                  if (ubar*ubar_old < 0.0) then ! zero crossing
+                     ! find zero crossing
+                     dt0 = -(ubar - ubar_old)/ubar_old
                      ! fill up fft array
-                     self%fftv(1) = self%fftv(1) + ubar*dtau
+                     self%fftv(1) = self%fftv(1) + (ubar_old*dt0 + ubar*(1 - dt0))*0.5*dtau
                      j = 1
                      do i = 2, 2*nfft, 2
-                        self%fftv(i)   = self%fftv(i)   + ubar*cos(j*twopi*tau)*dtau
-                        self%fftv(i+1) = self%fftv(i+1) + ubar*sin(j*twopi*tau)*dtau
+                        dfftv1 = ubar_old*cos(j*twopi*tau_old)*   dt0
+                        dfftv2 = ubar    *cos(j*twopi*tau    )*(1-dt0)
+                        self%fftv(i)   = self%fftv(i)   + (dfftv1 + dfftv2)*0.5*dtau
+                        dfftv1 = ubar_old*sin(j*twopi*tau_old)*   dt0
+                        dfftv2 = ubar    *sin(j*twopi*tau    )*(1-dt0)
+                        self%fftv(i+1) = self%fftv(i+1) + (dfftv1 + dfftv2)*0.5*dtau
+                        j = j + 1
+                     end do
+                  else
+                     ! fill up fft array
+                     self%fftv(1) = self%fftv(1) + (ubar_old + ubar)*0.5*dtau
+                     j = 1
+                     do i = 2, 2*nfft, 2
+                        dfftv1 = ubar_old*cos(j*twopi*tau_old)
+                        dfftv2 = ubar    *cos(j*twopi*tau    )
+                        self%fftv(i)   = self%fftv(i)   + (dfftv1 + dfftv2)*0.5*dtau
+                        dfftv1 = ubar_old*sin(j*twopi*tau_old)
+                        dfftv2 = ubar    *sin(j*twopi*tau    )
+                        self%fftv(i+1) = self%fftv(i+1) + (dfftv1 + dfftv2)*0.5*dtau
                         j = j + 1
                      end do
                   end if
-                  ! increment integration time
-                  self%fft_time = self%fft_time + dt
-                  if (nid == 0) print '(A,2(F18.12),F12.6)', 'neklab_helix: Compute mflow fft ', self%fft_time, pd, self%fft_time/pd
-                  call lk_timer%stop('neklab_helix_compute_mflow_fft')
-               else
-                  call nek_log_message('Period not set or zero. FT not computed', this_module, 'compute_mflow_fft')
-                  call self%set_save_fft(.false.)
+                  ! update lagged ubar
+                  self%ubar_lag = ubar
+               else ! constant timestep
+                  ! fill up fft array
+                  self%fftv(1) = self%fftv(1) + ubar*dtau
+                  j = 1
+                  do i = 2, 2*nfft, 2
+                     self%fftv(i)   = self%fftv(i)   + ubar*cos(j*twopi*tau)*dtau
+                     self%fftv(i+1) = self%fftv(i+1) + ubar*sin(j*twopi*tau)*dtau
+                     j = j + 1
+                  end do
                end if
+               ! increment integration time
+               self%fft_time = self%fft_time + dt
+               if (nid == 0) print '(A,2(F18.12),F12.6)', 'neklab_helix: Compute mflow fft ', self%fft_time, pd, self%fft_time/pd
+               call lk_timer%stop('neklab_helix_compute_mflow_fft')
             end if
          end procedure compute_mflow_fft
 
@@ -82,6 +78,7 @@
             character(len=128), parameter :: fmt = '(A,1X,F16.8,1X,A,*(1X,F16.8))'
             if_amplitude_ = optval(if_amplitude, .true.)
             pd = optval(period, self%pulse_T)
+            if (pd == 0.0_dp) call nek_stop_error('Period not set or zero.', this_module, 'compute_mflow_fft')
             ! extract the computed FFT data, compute amplitudes and phases
             self%fft_rtime = self%fft_time ! total integration time since last call
             call copy(self%mflow, self%fftv, 2*nfft+1)
@@ -99,22 +96,22 @@
             pd_chk = self%fft_rtime/pd
             ! print result
             if (if_amplitude_) then
-               nprint = (nf+1)/2
+               nprint = (self%nf+1)/2
                write(msg,fmt) 'Period',self%fft_rtime,'massflow FT amplitude  ',self%mflow_amplitude(:nprint)
-               call nek_log_message(msg, this_module)
+               call nek_log_message(msg, this_module,'extract_mflow_fft')
                write(msg,fmt) 'Period',self%fft_rtime,'massflow FT phase angle',self%mflow_phase(:nprint)
-               call nek_log_message(msg, this_module)
+               call nek_log_message(msg, this_module,'extract_mflow_fft')
                if (self%omega /= 0.0_dp) then
                   write(msg,fmt) 'Period',self%fft_rtime,'massflow FT t-shift    ',self%mflow_phase(:nprint)/self%omega
-                  call nek_log_debug(msg, this_module)
+                  call nek_log_debug(msg, this_module,'extract_mflow_fft')
                end if
             else
-               write(msg,fmt) 'Period',self%fft_rtime,'massflow FT cmplx',self%mflow(:nf)
-               call nek_log_message(msg, this_module)
+               write(msg,fmt) 'Period',self%fft_rtime,'massflow FT cmplx',self%mflow(:self%nf)
+               call nek_log_message(msg, this_module,'extract_mflow_fft')
             end if
             if (abs(pd_chk - 1.0_dp) > 1.0e-06_dp) then
                write(msg, '(A,E15.8,A,2(F16.8,1X))') 'Period check: ', pd_chk - 1.0_dp, ': ', pd, self%fft_rtime
-               call nek_log_message(msg, this_module)
+               call nek_log_message(msg, this_module,'extract_mflow_fft')
                call nek_stop_error('Period check failed. Maybe the integration time does not equal the period precisely.')
             end if
             self%fft_is_extracted = .true.

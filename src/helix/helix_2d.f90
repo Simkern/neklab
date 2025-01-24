@@ -9,6 +9,7 @@
             integer, dimension(:), allocatable :: unique_segments, segment_owner, segment_count
             integer, dimension(:), allocatable :: idx ! for findloc
             logical, dimension(:), allocatable :: segment_found
+            character(len=128) :: msg
             ! for debug
             logical :: debug
             character(len=3) :: fid
@@ -17,6 +18,9 @@
             integer, external :: iglsum
 
             debug = optval(if_debug, .false.)
+            
+            nxy = lx1*ly1
+            call nek_log_message('start extraction', this_module, 'init_2d_geom')
 
             ! Sort local elements according to 2D mesh. 
             ! Here we use a trick that relies on the particular structure of meshes extruded
@@ -105,7 +109,18 @@
             self%noutt = 0
             self%n2d   = iglsum(self%n2d_gown,1)
             self%nload = 0
-            if (self%n2d /= self%nelf) call stop_error('Inconsistent elements in 2D mesh!', module=this_module, procedure='init_geom')
+            if (self%n2d /= self%nelf) then
+               call nek_stop_error('Inconsistent elements in 2D mesh!', module=this_module, procedure='init_2d_geom')
+            else
+               call nek_log_message('Global 2D element ownership', this_module, 'init_2d_geom')
+               msg = 'neklab_helix % init_2d_geom :'
+               do ie = 0, np-1
+                  if (nid == ie) print '(A,4X,A,I3,A,I3,A)', trim(msg), 'proc ', ie, ': ', self%n2d_gown, ' 2D elements'
+                  call nekgsync()
+               end do
+               write(msg,'(A,I3,A)') 'Total: ', self%n2d, ' 2D elements'
+               call nek_log_message(msg, this_module, 'init_2d_geom')
+            end if
             if (debug) then
                call nekgsync()
                print '(A,I3,A,*(1x,I0))', 'DEBUG 2dmap: ', nid, ', nelv2iseg: ', self%lsegment(:nelv)
@@ -126,6 +141,7 @@
                close (fileid)
                call nekgsync()
             end if
+            call nek_log_message('extraction complete', this_module, 'init_2d_geom')
          end procedure init_2d_geom
 
          module procedure save_2d_fields
@@ -202,6 +218,8 @@
             integer :: wdsl, isl, isend(lelv)
             character(len=128)  :: fname, msg
             character(len=1024) :: head, ftm
+            character(len=2) :: id
+            character(len=1), parameter :: fileversion = '1'
             real rtmpv1(lx1*ly1*lelv), rtmpv(lx1*ly1*lelv)
             real*4 rtmpv2(2*lx1*ly1*lelv)
             equivalence (rtmpv1,rtmpv2)
@@ -218,8 +236,13 @@
                if (ierr /= 0) call nek_stop_error('Error opening file '//trim(fname), procedure='outpost_2d_fields')
 
                ! write file's header
-               ftm="('#tor',1x,i1,1x,'(lx1, ly1 =',2i9,') (nelf =',i9,') (time =',e17.9,') (nsave, lbuf =', 2i9,')')"
-               write(head,ftm) wdsize,lx1,ly1,self%nelf,time,self%nsave,lbuf
+               ftm="('#',A1,A2,1x,i1,1x,'(lx1, ly1 =',2i9,') (nelf =',i9,') (time =',e17.9,') (nsave, lbuf =', 2i9,')')"
+               if (self%is_sym()) then
+                  id = 'th'
+               else
+                  id = 'tf'
+               end if
+               write(head,ftm) fileversion, id, wdsize,lx1,ly1,self%nelf,time,self%nsave,lbuf
                call byte_write(head,116/4,ierr)
                if (ierr /= 0) call nek_stop_error('Error writing header in file '//trim(fname), procedure='outpost_2d_fields')  
 

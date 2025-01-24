@@ -6,23 +6,23 @@
          !! MODE SWITCHES
 
          module procedure set_save_base
-            self%save_2d_base = log_flag_change(if_save, pipe%save_2d_base, 'save_2d_base')
+            self%save_2d_base = log_flag_change(if_save, self%save_2d_base, 'save_2d_base')
          end procedure set_save_base
 
          module procedure set_save_fft
-            self%if_fft = log_flag_change(if_save_fft, pipe%if_fft, 'if_fft')
+            self%if_fft = log_flag_change(if_save_fft, self%if_fft, 'if_fft')
          end procedure set_save_fft
          
          module procedure set_newton
-            self%if_newton = log_flag_change(if_newton, pipe%if_newton, 'if_newton')
+            self%if_newton = log_flag_change(if_newton, self%if_newton, 'if_newton')
          end procedure
 
          module procedure set_floquet
-            self%if_floquet = log_flag_change(if_floquet, pipe%if_floquet, 'if_floquet')
+            self%if_floquet = log_flag_change(if_floquet, self%if_floquet, 'if_floquet')
          end procedure
 
          module procedure set_symmetry
-            self%if_sym = log_flag_change(if_sym, pipe%if_sym, 'if_sym')
+            self%if_sym = log_flag_change(if_sym, self%if_sym, 'if_sym')
          end procedure
 
          !! LOGICAL FUNCTIONS
@@ -79,10 +79,10 @@
             integer :: i, j
             dpds = self%dpds
             if (present(phase)) then
-               allocate(phase((nf+1)/2))
+               allocate(phase((lf+1)/2))
                phase = 0.0_dp
                j = 1
-               do i = 2, nf, 2
+               do i = 2, lf, 2
                   j = j + 1
                   phase(j) = atan2(dpds(i+1),dpds(i))
                end do
@@ -142,7 +142,7 @@
          end procedure get_omega
 
          module procedure get_nf
-            n = nf
+            n = self%nf
          end procedure get_nf
 
          module procedure get_Wo
@@ -154,16 +154,16 @@
             if (self%nsteps /= 0) then
                ns = self%nsteps
             else
-               call nek_stop_error('nsteps not computed.', procedure='get_nsteps')
+               call nek_stop_error('nsteps not computed.', this_module, 'get_nsteps')
             end if
          end procedure get_nsteps
 
          module procedure get_dt_minmax
             if (self%min_dt == 100.0_dp) then
-               call nek_log_message('min_dt not computed.', procedure='get_dt_minmax')
+               call nek_log_message('min_dt not computed.', this_module, 'get_dt_minmax')
             end if
             if (self%max_dt == 0.0_dp) then
-               call nek_log_message('max_dt not computed.', procedure='get_dt_minmax')
+               call nek_log_message('max_dt not computed.', this_module, 'get_dt_minmax')
             end if
             if (self%min_dt /= 100.0_dp .and. self%max_dt /= 0.0_dp) then
                dt_minmax(1) = self%min_dt
@@ -176,7 +176,7 @@
             if (self%ubar_lag /= 0.0_dp) then
                ubar_lag = self%ubar_lag
             else
-               call nek_stop_error('ubar_lag not computed.', procedure='get_ubar_lag')
+               call nek_stop_error('ubar_lag not computed.', this_module, 'get_ubar_lag')
             end if
          end procedure get_ubar_lag
 
@@ -222,7 +222,7 @@
             if (ns /= 0) then
                self%nsteps = ns
             else
-               call nek_log_message('input is zero. nsteps not set.', procedure='set_nsteps')
+               call nek_log_message('input is zero. nsteps not set.', this_module, 'set_nsteps')
             end if
          end procedure set_nsteps
 

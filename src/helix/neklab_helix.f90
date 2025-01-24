@@ -29,10 +29,10 @@
       !! Local number of grid points for the velocity mesh.
          integer, parameter :: lp = lx2*ly2*lz2*lelv
       !! Local number of grid points for the pressure mesh.
-         integer, parameter :: nf = 3
-      !! Maximum number of forcing components 1 x steady + 2 x (# unsteady)
          integer, parameter :: lbuf = 1000
       !! Maximum number of 2d fields to save before outposting
+         integer, parameter, public :: lf = 3
+      !! Maximum number of forcing components 1 x steady + 2 x (# unsteady)
          integer, parameter, public :: nfft = 16
       !! Number of FT components to compute
 
@@ -57,15 +57,16 @@
             real(dp) :: pulse_T
             real(dp) :: omega
             real(dp) :: womersley
+            integer  :: nf
             ! forcing
-            real(dp), dimension(nf) :: dpds
+            real(dp), dimension(lf) :: dpds
             real(dp), dimension(lx1,ly1,lz1,lelv) :: fshape
             ! mesh inputs
             integer :: nslices
             integer :: nelf
-            logical :: if_sym    ! is the mesh symmetric (only half the pipe)
-            logical :: if_torus  ! is the mesh curved (toroidal)
-            logical :: if_helix  ! is the mesh helical?
+            logical :: if_sym   = .false. ! is the mesh symmetric (only half the pipe)
+            logical :: if_torus = .false. ! is the mesh curved (toroidal)
+            logical :: if_helix = .false. ! is the mesh helical?
             ! sanity check
             logical :: is_initialized = .false.
             ! data
@@ -456,7 +457,7 @@
             
             module subroutine get_dpds(self, dpds, phase)
                class(helix), intent(in) :: self
-               real(dp), dimension(nf), intent(out) :: dpds
+               real(dp), dimension(lf), intent(out) :: dpds
                real(dp), optional, allocatable, intent(out) :: phase(:)
             end subroutine get_dpds
 
@@ -561,7 +562,7 @@
 
             module subroutine set_dpds(self, dpds, reset)
                class(helix), intent(inout) :: self
-               real(dp), dimension(nf), intent(in) :: dpds
+               real(dp), dimension(lf), intent(in) :: dpds
                logical, optional, intent(in) :: reset
             end subroutine set_dpds
 
@@ -634,11 +635,6 @@
             call pipe%init_geom(if_debug)
             ! compute forcing distribution
             call pipe%compute_fshape()
-
-            ! switch on FT in the unsteady case
-            if (nf > 1) then
-               call pipe%set_save_fft(.true.)
-            end if
 
             if (debug) then
                call outpost(pipe%xax, pipe%yax, pipe%zax, pr, t, 'cax')

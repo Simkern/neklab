@@ -30,11 +30,11 @@
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
                write (msg, '(A,I8)') padl('nel/slice:', 20), pipe%nelf
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,L8)') padl('symmetry:', 20), pipe%if_sym
+               write (msg, '(A,L8)') padl('symmetry:', 20), pipe%is_sym()
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,L8)') padl('toroidal mesh', 20), pipe%if_torus
+               write (msg, '(A,L8)') padl('toroidal mesh', 20), pipe%is_torus()
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,L8)') padl('helical mesh', 20), pipe%if_helix
+               write (msg, '(A,L8)') padl('helical mesh', 20), pipe%is_helix()
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
             else
                call nek_log_warning('helix instance not initialized', module=this_module, fmt='(A)')
@@ -69,7 +69,7 @@
                write (msg, '(4(A,F15.8))') padl('dpds_00:', 20), self%dpds(1), ' ', 0.0_dp,
      $               ' | ', self%dpds(1), ' | ', 0.0_dp 
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               do i = 2, nf, 2
+               do i = 2, self%nf, 2
                   write(fmt,'("dpds_",I2.2,":")') i/2
                   dpds_norm      = sqrt(self%dpds(i)**2 + self%dpds(i+1)**2)
                   dpds_angle_rad = atan2(self%dpds(i+1),self%dpds(i))
@@ -114,13 +114,6 @@
             call copy(zm1, -tmp, lv)   ! z <-- -x
             call copy(self%zax,zm1,lv) ! zax set before curvature in z is added!
 
-            ! rescale the new x axis
-            if (self%is_torus()) then
-               minv = glmin(xm1,lv)
-               maxv = glmax(xm1,lv)
-               xm1 = self%sweep/(maxv-minv) * xm1 ! x in [ 0, max_sweep_angle ]
-               call copy(self%sweep_angle,xm1,lv) ! save sweep angle
-            end if
             call copy(pipe_r, ym1,lv) ! local distance from pipe center
             minv = glmin(xm1,lv); maxv = glmax(xm1,lv)
             write(msg,'(2(A,F16.12),A)') 'x: min ', minv, ' max ', maxv, ' (streamwise)'
@@ -135,9 +128,15 @@
 
             ! Set up and extract 2D geometry
             call self%init_2d_geom(if_debug)
+            call nek_log_message('2D geometry extracted.', this_module, 'init_geom')
 
             ! Morph the mesh into a torus
             if (self%is_torus()) then
+               ! rescale the x axis
+               minv = glmin(xm1,lv)
+               maxv = glmax(xm1,lv)
+               xm1 = self%sweep/(maxv-minv) * xm1 ! x in [ 0, max_sweep_angle ]
+               call copy(self%sweep_angle,xm1,lv) ! save sweep angle
                torus_r = self%curv_radius
                do ie = 1, nelv
                do iz = 1, lz1
@@ -207,22 +206,22 @@
          end procedure init_geom
 
          module procedure init_flow
-            integer :: i, n
+            integer :: i
             character(len=128) :: msg
             pi = 4.0_dp*atan(1.0_dp)
             self%womersley = optval(womersley, 0.0_dp)
-            n = size(dpds)
-            write(msg,'(A,I0,A)') 'n = ', n, ' forcing components provided.'
+            self%nf = size(dpds)
+            write(msg,'(A,I0,A)') 'nf = ', self%nf, ' forcing components provided.'
             call nek_log_information(msg, this_module, 'init_flow')
             if (self%womersley /= 0.0_dp) then
                self%if_steady = .false.
                call nek_log_information('Running unsteady case.', this_module, 'init_flow')
                self%omega     = (self%womersley**2)*cpfld(1,1)    ! pulsation frequency
                self%pulse_T   = 2.0_dp*pi/self%omega               ! pulsation period
-               if (n == 1) then
-                  write(msg,'(A,I0,A)') 'n > ', 1, ' forcing components required for unsteady case.'
+               if (self%nf == 1) then
+                  write(msg,'(A,I0,A)') 'nf > ', 1, ' forcing components required for unsteady case.'
                   call nek_stop_error(msg, this_module, 'init_flow')
-               else if (mod(n,2)==0) then
+               else if (mod(self%nf,2)==0) then
                   msg = 'Unsteady case requires an uneven number of forcing components'
                   call nek_stop_error(msg, this_module, 'init_flow')
                end if
@@ -232,14 +231,14 @@
                call nek_log_message('Running steady case.', this_module, 'init_flow')
                self%omega     = 0.0_dp   
                self%pulse_T   = 0.0_dp  
-               if (n > 1) then
-                  write(msg,'(A,I0,A)') 'Components n > ', 1, ' will be ignored.'
+               if (self%nf > 1) then
+                  write(msg,'(A,I0,A)') 'Components nf > ', 1, ' will be ignored.'
                   call nek_log_warning(msg, this_module, 'init_flow')
                end if
                call nek_log_message('Unsteady flow parameters set.', this_module, 'init_flow')
             end if
             self%dpds = 0.0_dp
-            self%dpds(:n) = dpds
+            self%dpds(:self%nf) = dpds
             call pipe%compute_bf_forcing(0.0_dp) ! ensure that the forcing is set (in particular for steady flows)
             call nek_log_message('Baseflow forcing set.', this_module, 'init_flow')
             call self%parameter_summary()
@@ -279,7 +278,7 @@
             f = self%dpds(1)
             if (.not.self%if_steady) then
                eiwt = cexp(imag * self%omega * t)
-               do i = 2, nf, 2
+               do i = 2, self%nf, 2
                   dpds = self%dpds(i) + imag*self%dpds(i+1)
                   f = f + 2.0_dp * real(dpds * eiwt)
                end do
@@ -336,7 +335,7 @@
          module procedure shift_mflow_phase
             integer :: i
             real(dp) :: dpdsr, dpdsi, alpha, dalpha, dt_phase, prop
-            real(dp) :: dpds(nf)
+            real(dp) :: dpds(lf)
             character(len=128) :: msg
             ! extract current forcing components
             if (.not.self%is_steady()) then

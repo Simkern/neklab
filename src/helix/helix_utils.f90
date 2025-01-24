@@ -230,7 +230,7 @@
                   msg = 'Unsteady case requires an uneven number of forcing components'
                   call nek_stop_error(msg, this_module, 'init_flow')
                end if
-               call nek_log_message('Steady flow parameters set.', this_module, 'init_flow')
+               call nek_log_message('Unsteady flow parameters set.', this_module, 'init_flow')
             else
                self%if_steady = .true.
                call nek_log_message('Running steady case.', this_module, 'init_flow')
@@ -240,7 +240,7 @@
                   write(msg,'(A,I0,A)') 'Components nf > ', 1, ' will be ignored.'
                   call nek_log_warning(msg, this_module, 'init_flow')
                end if
-               call nek_log_message('Unsteady flow parameters set.', this_module, 'init_flow')
+               call nek_log_message('Steady flow parameters set.', this_module, 'init_flow')
             end if
             self%dpds = 0.0_dp
             self%dpds(:self%nf) = dpds

@@ -617,7 +617,7 @@
                pipe%sweep    = pipe%length*cos(pipe%phi)/pipe%curv_radius ! sweep angle in radians
                pipe%if_helix = .true.
             else
-               pipe%sweep    = 0.0_dp
+               pipe%sweep    = pipe%length/pipe%curv_radius ! sweep angle in radians
                pipe%if_helix = .false.
             end if
 

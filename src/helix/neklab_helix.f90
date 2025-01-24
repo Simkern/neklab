@@ -613,7 +613,7 @@
                pipe%if_torus = .false.
             end if
             pipe%phi         = atan2(pipe%pitch_s,pipe%curv_radius)
-            if (pipe%delta /= 0.0_dp) then
+            if (pipe%phi /= 0.0_dp) then
                pipe%sweep    = pipe%length*cos(pipe%phi)/pipe%curv_radius ! sweep angle in radians
                pipe%if_helix = .true.
             else

@@ -30,7 +30,7 @@ def read_fields(filepattern, only_mesh=False, cwd='.'):
     if files:
         print(f"Found {nfiles} file(s):")
         for file in files:
-            print(f'   file')
+            print(f'   {file}')
     else:
         print(f"No files found matching the pattern '{filepattern}'.")
         sys.exit()

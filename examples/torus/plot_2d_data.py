@@ -1,6 +1,5 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation, FFMpegWriter
 
 from read_2d_data import read_fields
 
@@ -19,43 +18,58 @@ def plot_element(ax, x, y, only_edges=False):
         ax.plot(x[:l,i], y[:l,i], c=c)
     ax.set_aspect('equal', 'box')
 
-def plot_2d_mesh(ax, pattern, only_edges=False, cwd='.'):
+def plot_2d_mesh(ax, x, y, only_edges=False):
 
-    x, y, vx, vy, vz, elmap, dt2d, metadata, nsteps = read_fields(pattern, only_mesh=True, cwd=cwd)
-
-    nelf = metadata['nelf']
+    nelf = x.shape[-1]
     # Loop to create the contours
     for i in range(nelf):
         xi = np.squeeze(x[:,:,i])
         yi = np.squeeze(y[:,:,i])
         plot_element(ax, xi, yi, only_edges)
+    ax.set_aspect('equal', 'box')
 
-def play_2d_data(pattern, cwd='.'):
-    x, y, vx, vy, vz, elmap, dt2d, metadata, nsteps = read_fields(pattern, only_mesh=False, cwd=cwd)
+def plot_2d_fld(ax, x, y, fld, istep=0, draw_elements=False, draw_mesh=False):
 
-    # Create the figure and axis
-    fig, ax = plt.subplots()
+    nelf = x.shape[-1]
+    if not draw_mesh:
+        only_edges=True
 
-    # Initialize the variables to store vmin and vmax for coloring
-    vmin = vx[:,:,:,0].min()
-    vmax = vx[:,:,:,0].max()
     dvmin = 1000
     dvmax = 0
-    nelf = metadata['nelf']
     for i in range(nelf):
-        dvmin = min(dvmin, (vx[:,:,i,:]).min())
-        dvmax = max(dvmax, (vx[:,:,i,:]).max())
+        dvmin = min(dvmin, (fld[:,:,i,istep]).min())
+        dvmax = max(dvmax, (fld[:,:,i,istep]).max())
+
+    for i in range(nelf):
+        xi = np.squeeze(x[:,:,i])
+        yi = np.squeeze(y[:,:,i])
+        vxi = np.squeeze(fld[:,:,i,istep])
+        ax.contourf(xi, yi, vxi, vmin=dvmin, vmax=dvmax)
+        if draw_elements:
+            plot_element(ax, xi, yi, only_edges)
+    ax.set_aspect('equal', 'box')
+
+def animate_2d_fld(ax, x, y, fld, step=80):
+
+    # Initialize the variables to store vmin and vmax for coloring
+    dvmin = 1000
+    dvmax = 0
+    nelf = x.shape[-1]
+    nsteps = fld.shape[-1]
+    for i in range(nelf):
+        dvmin = min(dvmin, (fld[:,:,i,:]).min())
+        dvmax = max(dvmax, (fld[:,:,i,:]).max())
 
     # Define the update function for the animation
     for k in range(4):
-        for j in range(0,nsteps,80):
+        for j in range(0,nsteps,step):
             ax.clear()
 
             # Loop to create the contours
             for i in range(nelf):
                 xi = np.squeeze(x[:,:,i])
                 yi = np.squeeze(y[:,:,i])
-                vxi = np.squeeze(vx[:,:,i,j])
+                vxi = np.squeeze(fld[:,:,i,j])
 
                 # Create the contour plot for each element
                 contour = ax.contourf(xi, yi, vxi, vmin=dvmin, vmax=dvmax)
@@ -69,6 +83,13 @@ def play_2d_data(pattern, cwd='.'):
 
             plt.pause(0.001)
 
+def play_file(pattern, cwd='.'):
+    x, y, vx, vy, vz, elmap, dt2d, metadata, nsteps = read_fields(pattern, only_mesh=False, cwd=cwd)
+
+    # Create the figure and axis
+    fig, ax = plt.subplots()
+
+    animate_2d_fld(ax, x, y, vx)
+
 if __name__ == '__main__':
-    play_2d_data('n2dtorus')
-    
+    play_file('n2dtorus')

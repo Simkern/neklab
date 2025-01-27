@@ -4,7 +4,9 @@ import matplotlib.pyplot as plt
 from gmsh_writer import generate_mesh
 from gmsh_tester import prepare_test, test_mesh
 from gmsh_plotter import plot_gmsh
-from plot_2d_data import plot_2d_mesh
+from read_2d_data import read_fields
+from plot_2d_data import plot_2d_fld
+from sort_2d_data import symmetrize_fld
 
 geom_params = {
     'R': 1.0,
@@ -89,17 +91,25 @@ if __name__ == "__main__":
             prepare_test(mesh_params, fldr_h, basename3, is_half=True)
             test_mesh(fldr_h)
 
-    pattern = 'm2dtorus'
+    pattern = 'c2dtorus'
     runfldr   = os.path.join(fldr,   'mesh_test')
     runfldr_h = os.path.join(fldr_h, 'mesh_test')
     fname = pattern+'001.fld'
     if os.path.exists(os.path.join(runfldr,fname)) and os.path.exists(os.path.join(runfldr_h,fname)):
         # Create the figure and axis
         fig, ax = plt.subplots(1, 2, figsize=(20,8))
+        #fig, ax2 = plt.subplots(1, 2, figsize=(20,8))
         ax[0].set_title('Full mesh')
-        plot_2d_mesh(ax[0], pattern, only_edges=False, cwd=runfldr)
+        x, y, vx, vy, vz, elmap, dt2d, metadata, nsteps = read_fields(pattern, cwd=runfldr)
+        plot_2d_fld(ax[0], x, y, vx)
+        #vxfs, vxfa = symmetrize_fld(x, y, vx)
+        #plot_2d_fld(ax2[0], x, y, vxfs)
+        #plot_2d_fld(ax2[1], x, y, vxfa)
         ax[1].set_title('Half mesh')
-        plot_2d_mesh(ax[1], pattern, only_edges=False, cwd=runfldr_h)
+        x, y, vx, vy, vz, elmap, dt2d, metadata, nsteps = read_fields(pattern, cwd=runfldr_h)
+        plot_2d_fld(ax[1], x, y, vx)
+        
         plt.show()
     else:
         print('Files not found')
+        sys.exit()

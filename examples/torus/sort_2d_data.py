@@ -1,18 +1,85 @@
 import sys
 import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib  import cm
 from read_2d_data import read_binary_file, read_fields
 from write_2d_data import write_fields
+from plot_2d_data import plot_2d_mesh
 
-def link_meshes(xh, yh, xf, yf, pattern=None):
-    
-    lx1, ly1, _ = xh.shape
+def symmetrize_fld(x0, y0, fld):
+    lx1, ly1, npts = x0.shape
     nxy = lx1*ly1
-    xaf = sum(xf, axis=(0,1))/nxy
-    yaf = sum(yf, axis=(0,1))/nxy
-    xah = sum(xh, axis=(0,1))/nxy
-    yah = sum(yh, axis=(0,1))/nxy
-    dx = min(np.max(xh, axis=(0,1)) - np.min(xh, axis=(0,1)))
-    dy = min(np.max(yh, axis=(0,1)) - np.min(yh, axis=(0,1)))
+    xa = np.sum(x0, axis=(0,1))/nxy
+    ya = np.sum(y0, axis=(0,1))/nxy
+    dx = min(np.max(x0, axis=(0,1)) - np.min(x0, axis=(0,1)))
+    dy = min(np.max(y0, axis=(0,1)) - np.min(y0, axis=(0,1)))
+    tol = (dx+dy)/200
+
+    unique = []
+    mapped = [ False for i in range(npts) ]
+
+    for i, (x1, y1) in enumerate(zip(xa, ya)):
+        if not mapped[i]:
+            for j, (x2, y2) in enumerate(zip(xa, ya)):
+                d = np.sqrt((x1 + x2) ** 2 + (y1 - y2) ** 2)
+                if d < tol:
+                    if x1 > 0:
+                        left = i
+                        right = j
+                    else:
+                        left = j
+                        right = i
+                    print(f'                ', end='')
+                    for (r,c) in zip([0,0,lx1-1,lx1-1],[0,lx1-1,0,lx1-1]):
+                        print(f'   {r} {c}   ', end='')
+                    print(f'')
+                    print(f'element {i+1:3d}: rx ', end='')
+                    for (r,c) in zip([0,0,lx1-1,lx1-1],[0,lx1-1,0,lx1-1]):
+                        print(f' {x0[r,c,right]:8.5f}', end='')
+                    print(f'')
+                    print(f'           : ry ', end='')
+                    for (r,c) in zip([0,0,lx1-1,lx1-1],[0,lx1-1,0,lx1-1]):
+                        print(f' {y0[r,c,right]:8.5f}', end='')
+                    print(f'')
+                    print(f'           : lx ', end='')
+                    for (r,c) in zip([0,0,lx1-1,lx1-1],[0,lx1-1,0,lx1-1]):
+                        print(f' {x0[r,c,left]:8.5f}', end='')
+                    print(f'')
+                    print(f'           : ly ', end='')
+                    for (r,c) in zip([0,0,lx1-1,lx1-1],[0,lx1-1,0,lx1-1]):
+                        print(f' {y0[r,c,left]:8.5f}', end='')
+                    print(f'')
+                    print(f'                ', end='')
+                    for (r,c) in zip([lx1-1,lx1-1,0,0],[0,lx1-1,0,lx1-1]):
+                        print(f'   {r} {c}   ', end='')
+                    print(f'')
+                    print(f'flipped    : lx ', end='')
+                    for (r,c) in zip([lx1-1,lx1-1,0,0],[0,lx1-1,0,lx1-1]):
+                        print(f' {x0[r,c,left]:8.5f}', end='')
+                    print(f'')
+                    print(f'           : ly ', end='')
+                    for (r,c) in zip([lx1-1,lx1-1,0,0],[0,lx1-1,0,lx1-1]):
+                        print(f' {y0[r,c,left]:8.5f}', end='')
+                    print(f'\n')
+                    unique.append([i,j])
+    
+    fld_sym, fld_asym = np.empty_like(fld), np.empty_like(fld)
+    for i, (el1, el2) in enumerate(unique):
+        fld_sym[:,:,i,:] = (fld[:,:,el1,:] + np.flip(fld[:,:,el2,:], axis=(0,1)))/2.0
+        fld_asym[:,:,i,:] = fld[:,:,i,:] - fld_sym[:,:,i,:]
+    
+    return fld_sym, fld_asym
+
+def link_meshes(x0h, y0h, x0f, y0f, pattern=None):
+    
+    lx1, ly1, _ = x0h.shape
+    nxy = lx1*ly1
+    xaf = np.sum(x0f, axis=(0,1))/nxy
+    yaf = np.sum(y0f, axis=(0,1))/nxy
+    xah = np.sum(x0h, axis=(0,1))/nxy
+    yah = np.sum(y0h, axis=(0,1))/nxy
+    dx = min(np.max(x0h, axis=(0,1)) - np.min(x0h, axis=(0,1)))
+    dy = min(np.max(y0h, axis=(0,1)) - np.min(y0h, axis=(0,1)))
     
     tol = (dx+dy)/200
 
@@ -29,10 +96,22 @@ def link_meshes(xh, yh, xf, yf, pattern=None):
             map_f2h[idx] = i
         else:
             print('Inconsistent meshes!')
+            fig, ax = plt.subplots()
+            plot_2d_mesh(ax, x0f, y0f, only_edges=True)
+            plot_2d_mesh(ax, x0h, y0h, only_edges=True)
+            ax.scatter(xaf, yaf, c='k')
+            ax.scatter(xah, yah, c='r', marker='x', s=50)
+            plt.show()
             sys.exit()
     
     if map_f2h.min() == 0:
         print('Not all points found!')
+        fig, ax = plt.subplots()
+        plot_2d_mesh(ax, x0f, y0f, only_edges=True)
+        plot_2d_mesh(ax, x0h, y0h, only_edges=True)
+        ax.scatter(xaf, yaf, c='k')
+        ax.scatter(xah, yah, c='r', marker='x', s=50)
+        plt.show()
         sys.exit()
 
     if pattern is not None:
@@ -60,5 +139,5 @@ def h2d_to_f2d(h2d_pattern, hfldr, f2d_file_ref, ffldr):
         vy[:,:,i,:] = vyh[:,:,j,:]
         vz[:,:,i,:] = vzh[:,:,j,:]
 
-    write_fields(h2d_pattern, xf, yf, vx, vy, vz, elmapf, dt2d, metadata, nsteps, cwd=ffldr)
+    write_fields(h2d_pattern+'_f', xf, yf, vx, vy, vz, elmapf, dt2d, metadata, nsteps, cwd=ffldr)
 

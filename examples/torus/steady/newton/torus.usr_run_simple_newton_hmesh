@@ -52,9 +52,9 @@ c-----------------------------------------------------------------------
       integer :: tol_mode
 
       if (istep.eq.0) then
-	      ! Set flow parameters
+         ! Set flow parameters
          dpds = [ dp0ds ]
-	      call pipe%init_flow(dpds)
+	 call pipe%init_flow(dpds)
 			
          call gfldr('rsttorus0.f00001_full')
          call nek2vec(bf, vx, vy, vz, pr, t)
@@ -85,8 +85,6 @@ c-----------------------------------------------------------------------
          
          call nek_end()
       end if
-
-      call pipe%compute_bf_forcing(time)
 
       return
 

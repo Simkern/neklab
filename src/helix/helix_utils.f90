@@ -48,12 +48,14 @@
                call nek_log_message('Flow:', module=this_module)
                write (msg, '(A,L8)') padl('steady:', 20), self%if_steady
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,F15.8)') padl('Wo:', 20), self%womersley
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,F15.8)') padl('omega:', 20), self%omega
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,F15.8)') padl('T:', 20), self%pulse_T
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               if (.not.self%is_steady()) then
+                  write (msg, '(A,F15.8)') padl('Wo:', 20), self%womersley
+                  call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+                  write (msg, '(A,F15.8)') padl('omega:', 20), self%omega
+                  call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+                  write (msg, '(A,F15.8)') padl('T:', 20), self%pulse_T
+                  call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               end if
                call nek_log_message('Forcing:', module=this_module)
                call self%forcing_summary()
             else

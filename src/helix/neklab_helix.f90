@@ -280,10 +280,11 @@
                class(helix), intent(inout) :: self
             end subroutine outpost_2d
 
-            module subroutine outpost_2d_fields(self, iname, iout)
+            module subroutine outpost_2d_fields(self, iname, iout, only_mesh)
                class(helix), intent(inout) :: self
                character(len=1), intent(in) :: iname
                integer, intent(in) :: iout
+               logical, optional, intent(in) :: only_mesh
             end subroutine outpost_2d_fields            
 
             module subroutine load_2d_fields(self, idx)

@@ -214,12 +214,13 @@
          module procedure outpost_2d_fields
             integer, allocatable :: n2d_gown(:)
             integer, allocatable :: n2d_elmap(:)
-            integer :: ierr, itmp, i, nxy, ip, ibuf, iseg, length, i_own
+            integer :: ierr, itmp, i, nxy, ip, ibuf, iseg, length, i_own, nsave
             integer :: wdsl, isl, isend(lelv)
             character(len=128)  :: fname, msg
             character(len=1024) :: head, ftm
             character(len=2) :: id
             character(len=1), parameter :: fileversion = '1'
+            logical :: only_mesh_
             real rtmpv1(lx1*ly1*lelv), rtmpv(lx1*ly1*lelv)
             real*4 rtmpv2(2*lx1*ly1*lelv)
             equivalence (rtmpv1,rtmpv2)
@@ -229,7 +230,14 @@
             wdsl = wdsize/4
             isl  = isize/4
             write(fname,'(A,A,I3.3,A)') iname, '2dtorus', iout, '.fld'
-            write(msg,'(A,I5,4X,A,A)') 'Outpost 2D data: ', self%nsave, 'fname: ', trim(fname)
+            only_mesh_ = optval(only_mesh, .false.)
+            if (only_mesh_) then
+               write(msg,'(A,A)') 'Outpost 2D mesh: ', trim(fname)
+               nsave = 0
+            else
+               write(msg,'(A,I5,4X,A,A)') 'Outpost 2D data: ', self%nsave, 'fname: ', trim(fname)
+               nsave = self%nsave
+            end if
             call nek_log_information(msg, this_module, 'outpost_2d_fields')
             if (nid == 0) then
                call byte_open(fname, ierr)
@@ -242,7 +250,7 @@
                else
                   id = 'tf'
                end if
-               write(head,ftm) fileversion, id, wdsize,lx1,ly1,self%nelf,time,self%nsave,lbuf
+               write(head,ftm) fileversion, id, wdsize,lx1,ly1,self%nelf,time,nsave,lbuf
                call byte_write(head,116/4,ierr)
                if (ierr /= 0) call nek_stop_error('Error writing header in file '//trim(fname), procedure='outpost_2d_fields')  
 
@@ -254,7 +262,7 @@
                call byte_write(ly1,isl,ierr)
                call byte_write(self%nelf,isl,ierr)
                call byte_write(time,wdsl,ierr)
-               call byte_write(self%nsave,isl,ierr)
+               call byte_write(nsave,isl,ierr)
                call byte_write(lbuf,isl,ierr)
                if (ierr /= 0) call nek_stop_error('Error writing metadata in file '//trim(fname), procedure='outpost_2d_fields')
             end if
@@ -285,7 +293,7 @@
                ! write it to file
                call byte_write(n2d_elmap,self%nelf*isl,ierr)
                ! write timestep information to file
-               call byte_write(self%dt2d(:self%nsave),self%nsave*wdsl,ierr)
+               call byte_write(self%dt2d(:nsave),nsave*wdsl,ierr)
             else
                call crecv(nid,itmp,isize)                  ! hand shake
                call csend(nid,self%n2d_gown,isize,0,0)     ! send number of elements
@@ -304,13 +312,15 @@
             call nek_log_debug('   '//trim(fname)//': write y2d ...', this_module, 'outpost_2d_fields')
             call gather_and_write_slice(self%y2d, n2d_gown)
             ! velocity data
-            write(msg,'(3X,A,A,1X,I5)') trim(fname),': write v[xyz]2d', self%nsave
-            call nek_log_debug(msg, this_module, 'outpost_2d_fields')
-            do i = 1, self%nsave
-               call gather_and_write_slice(self%vx2d(:,:,:,i), n2d_gown)
-               call gather_and_write_slice(self%vy2d(:,:,:,i), n2d_gown)
-               call gather_and_write_slice(self%vz2d(:,:,:,i), n2d_gown)
-            end do
+            if (.not. only_mesh_) then
+               write(msg,'(3X,A,A,1X,I5)') trim(fname),': write v[xyz]2d', nsave
+               call nek_log_debug(msg, this_module, 'outpost_2d_fields')
+               do i = 1, nsave
+                  call gather_and_write_slice(self%vx2d(:,:,:,i), n2d_gown)
+                  call gather_and_write_slice(self%vy2d(:,:,:,i), n2d_gown)
+                  call gather_and_write_slice(self%vz2d(:,:,:,i), n2d_gown)
+               end do
+            end if
             ! master closes the file
             if (nid == 0) then 
                call byte_close(ierr)

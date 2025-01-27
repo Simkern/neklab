@@ -116,7 +116,7 @@
       !! Maximum number of newton steps to converge the mass flow rate
       ! internal
             type(nek_dvector) :: ref
-            logical :: save_part_
+            logical :: is_new_solution
             integer :: tol_mode_, maxiter_newton_
             integer :: nmf, nf, inwt, i, j
             real(dp) :: Wo, df0
@@ -127,7 +127,7 @@
             real(dp), allocatable :: jac(:,:)
 				real(dp) :: dt_minmax(2)
             real(dp) :: tol_mf_inexact, tol_df
-            character(len=128) :: msg, fmt1, fmt2
+            character(len=128) :: msg, fmt
             character(len=10) :: step_id
             character(len=18) :: coef_id
             integer, parameter :: pad = 10
@@ -138,8 +138,7 @@
       ! preparation & checks
             Wo = pipe%get_Wo()
             nmf = size(mflow_target) ! number of mass flow Fourier components to converge
-	         write(fmt1,'("(A,",I0,"(1X,F16.10),A,*(F16.10,1X))")') nmf
-		      write(fmt2,'("(A,",I0,"(1X,F16.10),A,E16.8)")') nmf
+		      write(fmt,'("(A,",I0,"(1X,F16.10),A,E16.8)")') nmf
             nf = pipe%get_nf()      ! number of real forcing components (real and imaginary parts counted individually)
             if (nmf > nfft) then
                write(msg,'(A,I0,A,I0,A)') 'nmf= ', nmf, ' > nfft= ', nfft,'. Increase nfft in neklab_helix.'
@@ -155,9 +154,9 @@
             allocate(dmf(nmf), mf_err(nmf), deltaf(nmf), fpert(nmf))
             allocate(jac(nmf,nmf))
             df0 = min(1.0e-06_dp,100*tol) ! amplitude of forcing perturbation for finite difference approximation of gradient
+            tol_df = tol
             fpert(1)  = df0
             fpert(2:) = 20*df0
-            tol_df = max(tol, 1.0e-06_dp) ! increased tolerance for the newton solves for the gradient approximation
             ! get reference forcing and phase
             call pipe%get_dpds(dpds, phase)
       !
@@ -184,11 +183,11 @@
             call pipe%parameter_summary()
             write(msg,'(A,*(1X,F16.10))') padl('|df|:',   pad), fpert
             call nek_log_information('Initial state:', module=this_module, procedure='mflow_newton')
-            write(msg,fmt1) 'mf_state = ', mflow_old(:nmf) , ' | ext= ', mflow_old(:nmf+1:5) 
+            write(msg,'(A,*(1X,F16.10))') 'mf_state = ', mflow_old(:nmf)
             call nek_log_information(msg, module=this_module, procedure='mflow_newton')
-            write(msg,fmt2) 'mf_target= ', mflow_target, ' | tol= ', tol_mf
+            write(msg,fmt) 'mf_target= ', mflow_target, ' | tol= ', tol_mf
             call nek_log_information(msg, module=this_module, procedure='mflow_newton')
-            write(msg,fmt2) 'mf_error = ', mf_err, ' | sum= ', sum(abs(mf_err))
+            write(msg,fmt) 'mf_error = ', mf_err, ' | sum= ', sum(abs(mf_err))
             call nek_log_information(msg, module=this_module, procedure='mflow_newton')
             !
             ! Main Newton iteration to converge the mass flow rate for each Fourier component
@@ -206,29 +205,40 @@
                   write(coef_id,'("Fourier coef. ",I2,": ")') i
                   write(msg,'(A,A,I0,A)') step_id, 'compute mflow gradient for Fourier coefficient ', i, ' ...'
                   call nek_log_information(msg, module=this_module, procedure='mflow_newton')
-                  ! Set flow parameters
-                  dpds_tmp = 0.0_dp
-                  fpert(i) = -sign(fpert(i), mf_err(i)) ! take the step in the direction of the root
-                  if (i == 1) then
-                     dpds_tmp(1) = fpert(1)
-                  else
-                     j = 2*(i-1)
-                     dpds_tmp(j  ) = cos(phase(i))*fpert(i)
-                     dpds_tmp(j+1) = sin(phase(i))*fpert(i)
-                  end if
-			         write(msg,'(A,A,A,*(1X,F16.10))') step_id, coef_id, padl('old frc:',pad), dpds(:nmf)
-			         call nek_log_message(msg, module=this_module, procedure='mflow_newton')
-			         write(msg,'(A,A,A,*(1X,F16.10))') step_id, coef_id, padl('prt frc:',pad), dpds_tmp
-			         call nek_log_message(msg, module=this_module, procedure='mflow_newton')
-			         dpds_tmp = dpds_tmp + dpds(:nmf)
-			         write(msg,'(A,A,A,*(1X,F16.10))') step_id, coef_id, padl('new frc:',pad), dpds_tmp
-                  call nek_log_message(msg, module=this_module, procedure='mflow_newton')
-                  call pipe%init_flow(dpds_tmp, Wo)
+                  ! iterate in case the forcing is too low the first time around
+                  is_new_solution = .false.
+                  do while (.not. is_new_solution)
+                     ! Set flow parameters
+                     dpds_tmp = 0.0_dp
+                     fpert(i) = -sign(fpert(i), mf_err(i)) ! take the step in the direction of the root
+                     if (i == 1) then
+                        dpds_tmp(1) = fpert(1)
+                     else
+                        j = 2*(i-1)
+                        dpds_tmp(j  ) = cos(phase(i))*fpert(i)
+                        dpds_tmp(j+1) = sin(phase(i))*fpert(i)
+                     end if
+                     write(msg,'(A,A,A,*(1X,F16.10))') step_id, coef_id, padl('old frc:',pad), dpds(:nmf)
+                     call nek_log_message(msg, module=this_module, procedure='mflow_newton')
+                     write(msg,'(A,A,A,*(1X,F16.10))') step_id, coef_id, padl('prt frc:',pad), dpds_tmp
+                     call nek_log_message(msg, module=this_module, procedure='mflow_newton')
+                     dpds_tmp = dpds_tmp + dpds(:nmf)
+                     write(msg,'(A,A,A,*(1X,F16.10))') step_id, coef_id, padl('new frc:',pad), dpds_tmp
+                     call nek_log_message(msg, module=this_module, procedure='mflow_newton')
+                     call pipe%init_flow(dpds_tmp, Wo)
                   
-                  ! reset baseflow
-                  call bf%zero(); call bf%add(ref)
-                  ! Run Newton-Krylov solver to find baseflow of perturbed system
-                  call newton_fixed_point_iteration(sys, bf, tol_df, tol_mode)
+                     ! reset baseflow
+                     call bf%zero(); call bf%add(ref)
+                     ! Run Newton-Krylov solver to find baseflow of perturbed system
+                     call newton_fixed_point_iteration(sys, bf, tol_df, tol_mode, is_new_solution=is_new_solution)
+
+                     ! increase perturbation amplitude if newton exited without iteration
+                     if (.not. is_new_solution) then
+                        fpert(i) = 10*fpert(i)
+                        write(msg,'(A,I0,A,F16.10)') 'Perturbation is too small for component ', i, ': Reset |df| = ', fpert(i)
+                        call nek_log_message(msg, module=this_module, procedure='mflow_newton')
+                     end if
+                  end do
                   call pipe%get_mflow_fft(mflow_new, if_amplitude=.true.)
 
                   ! get difference and compute gradient
@@ -277,11 +287,11 @@
                mf_err = mflow_old(:nmf) - mflow_target
                ! stamp logfile
                call nek_log_information(step_id//'Final state:', module=this_module, procedure='mflow_newton')
-               write(msg,fmt1) step_id//'mf_state = ', mflow_old(:nmf) , ' | ext= ', mflow_old(:nmf+1:5) 
+               write(msg,'(A,*(1X,F16.10))') step_id//'mf_state = ', mflow_old(:nmf)
                call nek_log_information(msg, module=this_module, procedure='mflow_newton')
-               write(msg,fmt2) step_id//'mf_target= ', mflow_target, ' | tol= ', tol_mf
+               write(msg,fmt) step_id//'mf_target= ', mflow_target, ' | tol= ', tol_mf
                call nek_log_information(msg, module=this_module, procedure='mflow_newton')
-               write(msg,fmt2) step_id//'mf_error = ', mf_err, ' | sum= ', sum(abs(mf_err))
+               write(msg,fmt) step_id//'mf_error = ', mf_err, ' | sum= ', sum(abs(mf_err))
                call nek_log_information(msg, module=this_module, procedure='mflow_newton')
                ! convergence check
                if (sum(abs(mf_err)) < tol_mf) then

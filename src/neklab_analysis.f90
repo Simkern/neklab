@@ -13,6 +13,7 @@
          use LightKrylov_Timing, only: timer => global_lightkrylov_timer
          use LightKrylov_AbstractVectors, only: abstract_vector_rdp
          use LightKrylov_AbstractSystems, only: abstract_system_rdp
+         use LightKrylov_Utils, only: newton_dp_metadata
          use neklab_vectors
          use neklab_linops
          use neklab_utils
@@ -140,7 +141,7 @@
             return
          end subroutine transient_growth_analysis_fixed_point
       
-         subroutine newton_fixed_point_iteration(sys, bf, tol, tol_mode)
+         subroutine newton_fixed_point_iteration(sys, bf, tol, tol_mode, is_new_solution)
             class(abstract_system_rdp), intent(inout) :: sys
       !! System for which a fixed point is sought
             class(abstract_vector_rdp), intent(inout) :: bf
@@ -148,11 +149,15 @@
             real(dp), intent(inout) :: tol
       !! Absolute tolerance for the Newton solver
             integer, optional, intent(in) :: tol_mode
+      !! constant or dynamic tolerances?
+            logical, optional, intent(out) :: is_new_solution
+      !! optional flag to return whether the intial condition is a fixed point (and no new solution is computed)
       
       ! Misc
             integer :: info, tol_mode_
             type(newton_dp_opts) :: opts
             character(len=3) :: file_prefix
+            type(newton_dp_metadata) :: meta
       
 		      tol_mode_ = optval(tol_mode, 1)
 
@@ -163,9 +168,9 @@
       
       ! Call to LightKrylov.
             if (tol_mode_ == 1) then
-               call newton(sys, bf, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_constant_tol)
+               call newton(sys, bf, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_constant_tol, meta=meta)
             else
-		         call newton(sys, bf, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_dynamic_tol)
+		         call newton(sys, bf, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_dynamic_tol, meta=meta)
 		      end if
       
       ! Outpost initial condition.
@@ -179,6 +184,10 @@
             class default
                call nek_stop_error('bf is of unrecognized type!', module=this_module, procedure='newton_fixed_point_iteration')
             end select
+
+            if (present(is_new_solution)) then
+               is_new_solution = meta%new_solution
+            end if
 
 		      call logger%log_message('Exiting newton iteration.', module=this_module)
       

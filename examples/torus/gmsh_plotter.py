@@ -20,7 +20,7 @@ def compute_bisector(xt, yt, xb, yb):
    ur = np.array([ ux, uy])
    return ul, ur, norm
 
-def plot_gmsh(geom, half=False, aux1=False, aux2=False, hlines=False):
+def plot_gmsh(geom, half=False, aux1=False, aux2=False, hlines=False, print_pts=False):
    # Extract data
    R, rt, rb, RBt, RBb, tht, thb, lambda1t, lambda1b, lambda2, dyc = geom.values()
 
@@ -65,13 +65,14 @@ def plot_gmsh(geom, half=False, aux1=False, aux2=False, hlines=False):
    ul, ur, norm = compute_bisector(dxt, dyt, dxb, dyb)
    h   = norm/2.0
    L   = np.sqrt((lRs + ra)**2 - h**2) # distance along bisector
-   print(f'xm = {xm}')
-   print(f'ym = {ym}')
-   print(f'n  = {norm}')
-   print(f'h  = {h}')
-   print(f'ur = {ur}')
-   print(f'ul = {ul}')
-   print(f'L  = {L}')
+   if print_pts:
+      print(f'xm = {xm}')
+      print(f'ym = {ym}')
+      print(f'n  = {norm}')
+      print(f'h  = {h}')
+      print(f'ur = {ur}')
+      print(f'ul = {ul}')
+      print(f'L  = {L}')
 
    # midpoint tb2
    xmB = (dxBt + dxBb)/2.0
@@ -82,13 +83,14 @@ def plot_gmsh(geom, half=False, aux1=False, aux2=False, hlines=False):
    ulB, urB, normB = compute_bisector(dxBt, dyBt, dxBb, dyBb)
    hB   = normB/2.0
    LB   = np.sqrt(RBb**2 - hB**2) # distance along bisector
-   print(f'xmB = {xmB}')
-   print(f'ymB = {ymB}')
-   print(f'nB  = {normB}')
-   print(f'hB  = {hB}')
-   print(f'urB = {urB}')
-   print(f'ulB = {ulB}')
-   print(f'LB  = {LB}')
+   if print_pts:
+      print(f'xmB = {xmB}')
+      print(f'ymB = {ymB}')
+      print(f'nB  = {normB}')
+      print(f'hB  = {hB}')
+      print(f'urB = {urB}')
+      print(f'ulB = {ulB}')
+      print(f'LB  = {LB}')
 
    points_aux2 = np.array([
          mr,
@@ -178,37 +180,38 @@ def plot_gmsh(geom, half=False, aux1=False, aux2=False, hlines=False):
    bline1 = np.array(b1)
    hline1 = np.array(l1)
 
-   p = -points_block[0]
-   pc = (p[0] +1j*p[1])/np.linalg.norm(p)
-   p = points_block[0] - points_aux[3]
-   p1 = (p[0] +1j*p[1])/np.linalg.norm(p)
-   p = points_block[0] - points_aux[2]
-   p2 = (p[0] +1j*p[1])/np.linalg.norm(p)
-   print(f'pc = {pc}')
-   print(f'p1 = {p1}')
-   print(f'p2 = {p2}')
-   q1 = np.real(np.dot(pc,p1))
-   q2 = np.real(np.dot(p2,pc))
-   print(f'cosa = {q1}')
-   print(f'cosb = {q2}')
-   print(f'a = {np.arccos(q1)*360/(2*np.pi)}')
-   print(f'b = {180-np.arccos(q2)*360/(2*np.pi)}')
+   if print_pts:
+      p = -points_block[0]
+      pc = (p[0] +1j*p[1])/np.linalg.norm(p)
+      p = points_block[0] - points_aux[3]
+      p1 = (p[0] +1j*p[1])/np.linalg.norm(p)
+      p = points_block[0] - points_aux[2]
+      p2 = (p[0] +1j*p[1])/np.linalg.norm(p)
+      print(f'pc = {pc}')
+      print(f'p1 = {p1}')
+      print(f'p2 = {p2}')
+      q1 = np.real(np.dot(pc,p1))
+      q2 = np.real(np.dot(p2,pc))
+      print(f'cosa = {q1}')
+      print(f'cosb = {q2}')
+      print(f'a = {np.arccos(q1)*360/(2*np.pi)}')
+      print(f'b = {180-np.arccos(q2)*360/(2*np.pi)}')
 
-   p = -points_block[1]
-   pc = (p[0] +1j*p[1])/np.linalg.norm(p)
-   p = points_block[1] - points_aux[3]
-   p1 = (p[0] +1j*p[1])/np.linalg.norm(p)
-   p = points_block[1] - points_aux[4]
-   p2 = (p[0] +1j*p[1])/np.linalg.norm(p)
-   print(f'pc = {pc}')
-   print(f'p1 = {p1}')
-   print(f'p2 = {p2}')
-   q1 = np.real(np.dot(pc,p1))
-   q2 = np.real(np.dot(p2,pc))
-   print(f'cosa = {q1}')
-   print(f'cosb = {q2}')
-   print(f'a = {np.arccos(q1)*360/(2*np.pi)}')
-   print(f'b = {180-np.arccos(q2)*360/(2*np.pi)}')
+      p = -points_block[1]
+      pc = (p[0] +1j*p[1])/np.linalg.norm(p)
+      p = points_block[1] - points_aux[3]
+      p1 = (p[0] +1j*p[1])/np.linalg.norm(p)
+      p = points_block[1] - points_aux[4]
+      p2 = (p[0] +1j*p[1])/np.linalg.norm(p)
+      print(f'pc = {pc}')
+      print(f'p1 = {p1}')
+      print(f'p2 = {p2}')
+      q1 = np.real(np.dot(pc,p1))
+      q2 = np.real(np.dot(p2,pc))
+      print(f'cosa = {q1}')
+      print(f'cosb = {q2}')
+      print(f'a = {np.arccos(q1)*360/(2*np.pi)}')
+      print(f'b = {180-np.arccos(q2)*360/(2*np.pi)}')
 
    # Circle connections (correspond to the given circle definitions)
    if (half):

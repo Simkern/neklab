@@ -1,8 +1,6 @@
-import sys, os, re
-import copy
+import sys, os, shutil, time
+import subprocess
 import numpy as np
-from itertools import product
-import matplotlib.pyplot as plt
 from gmsh_plotter import compute_bisector
 
 # Function to create Point
@@ -29,6 +27,69 @@ def create_transfinite_line(lines, nc, progression=None, bump=None):
 # Function to create Line Loop and Plane Surface
 def create_line_loop_surface(il, lines, surface_name):
     return f"Line Loop({il})={{ {', '.join(map(str, lines))} }};   Plane Surface({surface_name})={{ {surface_name} }};"
+
+def generate_mesh(geom_params, mesh_params, fldr, basename, is_half, confirm=False):
+
+    mkscript = 'mkmsh.sh'
+    geoname = basename+'.geo'
+    filename = os.path.join(fldr,geoname)
+
+    if os.path.exists(filename):
+        overwrite_input = input(f"The file '{filename}' already exists. Do you want to overwrite it? (yes/no) [y]: ")
+        if overwrite_input.lower() not in ['', 'y', 'yes']:
+            print("\tFile will not be overwritten. Aborting script generation.")
+            sys.exit(1)
+
+    generate_gmsh_script(geom_params, mesh_params, half=is_half, meshDim=2, filename=filename)
+
+    if confirm:
+        # Prompt to run GMSH
+        run_input = input(f"Do you want to visualize the mesh in '{filename}'? (y/n) [n]: ")
+    else:
+        run_input = 'n'
+    
+    if run_input.lower() in ['y', 'yes']:
+        try:
+            # Run GMSH with the generated script
+            subprocess.run(['gmsh', filename], check=True)
+            print(f"\tGMSH ran successfully with the script '{filename}'.")
+        except subprocess.CalledProcessError as e:
+            print(f"Error running GMSH: {e}")
+            sys.exit(1)
+
+    if confirm:
+        # Prompt to run GMSH
+        run_input = input(f"Do you want to save the GMSH mesh from script '{filename}'? (y/n) [y]: ")
+    else:
+        run_input = 'y'
+    
+    if run_input.lower() in ['', 'y', 'yes']:
+        try:
+            # Run GMSH with the generated script
+            with open("out_gmsh.txt", "w") as log_file:
+                # Run the command and pipe stdout and stderr to the logfile
+                subprocess.run(['gmsh', filename, '-2'], stdout=log_file, stderr=log_file, check=True)
+            print(f"\tGMSH ran successfully with the script '{filename}'.")
+        except subprocess.CalledProcessError as e:
+            print(f"Error running GMSH: {e}")
+            sys.exit(1)
+
+    if confirm:
+        # Ask whether to prepare the mesh
+        prepare_mesh_input = input(f"Do you want to prepare the mesh to run by executing 'bash {mkscript} {basename}'? (yes/no) [y]: ")
+    else:
+        prepare_mesh_input = 'y'
+
+    if prepare_mesh_input.lower() in ['', 'y', 'yes']:
+        # Check if the folder exists
+        if os.path.exists(fldr):
+            try:
+                # Change directory to folder and run the bash script
+                subprocess.run(['bash', mkscript, basename], cwd=fldr, check=True)
+                print(f"\tMesh preparation script {mkscript} ran successfully with '{basename}'.")
+            except subprocess.CalledProcessError as e:
+                print(f"Error running {mkscript}: {e}")
+                sys.exit(1)
 
 def generate_gmsh_script(geom, mesh, half=False, meshDim=2, filename="pipe_mesh.geo"):
     # Extract data

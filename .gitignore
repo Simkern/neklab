@@ -75,4 +75,7 @@ examples/**/*.f
 **/mesh_test/*test
 **/test2D*
 **/test3D*
+**/logfile.txt
+**/build.txt
+**/out_gmsh.txt
 

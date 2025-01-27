@@ -62,8 +62,10 @@ c-----------------------------------------------------------------------
          call nek2vec(bf, vx, vy, vz, pr, t)
          call outpost(vx, vy, vz, pr, t, 'msh')
 
+         call pipe%outpost_2d_fields('m', 1, only_mesh=.true.)
+
          call setup_nonlinear_solver(recompute_dt = .true., 
-     $                                endtime     = 1.0d0,
+     $                                endtime     = 0.1d0,
      $                                cfl_limit   = 0.4_dp)
          call compute_nonlinear_period_torus(ref, bf, save_2d = .false., variable_dt = .false., if_fft = .true., if_res = .true.)
 

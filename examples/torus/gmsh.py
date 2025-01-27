@@ -1,8 +1,10 @@
-import sys, os, shutil, time
-import subprocess
+import sys, argparse, os
 import numpy as np
-from gmsh_writer import generate_gmsh_script
+import matplotlib.pyplot as plt
+from gmsh_writer import generate_mesh
+from gmsh_tester import prepare_test, test_mesh
 from gmsh_plotter import plot_gmsh
+from plot_2d_data import plot_2d_mesh
 
 geom_params = {
     'R': 1.0,
@@ -33,124 +35,71 @@ is_half = True
 
 if __name__ == "__main__":
 
-    test_fldr = 'mesh_test'
-    if is_half:
-        fldr = 'geom_h'
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--chk', action='store_true', help='Request user confirmation for each step.')
+    parser.add_argument('--plt', action='store_true', help='Only plot the mesh structure.')
+
+    # Parse arguments
+    args = parser.parse_args()
+
+    get_confirmation = False
+    plot = False
+
+    if len(sys.argv) == 1:
+        get_confirmation = False
+        plot = False
+    elif not args.plt and not args.chk:
+        # If any other argument is provided, print an error message and exit
+        print("Error: Invalid argument provided.")
+        print("Usage: p gmsh.py [chk|plt]")
+        sys.exit(1)
+
+    fldr   = 'geom'
+    fldr_h = 'geom_h'
+    basename2 = 'test2D'
+    basename3 = 'test3D'
+
+    if args.plt:
+        plot_gmsh(geom_params, half=is_half, aux1=True, aux2=True, hlines=True)
     else:
-        fldr = 'geom'
-    mkscript = 'mkmsh.sh'
-    basename = 'test2D'
-    geoname = basename+'.geo'
-    filename = os.path.join(fldr,geoname)
+        if args.chk:
+            plot_gmsh(geom_params, half=is_half, aux1=True, aux2=True, hlines=True)
 
-    plot_gmsh(geom_params, half=is_half, aux1=True, aux2=True, hlines=True)
-   
-    user_input = input(f"Do you want to generate the GMSH script with the filename '{filename}'? (y/n): ")
-    if user_input.lower() in ['', 'y', 'yes']:
+            user_input = input(f"Do you want to generate the GMSH script'? (y/n): ")
+            if user_input.lower() in ['', 'y', 'yes']:
+                generate_mesh(geom_params, mesh_params, fldr_h, basename2, is_half=True, confirm=True)
+                generate_mesh(geom_params, mesh_params, fldr,   basename2, is_half=False, confirm=True)
+            
+            test_mesh_input = input(f"Do you want to test the mesh by running the necessary operations? (yes/no) [y]: ")
+            if test_mesh_input.lower() in ['', 'y', 'yes']:
+                prepare_test(mesh_params, fldr_h, basename3, is_half=True)
+                prepare_test(mesh_params, fldr,   basename3, is_half=False)
 
-        if os.path.exists(filename):
-            overwrite_input = input(f"The file '{filename}' already exists. Do you want to overwrite it? (yes/no) [y]: ")
-            if overwrite_input.lower() not in ['', 'y', 'yes']:
-                print("File will not be overwritten. Aborting script generation.")
-                sys.exit(0)
+            nekbmpi_input = input(f"Do you want to run the mesh tests? (yes/no) [y]: ")
+            if nekbmpi_input.lower() in ['', 'y', 'yes']:
+                test_mesh(fldr_h)
+                test_mesh(fldr)
+        else:
+            print('\nGenerate mesh and test for full cross-section:\n')
+            generate_mesh(geom_params, mesh_params, fldr,   basename2, is_half=False, confirm=False)
+            prepare_test(mesh_params, fldr,   basename3, is_half=False)
+            test_mesh(fldr)
+            print('\nGenerate mesh and test for half cross-section:\n')
+            generate_mesh(geom_params, mesh_params, fldr_h, basename2, is_half=True, confirm=False)
+            prepare_test(mesh_params, fldr_h, basename3, is_half=True)
+            test_mesh(fldr_h)
 
-        generate_gmsh_script(geom_params, mesh_params, half=is_half, meshDim=2, filename=filename)
-
-        # Prompt to run GMSH
-        run_input = input(f"Do you want to visualize the mesh in '{filename}'? (y/n) [n]: ")
-        
-        if run_input.lower() in ['y', 'yes']:
-            try:
-                # Run GMSH with the generated script
-                subprocess.run(['gmsh', filename], check=True)
-                print(f"GMSH ran successfully with the script '{filename}'.")
-            except subprocess.CalledProcessError as e:
-                print(f"Error running GMSH: {e}")
-
-        # Prompt to run GMSH
-        run_input = input(f"Do you want to save the GMSH mesh from script '{filename}'? (y/n) [y]: ")
-        
-        if run_input.lower() in ['', 'y', 'yes']:
-            try:
-                # Run GMSH with the generated script
-                subprocess.run(['gmsh', filename, '-2'], check=True)
-                print(f"GMSH ran successfully with the script '{filename}'.")
-            except subprocess.CalledProcessError as e:
-                print(f"Error running GMSH: {e}")
-
-        # Ask whether to prepare the mesh
-        prepare_mesh_input = input(f"Do you want to prepare the mesh to run by executing 'bash {mkscript} {basename}'? (yes/no) [y]: ")
-        if prepare_mesh_input.lower() in ['', 'y', 'yes']:
-            # Check if the folder exists
-            if os.path.exists(fldr):
-                try:
-                    # Change directory to folder and run the bash script
-                    subprocess.run(['bash', mkscript, basename], cwd=fldr, check=True)
-                    print(f"Mesh preparation script {mkscript} ran successfully with '{basename}'.")
-                except subprocess.CalledProcessError as e:
-                    print(f"Error running {mkscript}: {e}")
-        
-        test_mesh_input = input(f"Do you want to test the mesh by running the necessary operations? (yes/no) [y]: ")
-        if test_mesh_input.lower() in ['', 'y', 'yes']:
-            # Check if the mesh_test folder exists
-            tfldr = os.path.join(fldr, test_fldr)
-            Nh = mesh_params['Nch'] - 1
-            Nv = mesh_params['Ncv'] - 1
-            NB = mesh_params['NB']
-            NM = mesh_params['NM'] - 1
-            nelf = Nh*Nv + 2*NM*(Nh+Nv) + 2*NB*(Nh+Nv)
-            if is_half:
-                nelf = int(nelf/2.0)
-            nel = 5*nelf
-            if os.path.exists(tfldr):
-                try:
-                    # Navigate to mesh_test folder
-                    # Verbose copy from ../test3D.re2 and ../test3D.ma2 to torus.re2 and torus.ma2
-                    ffile=os.path.join(fldr,'test3D')
-                    tfile=os.path.join(tfldr,'torus')
-                    for ext in ['.re2', '.ma2']:
-                        shutil.copy2(ffile+ext, tfile+ext)
-                        print(f"{ffile+ext} -> {tfile+ext}")
-
-                    # Modify the SIZE file to replace 'lelg=540' with new value
-                    ffile=os.path.join(tfldr,'SIZE_ref')
-                    tfile=os.path.join(tfldr,'SIZE')
-                    with open(ffile, 'r') as file:
-                        content = file.read()
-                    content = content.replace('parameter (lelg=540)', f'parameter (lelg={nel})')
-                    with open(tfile, 'w') as file:
-                        file.write(content)
-                    print(f"SIZE file updated with lelg = {nel}.")
-
-                    # Modify the torus.usr file to replace 'nelf=54' with new value
-                    ffile=os.path.join(tfldr,'torus.usr_ref')
-                    tfile=os.path.join(tfldr,'torus.usr')
-                    with open(ffile, 'r') as file:
-                        content = file.read()
-                    content = content.replace('integer, parameter :: nelf     = 54', f'integer, parameter :: nelf     = {nelf}')
-                    if is_half:
-                        content = content.replace("!call setbc(2,1,'SYM')", f"call setbc(2,1,'SYM')")
-                        content = content.replace('logical, parameter :: if_sym   = .false.', f'logical, parameter :: if_sym   = .true.')
-                    with open(tfile, 'w') as file:
-                        file.write(content)
-                    print(f"SIZE file updated with nelf = {nelf}.")
-
-                    # Run mnl in the shell
-                    print("run makeneklab ...")
-                    subprocess.run(['makeneklab > build.txt'], cwd=tfldr, check=True)
-                    print("done.")
-                except subprocess.CalledProcessError as e:
-                    print(f"Error running mesh test: {e}")
-                except FileNotFoundError as e:
-                    print(f"File not found error: {e}")
-
-        nekbmpi_input = input(f"Do you want to run the test? (yes/no) [y]: ")
-        if nekbmpi_input.lower() in ['', 'y', 'yes']:
-            try:
-                # Run nekbmpi with 'torus 12'
-                subprocess.run(['bash', '-c', 'nekmpi torus 12'], cwd=tfldr, check=True)
-                print("Running 'nekmpi torus 12'...")
-
-            except subprocess.CalledProcessError as e:
-                print(f"Error running 'nekmpi torus 12': {e}")
-    
+    pattern = 'm2dtorus'
+    runfldr   = os.path.join(fldr,   'mesh_test')
+    runfldr_h = os.path.join(fldr_h, 'mesh_test')
+    fname = pattern+'001.fld'
+    if os.path.exists(os.path.join(runfldr,fname)) and os.path.exists(os.path.join(runfldr_h,fname)):
+        # Create the figure and axis
+        fig, ax = plt.subplots(1, 2, figsize=(20,8))
+        ax[0].set_title('Full mesh')
+        plot_2d_mesh(ax[0], pattern, only_edges=False, cwd=runfldr)
+        ax[1].set_title('Half mesh')
+        plot_2d_mesh(ax[1], pattern, only_edges=False, cwd=runfldr_h)
+        plt.show()
+    else:
+        print('Files not found')

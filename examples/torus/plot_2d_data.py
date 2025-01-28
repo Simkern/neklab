@@ -34,31 +34,28 @@ def plot_2d_fld(ax, x, y, fld, istep=0, draw_elements=False, draw_mesh=False):
     if not draw_mesh:
         only_edges=True
 
-    dvmin = 1000
-    dvmax = 0
-    for i in range(nelf):
-        dvmin = min(dvmin, (fld[:,:,i,istep]).min())
-        dvmax = max(dvmax, (fld[:,:,i,istep]).max())
+    vmin = fld[:,:,:,istep].min()
+    vmax = fld[:,:,:,istep].max()
 
     for i in range(nelf):
         xi = np.squeeze(x[:,:,i])
         yi = np.squeeze(y[:,:,i])
         vxi = np.squeeze(fld[:,:,i,istep])
-        ax.contourf(xi, yi, vxi, vmin=dvmin, vmax=dvmax)
+        c = ax.contourf(xi, yi, vxi, vmin=vmin, vmax=vmax)
         if draw_elements:
             plot_element(ax, xi, yi, only_edges)
     ax.set_aspect('equal', 'box')
+    fig = plt.gcf()
+    c.set_clim(vmin, vmax)
+    cbar = fig.colorbar(c, ax=ax)
 
 def animate_2d_fld(ax, x, y, fld, step=80):
 
     # Initialize the variables to store vmin and vmax for coloring
-    dvmin = 1000
-    dvmax = 0
     nelf = x.shape[-1]
     nsteps = fld.shape[-1]
-    for i in range(nelf):
-        dvmin = min(dvmin, (fld[:,:,i,:]).min())
-        dvmax = max(dvmax, (fld[:,:,i,:]).max())
+    dvmin = fld.min()
+    dvmax = fld.max()
 
     # Define the update function for the animation
     for k in range(4):
@@ -76,7 +73,7 @@ def animate_2d_fld(ax, x, y, fld, step=80):
 
             # Add a color bar to the figure (only once)
             if j == 0 and k == 0:
-                plt.colorbar(contour, ax= ax)
+                plt.colorbar(contour, ax=ax)
                 ax.set_aspect('equal', 'box')
 
             ax.set_title(f'Plot {j + 1} of {nsteps}')  # Display current plot number (1-based index)

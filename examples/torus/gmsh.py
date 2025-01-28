@@ -1,4 +1,4 @@
-import sys, argparse, os
+import sys, argparse, os, json
 import numpy as np
 import matplotlib.pyplot as plt
 from gmsh_writer import generate_mesh
@@ -58,8 +58,16 @@ if __name__ == "__main__":
 
     fldr   = 'geom'
     fldr_h = 'geom_h'
+    param_fldr = 'mesh_params'
     basename2 = 'test2D'
     basename3 = 'test3D'
+
+    params = {
+        'geom_params': geom_params,
+        'mesh_params': mesh_params
+    }
+    with open(os.path.join(param_fldr,basename2+'.json'), 'w') as file:
+        json.dump(params, file, indent=4)
 
     if args.plt:
         plot_gmsh(geom_params, half=is_half, aux1=True, aux2=True, hlines=True)

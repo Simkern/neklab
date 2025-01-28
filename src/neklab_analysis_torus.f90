@@ -275,7 +275,7 @@
                ! Update forcing
                call nek_log_message('Forcing prior to Newton step:', module='neklab_helix')
                call pipe%forcing_summary()
-               call pipe%init_flow(dpds, Wo)
+               call pipe%init_flow(dpds(:nmf), Wo)
                !
                ! Take Newton step for the forcing and compute periodic orbit
                !

@@ -196,10 +196,11 @@
                logical, optional, intent(in) :: if_debug
             end subroutine init_geom
 
-            module subroutine init_flow(self, dpds, womersley)
+            module subroutine init_flow(self, dpds, womersley, reset_nf)
                class(helix), intent(inout) :: self
                real(dp), intent(in) :: dpds(:)
                real(dp), optional, intent(in) :: womersley
+               logical, optional, intent(in) :: reset_nf
             end subroutine init_flow
 
             module subroutine reset_newton(self)

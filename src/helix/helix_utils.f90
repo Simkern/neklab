@@ -209,16 +209,27 @@
 
          module procedure init_flow
             integer :: i, n
+            logical :: reset_nf_
             character(len=128) :: msg
             pi = 4.0_dp*atan(1.0_dp)
             self%womersley = optval(womersley, 0.0_dp)
-            n= size(dpds)
+            reset_nf_ = optval(reset_nf, .false.)
+            n = size(dpds)
             write(msg,'(A,I0,A)') 'nf = ', n, ' forcing components provided.'
             call nek_log_information(msg, this_module, 'init_flow')
-            if (n /= self%nf) then
+            if (self%nf == 0) then
                self%nf = n
-               write(msg,'(A,I0)') 'Number of considered forcing components reset to nf = ', self%nf
-               call nek_log_warning(msg, this_module, 'init_flow')
+               write(msg,'(A,I0)') 'Number of considered forcing components set to nf = ', self%nf
+               call nek_log_message(msg, this_module, 'init_flow')
+            else if (reset_nf) then
+               if (n /= self%nf) then
+                  self%nf = n
+                  write(msg,'(A,I0)') 'Number of considered forcing components reset to nf = ', self%nf
+                  call nek_log_warning(msg, this_module, 'init_flow')
+               else
+                  write(msg,'(A,I0)') 'Number of considered forcing components unchanged. nf = ', self%nf
+                  call nek_log_information(msg, this_module, 'init_flow')
+               end if
             end if
             if (self%womersley /= 0.0_dp) then
                self%if_steady = .false.

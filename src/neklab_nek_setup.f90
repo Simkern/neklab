@@ -426,8 +426,12 @@
             ! internal
             character(len=128) :: mod, pfx, prc
             pfx = optval(trim(prefix), '')
-            mod = optval(trim(module)//' %', '')
             prc = optval(trim(procedure)//' :', '')
+            if (present(procedure)) then
+               mod = optval(trim(module)//' %', '')
+            else
+               mod = optval(trim(module), '')
+            end if
             fmt_string = trim(pfx)//' '//trim(mod)//' '//trim(prc)
             write(fmt,'("(",A,",1X,A)")') '"'//adjustl(trim(fmt_string))//'"'
          end function default_fmt
@@ -441,9 +445,7 @@
             common /RES_WANT/ nopen
             ! function
             integer :: i_find_prefix
-      
       !     change prepost.f line 1094 from "save nopen" to "common /RES_WANT/ nopen"
-      
             iprefix          = i_find_prefix(file_prefix,99)
             nopen(iprefix,1) = fldindex - 1
          end subroutine set_fldindex

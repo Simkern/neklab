@@ -37,8 +37,7 @@ Nch=11;  // no. of nodes (=#elem+1) in azimuthal direction    # 12 16
 Ncv=11;  // no. of nodes (=#elem+1) in azimuthal direction    # 12 16
 NB=1;   // no. of elemtns adjacent to the wall
 NM=5;   // no. of nodes (=#elem+1) between the near wall layer and central square part # 5 7
-Nc2=6;
-     // NM=8 for old version of mesh in gmsh
+Nc2=6; // NM=8 for old version of mesh in gmsh
 // compression ratios over the radial lines of the mesh
 compressRatio_B=0.6;  //ratio of grid compression toward the wall (<1)
 compressRatio_M=0.95;  //compression ratio in the middle layer
@@ -60,50 +59,69 @@ dyBb=RBb*Sin(thb);
 Dxb=R*Cos(thb);
 Dyb=R*Sin(thb);
 Dyxb=Hypot(dyb + lambda1b*R, dxb) - lambda1b*R;
-//***** define points coordinates
-//auxiliary points (only help define the geometry)
-Point(1) = {0, 0, 0, 1.0};
-Point(2) = {0.6161914625146543, -0.08040977798980793, 0, 1.0};
-Point(3) = {0, -lambda1t*R, 0, 1.0};
-Point(4) = {-0.6161914625146543, -0.08040977798980793, 0, 1.0};
-Point(5) = {0, lambda1b*R, 0, 1.0};
-Point(6) = {0, -dyc, 0, 1.0};
-Point(7) = {0.017214092452766394, -0.010184269096062515, 0, 1.0};
-Point(8) = {-0.017214092452766394, -0.010184269096062515, 0, 1.0};
+//***** define point coordinates
 
-//blocks vertices
-Point(9) = {dxt, dyt, 0.0, 1.0};
-Point(10) = {dxb, -dyb, 0.0, 1.0};
-Point(11) = {0.0, -Dyxb, 0.0, 1.0};
-Point(12) = {0.0, Dyxt, 0.0, 1.0};
-Point(13) = {dxBt, dyBt, 0.0, 1.0};
-Point(14) = {dxBb, -dyBb, 0.0, 1.0};
-Point(15) = {0.0, -RBb, 0.0, 1.0};
-Point(16) = {0.0, RBC, 0.0, 1.0};
-Point(17) = {Dxt, Dyt, 0.0, 1.0};
-Point(18) = {Dxb, -Dyb, 0.0, 1.0};
-Point(19) = {0.0, -R, 0.0, 1.0};
-Point(20) = {0.0,  R, 0.0, 1.0};
+// inner ring right, clockwise from top
+Point(1) = {0.0, Dyxt, 0.0, 1.0};
+Point(2) = {dxt, dyt, 0.0, 1.0};
+Point(3) = {dxb, -dyb, 0.0, 1.0};
+Point(4) = {0.0, -Dyxb, 0.0, 1.0};
+
+// middle ring right, clockwise from top
+Point(5) = {0.0, RBC, 0.0, 1.0};
+Point(6) = {dxBt, dyBt, 0.0, 1.0};
+Point(7) = {dxBb, -dyBb, 0.0, 1.0};
+Point(8) = {0.0, -RBb, 0.0, 1.0};
+
+// outer ring right, clockwise from top
+Point(9) = {0.0,  R, 0.0, 1.0};
+Point(10) = {Dxt, Dyt, 0.0, 1.0};
+Point(11) = {Dxb, -Dyb, 0.0, 1.0};
+Point(12) = {0.0, -R, 0.0, 1.0};
+
+//auxiliary points (only help define the geometry)
+// center
+Point(13) = {0, 0, 0, 1.0};
+Point(14) = {0.6161914625146543, -0.08040977798980793, 0, 1.0};
+Point(15) = {0, -lambda1t*R, 0, 1.0};
+Point(16) = {-0.6161914625146543, -0.08040977798980793, 0, 1.0};
+Point(17) = {0, lambda1b*R, 0, 1.0};
+Point(18) = {0, -dyc, 0, 1.0};
+Point(19) = {0.017214092452766394, -0.010184269096062515, 0, 1.0};
+Point(20) = {-0.017214092452766394, -0.010184269096062515, 0, 1.0};
 
 //***** define lines and curves
-Circle(1)={12, 3, 9};
-Circle(2)={9, 4, 10};
-Circle(3)={10, 5, 11};
-Circle(4)={16, 6, 13};
-Circle(5)={13, 8, 14};
-Circle(6)={14, 1, 15};
-Circle(7)={20, 1, 17};
-Circle(8)={17, 1, 18};
-Circle(9)={18, 1, 19};
-Line(10)={ 9, 13 };
-Line(11)={ 10, 14 };
-Line(12)={ 11, 15 };
-Line(13)={ 12, 16 };
-Line(14)={ 13, 17 };
-Line(15)={ 14, 18 };
-Line(16)={ 15, 19 };
-Line(17)={ 16, 20 };
-Line(18)={ 11, 12 };
+
+// inner ring right clockwise from top
+Circle(1)={1, 15, 2};
+Circle(2)={2, 16, 3};
+Circle(3)={3, 17, 4};
+
+// middle ring right clockwise from top
+Circle(4)={5, 18, 6};
+Circle(5)={6, 20, 7};
+Circle(6)={7, 13, 8};
+
+// outer ring right clockwise from top
+Circle(7)={9, 13, 10};
+Circle(8)={10, 13, 11};
+Circle(9)={11, 13, 12};
+
+
+// // lines in middle segment clockwise from top going outward
+Line(10)={ 1, 5 };
+Line(11)={ 2, 6 };
+Line(12)={ 3, 7 };
+Line(13)={ 4, 8 };
+
+// lines in outer segment clockwise from top right
+Line(14)={ 5, 9 };
+Line(15)={ 6, 10 };
+Line(16)={ 7, 11 };
+Line(17)={ 8, 12 };
+
+// central line upward
+Line(18)={ 4, 1 };
 
 //***** assign number of mesh on the created lines/arcs
 Transfinite Line { 7, 4, 1, 3, 6, 9 } = Nc2;
@@ -113,17 +131,23 @@ Transfinite Line { 14, 15, 16, 17 } = NB Using Progression compressRatio_B;
 
 //***** create surfaces
 // Note: use a negative sign if a line is swept in the opposite direction of the original definition
+
+// central block
 Line Loop(1)={ 1, 2, 3, 18 };   Plane Surface(1)={ 1 };
-Line Loop(2)={ 4, -10, -1, 13 };   Plane Surface(2)={ 2 };
-Line Loop(3)={ 7, -14, -4, 17 };   Plane Surface(3)={ 3 };
-Line Loop(4)={ 2, 11, -5, -10 };   Plane Surface(4)={ 4 };
-Line Loop(5)={ 5, 15, -8, -14 };   Plane Surface(5)={ 5 };
-Line Loop(6)={ 3, 12, -6, -11 };   Plane Surface(6)={ 6 };
-Line Loop(7)={ 6, 16, -9, -15 };   Plane Surface(7)={ 7 };
+
+// middle ring
+Line Loop(2)={ 4, -11, -1, 10 };   Plane Surface(2)={ 2 };
+Line Loop(3)={ 5, -12, -2, 11 };   Plane Surface(3)={ 3 };
+Line Loop(4)={ 6, -13, -3, 12 };   Plane Surface(4)={ 4 };
+
+// outer ring
+Line Loop(5)={ 7, -15, -4, 14 };   Plane Surface(5)={ 5 };
+Line Loop(6)={ 8, -16, -5, 15 };   Plane Surface(6)={ 6 };
+Line Loop(7)={ 9, -17, -6, 16 };   Plane Surface(7)={ 7 };
 
 If (meshDim==2)
    Physical Line("wall")={7, 8, 9};
-   Physical Line("sym")={16, 12, 18, 13, 17};
+   Physical Line("sym")={14, 10, 18, 13, 17};
    Physical Surface(1)={1:7};
 EndIf
 Recombine Surface "*";

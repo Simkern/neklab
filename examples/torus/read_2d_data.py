@@ -96,6 +96,7 @@ def read_binary_file(filename, only_mesh = False, debug = False):
             'version': version,
             'if_half': if_half,
             'wdsize': wdsize,
+            'emode': emode,
             'lx1': read_int(f, emode, 1)[0],
             'ly1': read_int(f, emode, 1)[0],
             'nelf': read_int(f, emode, 1)[0],

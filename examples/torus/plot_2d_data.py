@@ -3,29 +3,46 @@ import matplotlib.pyplot as plt
 
 from read_2d_data import read_fields
 
-def plot_element(ax, x, y, only_edges=False):
+def plot_element(ax, x, y, only_edges=False, color='k'):
     l = x.shape[0]
     lm = x.shape[0] - 1
     if not only_edges:
         for i in range(lm):
-            ax.plot(x[i,:l], y[i,:l], c='k')
-            ax.plot(x[:l,i], y[:l,i], c='k')
-        c = 'r'
+            ax.plot(x[i,:l], y[i,:l], c=color)
+            ax.plot(x[:l,i], y[:l,i], c=color)
+        color = 'r'
     else:
-        c = 'k'
+        color = color
     for i in [0, lm]:
-        ax.plot(x[i,:l], y[i,:l], c=c)
-        ax.plot(x[:l,i], y[:l,i], c=c)
+        ax.plot(x[i,:l], y[i,:l], c=color)
+        ax.plot(x[:l,i], y[:l,i], c=color)
     ax.set_aspect('equal', 'box')
 
-def plot_2d_mesh(ax, x, y, only_edges=False):
+def plot_2d_mesh(ax, x, y, only_edges=False, color='k'):
 
     nelf = x.shape[-1]
     # Loop to create the contours
     for i in range(nelf):
         xi = np.squeeze(x[:,:,i])
         yi = np.squeeze(y[:,:,i])
-        plot_element(ax, xi, yi, only_edges)
+        plot_element(ax, xi, yi, only_edges, color=color)
+    ax.set_aspect('equal', 'box')
+
+def plot_2d_orientation(ax, x, y, offset=2, draw_elnum=True):
+
+    nelf = x.shape[-1]
+    xa = np.sum(x, axis=(0,1))/np.prod(x.shape[:2])
+    ya = np.sum(y, axis=(0,1))/np.prod(x.shape[:2])
+    # Loop to create the contours
+    o = offset
+    for i in range(nelf):
+        xi = np.squeeze(x[:,:,i])
+        yi = np.squeeze(y[:,:,i])
+        plot_element(ax, xi, yi, only_edges=True)
+        ax.plot(xi[o:-o,o], yi[o:-o,o],c='red',linewidth=2)
+        if draw_elnum:
+            ax.text(xa[i], ya[i], f'{i+1}', color='black', fontsize=12)
+    ax.scatter(x[o,o,:],y[o,o,:],s=30,c='red',marker='o')
     ax.set_aspect('equal', 'box')
 
 def plot_2d_fld(ax, x, y, fld, istep=0, draw_elements=False, draw_mesh=False):

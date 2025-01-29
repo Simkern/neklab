@@ -6,7 +6,7 @@ from gmsh_tester import prepare_test, test_mesh
 from gmsh_plotter import plot_gmsh
 from read_2d_data import read_fields
 from plot_2d_data import plot_2d_fld
-from sort_2d_data import symmetrize_fld
+from manipulate_2d_data import symmetrize_fld
 
 geom_params = {
     'R': 1.0,
@@ -57,7 +57,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     fldr   = 'geom'
-    fldr_h = 'geom_h'
+    fldr_h = 'geomh'
     param_fldr = 'mesh_params'
     basename2 = 'test2D'
     basename3 = 'test3D'
@@ -66,11 +66,12 @@ if __name__ == "__main__":
         'geom_params': geom_params,
         'mesh_params': mesh_params
     }
-    with open(os.path.join(param_fldr,basename2+'.json'), 'w') as file:
-        json.dump(params, file, indent=4)
 
     if args.plt:
-        plot_gmsh(geom_params, half=is_half, aux1=True, aux2=True, hlines=True)
+        plot_gmsh(geom_params, half=True, aux1=True, aux2=True, hlines=True)
+        plot_gmsh(geom_params, half=False, aux1=True, aux2=True, hlines=True)
+        plt.show()
+        sys.exit()
     else:
         if args.chk:
             plot_gmsh(geom_params, half=is_half, aux1=True, aux2=True, hlines=True)
@@ -79,7 +80,9 @@ if __name__ == "__main__":
             if user_input.lower() in ['', 'y', 'yes']:
                 generate_mesh(geom_params, mesh_params, fldr_h, basename2, is_half=True, confirm=True)
                 generate_mesh(geom_params, mesh_params, fldr,   basename2, is_half=False, confirm=True)
-            
+                with open(os.path.join(param_fldr,basename2+'.json'), 'w') as file:
+                    json.dump(params, file, indent=4)
+
             test_mesh_input = input(f"Do you want to test the mesh by running the necessary operations? (yes/no) [y]: ")
             if test_mesh_input.lower() in ['', 'y', 'yes']:
                 prepare_test(mesh_params, fldr_h, basename3, is_half=True)

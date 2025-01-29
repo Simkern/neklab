@@ -184,8 +184,7 @@ Nch={Nch};  // no. of nodes (=#elem+1) in azimuthal direction    # 12 16
 Ncv={Ncv};  // no. of nodes (=#elem+1) in azimuthal direction    # 12 16
 NB={NB};   // no. of elemtns adjacent to the wall
 NM={NM};   // no. of nodes (=#elem+1) between the near wall layer and central square part # 5 7
-Nc2={int((Nch+1)/2.0)};
-     // NM=8 for old version of mesh in gmsh
+Nc2={int((Nch+1)/2.0)}; // NM=8 for old version of mesh in gmsh
 // compression ratios over the radial lines of the mesh
 compressRatio_B={compressRatio_B};  //ratio of grid compression toward the wall (<1)
 compressRatio_M={compressRatio_M};  //compression ratio in the middle layer
@@ -199,9 +198,7 @@ dyt=rt*Sin(tht);
 dxBt=RBt*Cos(tht);
 dyBt=RBt*Sin(tht);
 Dxt=R*Cos(tht);
-Dyt=R*Sin(tht);"""
-    if (half):
-        geometry_creation += f"""
+Dyt=R*Sin(tht);
 Dyxt=Hypot(dyt + lambda1t*R, dxt) - lambda1t*R;
 RBC =Hypot(dyc + dyBt, dxBt) - dyc;"""
     geometry_creation += f"""
@@ -210,106 +207,134 @@ dyb=rb*Sin(thb);
 dxBb=RBb*Cos(thb);
 dyBb=RBb*Sin(thb);
 Dxb=R*Cos(thb);
-Dyb=R*Sin(thb);"""
-    if (half):
-        geometry_creation += f"""
+Dyb=R*Sin(thb);
 Dyxb=Hypot(dyb + lambda1b*R, dxb) - lambda1b*R;"""
 
     ipts = 0
     header = f"""
-//***** define points coordinates
-//auxiliary points (only help define the geometry)"""
-    aux_points = [ header ]
-    ipts += 1; aux_points.append(create_point(ipts,        0,            0, 0, 1.0))
-    ipts += 1; aux_points.append(create_point(ipts, paux0[0],     paux0[1], 0, 1.0))
-    ipts += 1; aux_points.append(create_point(ipts,        0,'-lambda1t*R', 0, 1.0))
-    ipts += 1; aux_points.append(create_point(ipts, paux1[0],     paux1[1], 0, 1.0))
-    ipts += 1; aux_points.append(create_point(ipts,        0, 'lambda1b*R', 0, 1.0))
-    ipts += 1; aux_points.append(create_point(ipts,        0,       '-dyc', 0, 1.0))
-    ipts += 1; aux_points.append(create_point(ipts, paux2[0],     paux2[1], 0, 1.0))
-    ipts += 1; aux_points.append(create_point(ipts, paux3[0],     paux3[1], 0, 1.0))
-
-    naux = ipts
-    header = f"""
-//blocks vertices"""
-    block_points = [ header ]
-    ipts += 1;     block_points.append(create_point(ipts, 'dxt'  , 'dyt'  , 0.0, 1.0))
-    ipts += 1;     block_points.append(create_point(ipts, 'dxb'  , '-dyb' , 0.0, 1.0))
-    if (half):
-        ipts += 1; block_points.append(create_point(ipts, 0.0 , '-Dyxb' , 0.0, 1.0))
-        ipts += 1; block_points.append(create_point(ipts, 0.0 , 'Dyxt'  , 0.0, 1.0))
-    else:
-        ipts += 1; block_points.append(create_point(ipts, '-dxb' , '-dyb' , 0.0, 1.0))
-        ipts += 1; block_points.append(create_point(ipts, '-dxt' , 'dyt'  , 0.0, 1.0))
-    ipts += 1;     block_points.append(create_point(ipts, 'dxBt' , 'dyBt' , 0.0, 1.0))
-    ipts += 1;     block_points.append(create_point(ipts, 'dxBb' , '-dyBb', 0.0, 1.0))
-    if (half):
-        ipts += 1; block_points.append(create_point(ipts, 0.0, '-RBb', 0.0, 1.0))
-        ipts += 1; block_points.append(create_point(ipts, 0.0, 'RBC' , 0.0, 1.0))
-    else:
-        ipts += 1; block_points.append(create_point(ipts, '-dxBb', '-dyBb', 0.0, 1.0))
-        ipts += 1; block_points.append(create_point(ipts, '-dxBt', 'dyBt' , 0.0, 1.0))
-    ipts += 1;     block_points.append(create_point(ipts, 'Dxt'  , 'Dyt'  , 0.0, 1.0))
-    ipts += 1;     block_points.append(create_point(ipts, 'Dxb'  , '-Dyb' , 0.0, 1.0))
-    if (half):
-        ipts += 1; block_points.append(create_point(ipts, 0.0, '-R' , 0.0, 1.0))
-        ipts += 1; block_points.append(create_point(ipts, 0.0, ' R' , 0.0, 1.0))
-    else:
-        ipts += 1; block_points.append(create_point(ipts, '-Dxb' , '-Dyb' , 0.0, 1.0))
-        ipts += 1; block_points.append(create_point(ipts, '-Dxt' , ' Dyt' , 0.0, 1.0))
-
+//***** define point coordinates"""
+    points = [ header ]
+    points.append(f"""
+// inner ring right, clockwise from top""")
+    ipts += 1; points.append(create_point(ipts,  0.0 , 'Dyxt', 0.0, 1.0))
+    ipts += 1; points.append(create_point(ipts, 'dxt'  , 'dyt'  , 0.0, 1.0))
+    ipts += 1; points.append(create_point(ipts, 'dxb'  , '-dyb' , 0.0, 1.0))
+    ipts += 1; points.append(create_point(ipts, 0.0 , '-Dyxb' , 0.0, 1.0))
+    points.append(f"""
+// middle ring right, clockwise from top""")
+    ipts += 1; points.append(create_point(ipts, 0.0, 'RBC' , 0.0, 1.0))
+    ipts += 1; points.append(create_point(ipts, 'dxBt' , 'dyBt' , 0.0, 1.0))
+    ipts += 1; points.append(create_point(ipts, 'dxBb' , '-dyBb', 0.0, 1.0))
+    ipts += 1; points.append(create_point(ipts, 0.0, '-RBb', 0.0, 1.0))
+    points.append(f"""
+// outer ring right, clockwise from top""")
+    ipts += 1; points.append(create_point(ipts, 0.0, ' R' , 0.0, 1.0))
+    ipts += 1; points.append(create_point(ipts, 'Dxt'  , 'Dyt'  , 0.0, 1.0))
+    ipts += 1; points.append(create_point(ipts, 'Dxb'  , '-Dyb' , 0.0, 1.0))
+    ipts += 1; points.append(create_point(ipts, 0.0, '-R' , 0.0, 1.0))
+    points.append(f"""
+//auxiliary points (only help define the geometry)
+// center""")
+    ipts += 1; points.append(create_point(ipts,        0,            0, 0, 1.0))
+    ipts += 1; points.append(create_point(ipts, paux0[0],     paux0[1], 0, 1.0))
+    ipts += 1; points.append(create_point(ipts,        0,'-lambda1t*R', 0, 1.0))
+    ipts += 1; points.append(create_point(ipts, paux1[0],     paux1[1], 0, 1.0))
+    ipts += 1; points.append(create_point(ipts,        0, 'lambda1b*R', 0, 1.0))
+    ipts += 1; points.append(create_point(ipts,        0,       '-dyc', 0, 1.0))
+    ipts += 1; points.append(create_point(ipts, paux2[0],     paux2[1], 0, 1.0))
+    ipts += 1; points.append(create_point(ipts, paux3[0],     paux3[1], 0, 1.0))
+    if not half:
+        header = f"""
+// left side points"""
+        points_sym = [ header ]
+        ipts += 1; points_sym.append(create_point(ipts, '-dxb' , '-dyb' , 0.0, 1.0))
+        ipts += 1; points_sym.append(create_point(ipts, '-dxt' , 'dyt'  , 0.0, 1.0))
+        ipts += 1; points_sym.append(create_point(ipts, '-dxBb', '-dyBb', 0.0, 1.0))
+        ipts += 1; points_sym.append(create_point(ipts, '-dxBt', 'dyBt' , 0.0, 1.0))
+        ipts += 1; points_sym.append(create_point(ipts, '-Dxb' , '-Dyb' , 0.0, 1.0))
+        ipts += 1; points_sym.append(create_point(ipts, '-Dxt' , ' Dyt' , 0.0, 1.0))
+       
     # Creating circles dynamically
     icl = 0
     header = f"""
 //***** define lines and curves"""
     circles = [ header ]
-    icl += 1;     circles.append(create_circle(icl, naux+4 , 3, naux+1))
-    icl += 1;     circles.append(create_circle(icl, naux+1 , 4, naux+2))
-    icl += 1;     circles.append(create_circle(icl, naux+2 , 5, naux+3))
-    if not half:
-        icl += 1; circles.append(create_circle(icl, naux+3 , 2, naux+4))
-    icl += 1;     circles.append(create_circle(icl, naux+8 , 6, naux+5))
-    icl += 1;     circles.append(create_circle(icl, naux+5 , 8, naux+6))
-    icl += 1;     circles.append(create_circle(icl, naux+6 , 1, naux+7))
-    if not half:
-        icl += 1; circles.append(create_circle(icl, naux+7 , 7, naux+8))
-    icl += 1;     circles.append(create_circle(icl, naux+12, 1, naux+9))
-    icl += 1;     circles.append(create_circle(icl, naux+9 , 1, naux+10))
-    icl += 1;     circles.append(create_circle(icl, naux+10, 1, naux+11))
-    if not half:
-        icl += 1; circles.append(create_circle(icl, naux+11, 1, naux+12))
+    circles.append(f"""
+// inner ring right clockwise from top""")
+    icl += 1; circles.append(create_circle(icl, 1, 15, 2))
+    icl += 1; circles.append(create_circle(icl, 2, 16, 3))
+    icl += 1; circles.append(create_circle(icl, 3, 17, 4))
+    circles.append(f"""
+// middle ring right clockwise from top""")
+    icl += 1; circles.append(create_circle(icl, 5, 18, 6))
+    icl += 1; circles.append(create_circle(icl, 6, 20, 7))
+    icl += 1; circles.append(create_circle(icl, 7, 13, 8))
+    circles.append(f"""
+// outer ring right clockwise from top""")
+    icl += 1; circles.append(create_circle(icl, 9, 13,10))
+    icl += 1; circles.append(create_circle(icl,10, 13,11))
+    icl += 1; circles.append(create_circle(icl,11, 13,12))
     
     # Creating lines dynamically
-    lines = [ ]
-    icl += 1;     lines.append(create_line(icl, naux+1, naux+5))
-    icl += 1;     lines.append(create_line(icl, naux+2, naux+6))
-    icl += 1;     lines.append(create_line(icl, naux+3, naux+7))
-    icl += 1;     lines.append(create_line(icl, naux+4, naux+8))
-    icl += 1;     lines.append(create_line(icl, naux+5, naux+9))
-    icl += 1;     lines.append(create_line(icl, naux+6, naux+10))
-    icl += 1;     lines.append(create_line(icl, naux+7, naux+11))
-    icl += 1;     lines.append(create_line(icl, naux+8, naux+12))
-    if (half):
-        icl += 1; lines.append(create_line(icl, naux+3, naux+4))
+    header = f"""
+
+// // lines in middle segment clockwise from top going outward"""
+    lines = [ header ]
+    icl += 1; lines.append(create_line(icl,  1,  5 ))
+    icl += 1; lines.append(create_line(icl,  2,  6 ))
+    icl += 1; lines.append(create_line(icl,  3,  7 ))
+    icl += 1; lines.append(create_line(icl,  4,  8 ))
+    lines.append(f"""
+// lines in outer segment clockwise from top right""")
+    icl += 1; lines.append(create_line(icl,  5,  9 ))
+    icl += 1; lines.append(create_line(icl,  6, 10 ))
+    icl += 1; lines.append(create_line(icl,  7, 11 ))
+    icl += 1; lines.append(create_line(icl,  8, 12 ))
+    lines.append(f"""
+// central line upward""")
+    icl += 1; lines.append(create_line(icl,  4,  1 ))
+    
+    if not half:
+        header = f"""
+// left side circles"""
+        circles_sym = [ header ]
+        icl += 1; circles_sym.append(create_circle(icl, 4, 17, 21))
+        icl += 1; circles_sym.append(create_circle(icl,21, 14, 22))
+        icl += 1; circles_sym.append(create_circle(icl,22, 15,  1))
+        icl += 1; circles_sym.append(create_circle(icl, 8, 13, 23))
+        icl += 1; circles_sym.append(create_circle(icl,23, 19, 24))
+        icl += 1; circles_sym.append(create_circle(icl,24, 18,  5))
+        icl += 1; circles_sym.append(create_circle(icl,12, 13, 25))
+        icl += 1; circles_sym.append(create_circle(icl,25, 13, 26))
+        icl += 1; circles_sym.append(create_circle(icl,26, 13,  9))
+
+        header = f"""
+// left side lines"""
+        lines_sym = [ header ]
+        icl += 1; lines_sym.append(create_line(icl, 21, 23 ))
+        icl += 1; lines_sym.append(create_line(icl, 22, 24 ))
+        icl += 1; lines_sym.append(create_line(icl, 23, 25 ))
+        icl += 1; lines_sym.append(create_line(icl, 24, 26 ))
     
     # Creating Transfinite Lines dynamically
     header = f"""
 //***** assign number of mesh on the created lines/arcs"""
-    if (half):
-        transfinite_lines = [
-            header,
-            create_transfinite_line([ 7, 4, 1, 3, 6, 9], 'Nc2'),
-            create_transfinite_line([-18, 2, 5, 8],   'Ncv', progression='compressRatio_M'),
-            create_transfinite_line([10, 11, 12, 13], 'NM', progression='compressRatio_M'),
-            create_transfinite_line([14, 15, 16, 17], 'NB', progression='compressRatio_B')
+    transfinite_lines = [
+        header,
+        create_transfinite_line([ 7, 4, 1, 3, 6, 9], 'Nc2'),
+        create_transfinite_line([-18, 2, 5, 8],   'Ncv', progression='compressRatio_M'),
+        create_transfinite_line([10, 11, 12, 13], 'NM', progression='compressRatio_M'),
+        create_transfinite_line([14, 15, 16, 17], 'NB', progression='compressRatio_B')
         ]
-    else:
-        transfinite_lines = [
-            header,
-            create_transfinite_line([ 9, 5, 1, 3, 7, 11], 'Nch'),
-            create_transfinite_line([-12, -8, -4, 2, 6, 10], 'Ncv', progression='compressRatio_M'),
-            create_transfinite_line([13, 14, 15, 16], 'NM', progression='compressRatio_M'),
-            create_transfinite_line([17, 18, 19, 20], 'NB', progression='compressRatio_B')
+    
+    if not half:
+        transfinite_lines += [
+            f"""
+//*left side""",
+            create_transfinite_line([ 27, 24, 21, 19, 22, 25 ], 'Nc2'),
+            create_transfinite_line([-20, -23, -26], 'Ncv', progression='compressRatio_M'),
+            create_transfinite_line([ 28, 29 ], 'NM', progression='compressRatio_M'),
+            create_transfinite_line([ 30, 31 ], 'NB', progression='compressRatio_B')
         ]
     
     # Creating Line Loops and Plane Surfaces dynamically
@@ -317,47 +342,60 @@ Dyxb=Hypot(dyb + lambda1b*R, dxb) - lambda1b*R;"""
 //***** create surfaces
 // Note: use a negative sign if a line is swept in the opposite direction of the original definition"""
     isf = 0
-    if (half):
-        line_loops_surfaces = [ header ]
-        isf += 1; line_loops_surfaces.append(create_line_loop_surface(isf, [1, 2, 3, 18], isf))
-        isf += 1; line_loops_surfaces.append(create_line_loop_surface(isf, [4, -10, -1, 13], isf))
-        isf += 1; line_loops_surfaces.append(create_line_loop_surface(isf, [7, -14, -4, 17], isf))
-        isf += 1; line_loops_surfaces.append(create_line_loop_surface(isf, [2, 11, -5, -10], isf))
-        isf += 1; line_loops_surfaces.append(create_line_loop_surface(isf, [5, 15, -8, -14], isf))
-        isf += 1; line_loops_surfaces.append(create_line_loop_surface(isf, [3, 12, -6, -11], isf))
-        isf += 1; line_loops_surfaces.append(create_line_loop_surface(isf, [6, 16, -9, -15], isf))
-    else:
-        line_loops_surfaces = [ header ]
-        isf += 1; line_loops_surfaces.append(create_line_loop_surface(isf, [1, 2, 3, 4], isf))
-        isf += 1; line_loops_surfaces.append(create_line_loop_surface(isf, [5, -13, -1, 16], isf))
-        isf += 1; line_loops_surfaces.append(create_line_loop_surface(isf, [13, 6, -14, -2], isf))
-        isf += 1; line_loops_surfaces.append(create_line_loop_surface(isf, [-3, 14, 7, -15], isf))
-        isf += 1; line_loops_surfaces.append(create_line_loop_surface(isf, [-16, -4, 15, 8], isf))
-        isf += 1; line_loops_surfaces.append(create_line_loop_surface(isf, [9, -17, -5, 20], isf))
-        isf += 1; line_loops_surfaces.append(create_line_loop_surface(isf, [17, 10, -18, -6], isf))
-        isf += 1; line_loops_surfaces.append(create_line_loop_surface(isf, [-7, 18, 11, -19], isf))
-        isf += 1; line_loops_surfaces.append(create_line_loop_surface(isf, [-8, 19, 12, -20], isf))
+    line_loops_surfaces = [ header ]
+    line_loops_surfaces.append(f"""
+// central block""")
+    isf += 1; line_loops_surfaces.append(create_line_loop_surface(isf, [1, 2, 3, 18], isf))
+    line_loops_surfaces.append(f"""
+// middle ring""")
+    isf += 1; line_loops_surfaces.append(create_line_loop_surface(isf, [4,-11, -1, 10], isf))
+    isf += 1; line_loops_surfaces.append(create_line_loop_surface(isf, [5,-12, -2, 11], isf))
+    isf += 1; line_loops_surfaces.append(create_line_loop_surface(isf, [6,-13, -3, 12], isf))
+    line_loops_surfaces.append(f"""
+// outer ring""")
+    isf += 1; line_loops_surfaces.append(create_line_loop_surface(isf, [7,-15, -4, 14], isf))
+    isf += 1; line_loops_surfaces.append(create_line_loop_surface(isf, [8,-16, -5, 15], isf))
+    isf += 1; line_loops_surfaces.append(create_line_loop_surface(isf, [9,-17, -6, 16], isf))
+
+    if not half:
+        header = f"""
+
+// left side"""
+        line_loops_surfaces_sym = [ header ]
+        isf += 1; line_loops_surfaces_sym.append(create_line_loop_surface(isf, [-18, 19, 20, 21 ], isf))
+        isf += 1; line_loops_surfaces_sym.append(create_line_loop_surface(isf, [ 13, 22,-28,-19 ], isf))
+        isf += 1; line_loops_surfaces_sym.append(create_line_loop_surface(isf, [ 28, 23,-29,-20 ], isf))
+        isf += 1; line_loops_surfaces_sym.append(create_line_loop_surface(isf, [ 29, 24,-10,-21 ], isf))
+        isf += 1; line_loops_surfaces_sym.append(create_line_loop_surface(isf, [ 17, 25,-30,-22 ], isf))
+        isf += 1; line_loops_surfaces_sym.append(create_line_loop_surface(isf, [ 30, 26,-31,-23 ], isf))
+        isf += 1; line_loops_surfaces_sym.append(create_line_loop_surface(isf, [ 31, 27,-14,-24 ], isf))
 
     # Combine all circles, lines, transfinite lines, and line loops into the script
-    geometry_creation += "\n".join(aux_points) + "\n"
-    geometry_creation += "\n".join(block_points) + "\n"
+    geometry_creation += "\n".join(points) + "\n"
+    if not half:
+        geometry_creation += "\n".join(points_sym) + "\n"
     geometry_creation += "\n".join(circles) + "\n"
     geometry_creation += "\n".join(lines) + "\n"
+    if not half:
+        geometry_creation += "\n".join(circles_sym) + "\n"
+        geometry_creation += "\n".join(lines_sym) + "\n"
     geometry_creation += "\n".join(transfinite_lines) + "\n"
     geometry_creation += "\n".join(line_loops_surfaces) + "\n"
+    if not half:
+        geometry_creation += "\n".join(line_loops_surfaces_sym) + "\n"
 
-    if (half):
+    if half:
        case2d = f"""
 If (meshDim==2)
    Physical Line("wall")={{7, 8, 9}};
-   Physical Line("sym")={{16, 12, 18, 13, 17}};
+   Physical Line("sym")={{14, 10, 18, 13, 17}};
    Physical Surface(1)={{1:7}};
 EndIf"""
     else:
         case2d = f"""
 If (meshDim==2)
-   Physical Line("wall")={{9, 10, 11, 12}};
-   Physical Surface(1)={{1:9}};
+   Physical Line("wall")={{7, 8, 9, 25, 26, 27}};
+   Physical Surface(1)={{1:14}};
 EndIf"""
     
     surface = f"""

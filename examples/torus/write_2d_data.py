@@ -5,7 +5,7 @@ import numpy as np
 
 def write_int(f, emode, nvar, llist):
     """Write integer array"""
-    packed_data = struct.pack(emode + nvar * 'i', *llist)
+    packed_data = struct.pack(emode + nvar*'i', *llist)
     f.write(packed_data)
 
 def write_flt(f, emode, wdsize, nvar, llist):
@@ -14,10 +14,10 @@ def write_flt(f, emode, wdsize, nvar, llist):
         realtype = 'f'  # 4-byte float
     elif wdsize == 8:
         realtype = 'd'  # 8-byte double
-    packed_data = np.array(llist, dtype=emode + realtype)
-    packed_data.tofile(f)  # Write the array directly to the file
+    packed_data = struct.pack(emode+nvar*realtype, *llist)
+    f.write(packed_data)
 
-def write_fields(filepattern, x, y, vx, vy, vz, elmap, dt2d, metadata, nsteps, cwd='.'):
+def write_fields(filepattern, x, y, vx, vy, vz, elmap, dt2d, metadata, nsteps, cwd='.', force=False):
 
     lx1 = metadata['lx1']
     ly1 = metadata['ly1']
@@ -25,14 +25,15 @@ def write_fields(filepattern, x, y, vx, vy, vz, elmap, dt2d, metadata, nsteps, c
     lbuf = metadata['lbuf']
     # consistency check
     nsteps = len(dt2d)
-    dims = [ lx1, ly1, nelf, nsteps ]
+    dims = ( lx1, ly1, nelf, nsteps )
+    
     if not (vx.shape == vy.shape == vz.shape == dims):
         print(f'Velocity arrays have inconsistent sizes.')
         print(f'vx, vy, vz, dt2d:')
         print(vx.shape)
         print(vy.shape)
         print(vz.shape)
-        print(dt2d.shape)
+        print(dims)
         sys.exit()
 
     if nsteps > lbuf:
@@ -41,12 +42,14 @@ def write_fields(filepattern, x, y, vx, vy, vz, elmap, dt2d, metadata, nsteps, c
         vzpart = [ vz[..., i:i+lbuf] for i in range(0, nsteps, lbuf) ]
         dtpart = [ dt2d[i:i+lbuf] for i in range(0, nsteps, lbuf) ]
         nsave_list = [ len(d) for d in dtpart ]
+        nfiles = dtpart.shape[-1]
     else:
-        vxpart = vx
-        vzpart = vy
-        vzpart = vz
-        dtpart = dt2d
-        nsave_list = nsteps
+        vxpart = [ vx ]
+        vypart = [ vy ]
+        vzpart = [ vz ]
+        dtpart = [ dt2d ]
+        nsave_list = [ nsteps ]
+        nfiles = 1
 
     if not os.path.isdir(cwd):
         print(f"The path '{cwd}' does not exist. Abort.")
@@ -54,7 +57,7 @@ def write_fields(filepattern, x, y, vx, vy, vz, elmap, dt2d, metadata, nsteps, c
     
     files = glob.glob(os.path.join(cwd,filepattern+'*.fld'))
 
-    if len(files) > 0:
+    if len(files) > 0 and not force:
         print('The following files exist and will be overwritten:')
         for file in files:
             print(f'   {file}')
@@ -62,10 +65,15 @@ def write_fields(filepattern, x, y, vx, vy, vz, elmap, dt2d, metadata, nsteps, c
         if user_input.lower() not in ['', 'y', 'yes']:
             sys.exit()
 
-    for ifile, (vxp, vyp, vzp, dtp, nsave) in enumerate(zip(vxpart, vypart, vzpart, dtpart, nsave_list)):
-        filename = os.path.join(cwd, filepattern+f'{ifile+1:3d}'+'.fld')
-        metadata['nsave'] = nsave
+    for ifile in range(nfiles):
+        filename = os.path.join(cwd, filepattern+f'{ifile+1:03d}'+'.fld')
+        metadata['nsave'] = nsave_list[ifile]
+        vxp = vxpart[ifile]
+        vyp = vypart[ifile]
+        vzp = vzpart[ifile]
+        dtp = dtpart[ifile]
         write_binary_file(filename, x, y, vxp, vyp, vzp, elmap, dtp, metadata)
+        print(f'{filename} written.')
 
 def write_binary_file(filename, x, y, vx, vy, vz, elmap, dt2d, metadata, debug=False):
 
@@ -81,30 +89,39 @@ def write_binary_file(filename, x, y, vx, vy, vz, elmap, dt2d, metadata, debug=F
     emode = metadata['emode']
     nxy = lx1*ly1
 
-    dims = [ lx1, ly1, nelf, nsave ]
-    if not (vx.shape == vy.shape == vz.shape == dims) or not len(dt2d) == nsave:
+    dims = ( lx1, ly1, nelf, nsave )
+    if not (vx.shape == vy.shape == vz.shape == dims) or not dt2d.shape[0] == nsave:
         print(f'Velocity arrays have inconsistent sizes.')
         print(f'vx, vy, vz, dt2d:')
         print(vx.shape)
         print(vy.shape)
         print(vz.shape)
         print(dt2d.shape)
+        print(nsave)
+        print(dims)
         sys.exit()
     
     with open(filename, 'wb') as f:
         # Step 1: Write the header (116 bytes)
         if if_half:
-            head = f'#{version}th'.encode()
+            id = 'th'
         else:
-            head = f'#{version}tf'.encode()
+            id = 'tf'
+
+        header = (
+            f"#{version}{id} {wdsize} (lx1, ly1 ={lx1:9d}{ly1:9d}) "
+            f"(nelf ={nelf:9d}) (time ={time:17.9e}) "
+            f"(nsave, lbuf = {nsave:9d}{lbuf:9d})"
+        )
         
         # Write the header data
-        f.write(head)
+        f.write(header.ljust(116).encode('utf-8'))
+        f.write(struct.pack(emode+'f', 6.54321))
         
         # Write word size and endianness data (emulating reading endian encoding from the header)
         write_int(f, emode, 3, [lx1, ly1, nelf])
-        write_flt(f, emode, wdsize, 1, time)
-        write_int(f, nsave, 1, lbuf)
+        write_flt(f, emode, wdsize, 1, [time])
+        write_int(f, emode, 2, [nsave, lbuf])
 
         # Write element mapping and dt2d data
         write_int(f, emode, nelf, elmap)
@@ -115,20 +132,21 @@ def write_binary_file(filename, x, y, vx, vy, vz, elmap, dt2d, metadata, debug=F
             print(f"Written elmap: {elmap}")
             print(f"Written dt2d: {dt2d}")
         
+        idx = np.argsort(elmap)
         print(f'  write x')
-        for i in elmap:
+        for i in idx:
             write_flt(f, emode, wdsize, nxy, x[:,:,i].flatten(order='F'))
             
         print(f'  write y')
-        for i in elmap:
+        for i in idx:
             write_flt(f, emode, wdsize, nxy, y[:,:,i].flatten(order='F'))
 
         # Write vx, vy, vz for the snapshots
         print(f'  write vxyz for {nsave:d} snapshots.')
         for ibuf in range(nsave):
-            for i in elmap:
+            for i in idx:
                 write_flt(f, emode, wdsize, nxy, vx[:,:,i,ibuf].flatten(order='F'))
-            for i in elmap:
+            for i in idx:
                 write_flt(f, emode, wdsize, nxy, vy[:,:,i,ibuf].flatten(order='F'))
-            for i in elmap:
+            for i in idx:
                 write_flt(f, emode, wdsize, nxy, vz[:,:,i,ibuf].flatten(order='F'))

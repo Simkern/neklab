@@ -112,7 +112,7 @@
             if (self%n2d /= self%nelf) then
                call nek_stop_error('Inconsistent elements in 2D mesh!', module=this_module, procedure='init_2d_geom')
             else
-               call nek_log_message('global 2D element ownership establised', this_module, 'init_2d_geom')
+               call nek_log_message('global 2D element ownership established', this_module, 'init_2d_geom')
                msg = 'neklab_helix % init_2d_geom :'
                do ie = 0, np-1
                   if (nid == ie) print '(A,4X,A,I3,A,I3,A)', trim(msg), 'proc ', ie, ': ', self%n2d_gown, ' 2D elements'

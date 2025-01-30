@@ -114,14 +114,14 @@ if __name__ == "__main__":
         fig, ax = plt.subplots(1, 2, figsize=(20,8))
         #fig, ax2 = plt.subplots(1, 2, figsize=(20,8))
         ax[0].set_title('Full mesh')
-        x, y, vx, vy, vz, elmap, dt2d, metadata, nsteps = read_fields(pattern, cwd=runfldr)
-        plot_2d_fld(ax[0], x, y, vx)
+        data, meta, nsteps = read_fields(pattern, cwd=runfldr)
+        plot_2d_fld(ax[0], data.x, data.y, data.vx)
         #vxfs, vxfa = symmetrize_fld(x, y, vx)
         #plot_2d_fld(ax2[0], x, y, vxfs)
         #plot_2d_fld(ax2[1], x, y, vxfa)
         ax[1].set_title('Half mesh')
-        x, y, vx, vy, vz, elmap, dt2d, metadata, nsteps = read_fields(pattern, cwd=runfldr_h)
-        plot_2d_fld(ax[1], x, y, vx)
+        data, meta, nsteps = read_fields(pattern, cwd=runfldr_h)
+        plot_2d_fld(ax[1], data.x, data.y, data.vx)
         
         plt.show()
     else:

@@ -41,122 +41,57 @@ c-----------------------------------------------------------------------
       include "TOTAL"
       
       ! System for which we seek a fixed point
-      type(nek_system), allocatable :: sys
+      type(nek_system_torus), allocatable :: sys
       ! State vectors
-      type(nek_dvector) :: bf
+      type(nek_dvector) :: bf, ref
       ! Tolerance for the Newton solver
-      real(dp) :: tol, ubar_old, ubar_new, deltaf, df, du, dfdu, dmf
+      real(dp) :: tol, tol_mf
       ! flow parameters
-      real, parameter :: dpds0 = 7.9486896e-2
-      real(dp), dimension(1) :: dpds, dpds_tmp
-      real(dp), parameter :: mflow_target = 1.0_dp
-      real(dp), dimension(nfft+1) :: mflow_old, mflow_new
-      integer, parameter :: max_frc_iter = 5
-      integer :: tol_mode, inwt, log_level, frc_iter
-      character(len=128) :: msg
-      character(len=3) :: fid
+      real, parameter :: dp0ds = 7.9486896e-2
+      real(dp), dimension(1) :: dpds
+      real(dp), dimension(1), parameter :: mflow_target = [ 1.0_dp ]
+      integer :: tol_mode, max_nwt_iter
       
-      log_level = information_level
-
-      inwt = 0
       if (istep.eq.0) then
-	   ! Set flow parameters
-         dpds = [ dpds0 ]
-	   call pipe%init_flow(dpds)
-         call pipe%compute_bf_forcing(0.0_dp)
-			
-	   call load_fld('rsttorus0.f00001')
-         call nek2vec(bf, vx, vy, vz, pr, t)
-
-         ! parameters
-         tol = 1e-8_dp
-         tol_mode = 2
-         df = 100*tol
-         
-         ! define system
-         sys = nek_system()
-         sys%jacobian = nek_jacobian()
-         sys%jacobian%X = bf
-         ubar_old = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
-         write(msg,'(A,E15.8)') 'u_bar_init= ', ubar_old
-         call logger%log_message(msg, procedure='userchk')
-         
-         ! Set up logging & timing
-         call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
-         call timer%initialize(); call pipe%setup_summary(); call pipe%parameter_summary()
-         ! Run Newton
-         inwt = inwt + 1
-         call newton_fixed_point_iteration(sys, bf, tol, tol_mode)
-         call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
-         ! Finalize system timings
-         call sys%finalize_timer(); call timer%finalize()
-         ubar_old = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
-         write(msg,'(A,E15.8)') 'u_bar= ', ubar_old
-         call nek_log_message(msg, procedure='userchk')
-         write(fid,'(I3.3)') inwt
-         call rename('lightkrylov.log','lightkrylov_nwt'//fid//'.log')
-
-         dpds = dpds0
-         df_loop: do frc_iter = 1, max_frc_iter
-            ubar_old = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
-            dmf = ubar_old - mflow_target
-            write(msg,'(A,I0,A,F12.8,A,E15.8)') 'mflow newton, component', 1, 
-     $                        ': mf= ', ubar_old, ', mf_error= ', dmf
-            call nek_log_message(msg, procedure='userchk')
-            if (abs(dmf) < tol) exit df_loop ! converged
-            !
-            ! get df/du for component 1
-            !
-            ! Set flow parameters
-            dpds_tmp = dpds + df
-	      call pipe%init_flow(dpds_tmp)
-            ! Set up logging & timing
-            call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
-            call timer%initialize(); call pipe%setup_summary(); call pipe%parameter_summary()
-            ! Run Newton
-            inwt = inwt + 1
-            call newton_fixed_point_iteration(sys, bf, tol, tol_mode)
-            call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
-            ! Finalize system timings
-            call sys%finalize_timer(); call timer%finalize()
-            ubar_new = pipe%compute_ubar(bf%vx, bf%vy, bf%vz)
+	      ! Set flow parameters
+            dpds = [ dp0ds ]
+            call pipe%init_flow(dpds)
+                     
+            call load_fld('rsttorus0.f00001')
+            call nek2vec(bf, vx, vy, vz, pr, t)
+   
+            ! parameters
+            tol          = 1e-6_dp
+            tol_mf       = 1e-6_dp
+            tol_mode     = 2
+            max_nwt_iter = 10
             
-            ! get difference and compute gradient
-            du = ubar_new - ubar_old
-            dfdu = df/du
-            write(msg,'(A,I0,3(A,E15.8))') 'Component ', 1, ': u_bar_new= ', ubar_new, 
-     $                                ', du= ', du, ', df/du= ', dfdu
-            call nek_log_message(msg, procedure='userchk')
-            write(fid,'(I3.3)') inwt
-            call rename('lightkrylov.log','lightkrylov_mflow_nwt'//fid//'.log')
+            ! define system
+            sys = nek_system_torus()
+            sys%jacobian = nek_jacobian_torus()
+            sys%jacobian%X = bf
+            
+            ! run nonlinear check
             !
-            ! update
-            ! 
-            deltaf = (mflow_target - ubar_old)*dfdu
-            ! Set flow parameters
-            dpds(1) = dpds(1) + deltaf ! update current reference forcing
-            write(msg,'(A,*(E15.8,1X))') 'deltaf_0= ', deltaf
-            call nek_log_message(msg, procedure='userchk')
-	      call pipe%init_flow(dpds)
-            ! Set up logging & timing
-            call logger_setup(nio=0, log_level=log_level, log_stdout=.false., log_timestamp=.true.)
-            call timer%initialize(); call pipe%setup_summary(); call pipe%parameter_summary()
-            call nek_log_message(msg, procedure='userchk')
+            call compute_nonlinear_period_torus(ref, bf, save_2d = .false., variable_dt = .true., if_fft = .true., if_res = .true.)
+            
             ! Run Newton
-            inwt = inwt + 1
+            !
             call newton_fixed_point_iteration(sys, bf, tol, tol_mode)
-            call outpost(bf%vx, bf%vy, bf%vz, bf%pr, bf%theta, "BF_")
-            ! Finalize system timings
-            call sys%finalize_timer(); call timer%finalize()
-            write(fid,'(I3.3)') inwt
-            call rename('lightkrylov.log','lightkrylov_mflow_nwt'//fid//'.log')
-         end do df_loop
-         if (abs(dmf) > tol) then
-            write(msg,'(A,I0,A,I0,A)') 'Component ', 1, ': Mass flux not converged after ', 
-     $                        max_frc_iter, 'steps.'
-            call stop_error(msg, procedure='userchk')
-         end if
-         call nek_end()
+            
+            ! Run mflow Newton
+            !
+            call mflow_newton(sys, bf, mflow_target, tol, tol_mf, tol_mode, max_nwt_iter)
+            
+            ! run nonlinear check
+            !
+            call compute_nonlinear_period_torus(ref, bf, save_2d = .true., variable_dt = .true., if_fft = .true., if_res = .true.)
+            
+            ! finalize timers
+            !
+            call timer%finalize(); call sys%jacobian%finalize_timer(); call timer%finalize()
+
+            call nek_end()
       end if
 
       return

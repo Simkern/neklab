@@ -91,13 +91,11 @@ if [ "$confirm" == "y" ] || [ "$confirm" == "Y" ]; then
     FILE_PATH="core/subs1.f"
     cp "$FILE_PATH" "${FILE_PATH}.original"
     if [ "$OS" == "Linux" ]; then
-        sed -i -e '/save    iffxdt/s/^/c/' "$FILE_PATH" # comment line
-        sed -i -e '/data    iffxdt/s/^/c/' "$FILE_PATH" # comment line
-        sed -i -e '/if (param(12).lt.0.or.iffxdt)/i\      iffxdt = .false.' "$FILE_PATH"  # insert line
+        sed -i 's/save    iffxdt/common \/FIXDT\/ iffxdt/g' "$FILE_PATH" # replace line
+        sed -i '/data    iffxdt/s/^/c/' "$FILE_PATH" # comment line
     elif [ "$OS" == "Darwin" ]; then
-        sed -i -e '' '/save    iffxdt/s/^/c/' "$FILE_PATH"
+        sed -i -e '' 's/save    iffxdt/common \/FIXDT\/ iffxdt/g' "$FILE_PATH"
         sed -i -e '' '/data    iffxdt/s/^/c/' "$FILE_PATH"
-        sed -i -e '' '/if (param(12).lt.0.or.iffxdt)/i\      iffxdt = .false.' "$FILE_PATH"
     fi
     if cmp -s "$FILE_PATH" "${FILE_PATH}.original"; then
         echo "No match found in $FILE_PATH. No replacement made."

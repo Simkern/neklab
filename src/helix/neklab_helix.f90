@@ -29,10 +29,10 @@
       !! Local number of grid points for the velocity mesh.
          integer, parameter :: lp = lx2*ly2*lz2*lelv
       !! Local number of grid points for the pressure mesh.
-         integer, parameter :: nf = 3
-      !! Number of forcing components
          integer, parameter :: lbuf = 1000
       !! Maximum number of 2d fields to save before outposting
+         integer, parameter, public :: lf = 3
+      !! Maximum number of forcing components 1 x steady + 2 x (# unsteady)
          integer, parameter, public :: nfft = 16
       !! Number of FT components to compute
 
@@ -57,12 +57,16 @@
             real(dp) :: pulse_T
             real(dp) :: omega
             real(dp) :: womersley
+            integer  :: nf
             ! forcing
-            real(dp), dimension(nf) :: dpds
+            real(dp), dimension(lf) :: dpds
             real(dp), dimension(lx1,ly1,lz1,lelv) :: fshape
             ! mesh inputs
             integer :: nslices
             integer :: nelf
+            logical :: if_sym   = .false. ! is the mesh symmetric (only half the pipe)
+            logical :: if_torus = .false. ! is the mesh curved (toroidal)
+            logical :: if_helix = .false. ! is the mesh helical?
             ! sanity check
             logical :: is_initialized = .false.
             ! data
@@ -143,12 +147,16 @@
             procedure, pass(self), public :: set_save_fft
             procedure, pass(self), public :: set_newton
             procedure, pass(self), public :: set_floquet
+            procedure, pass(self), public :: set_symmetry
             procedure, pass(self), public :: is_steady
             procedure, pass(self), public :: is_newton
             procedure, pass(self), public :: is_floquet
             procedure, pass(self), public :: is_save_2d
             procedure, pass(self), public :: is_save_fft
             procedure, pass(self), public :: is_extracted_fft
+            procedure, pass(self), public :: is_sym
+            procedure, pass(self), public :: is_torus
+            procedure, pass(self), public :: is_helix
             procedure, pass(self), public :: is_lowner
             procedure, pass(self), public :: is_gowner
             procedure, pass(self), public :: get_period
@@ -158,7 +166,14 @@
             procedure, pass(self), public :: get_nf
             procedure, pass(self), public :: get_fshape
             procedure, pass(self), public :: get_angle_s
-            procedure, pass(self), public :: get_alpha
+            procedure, pass(self), public :: get_length
+            procedure, pass(self), public :: get_delta
+            procedure, pass(self), public :: get_diameter
+            procedure, pass(self), public :: get_pitch_s
+            procedure, pass(self), public :: get_radius
+            procedure, pass(self), public :: get_curv_radius
+            procedure, pass(self), public :: get_phi
+            procedure, pass(self), public :: get_sweep
             procedure, pass(self), public :: get_nsteps
             procedure, pass(self), public :: get_dt_minmax
             procedure, pass(self), public :: get_ubar_lag
@@ -176,14 +191,16 @@
             !
             ! Type-bound procedures
 
-            module subroutine init_geom(self)
+            module subroutine init_geom(self, if_debug)
                class(helix), intent(inout) :: self
+               logical, optional, intent(in) :: if_debug
             end subroutine init_geom
 
-            module subroutine init_flow(self, dpds, womersley)
+            module subroutine init_flow(self, dpds, womersley, reset_nf)
                class(helix), intent(inout) :: self
                real(dp), intent(in) :: dpds(:)
                real(dp), optional, intent(in) :: womersley
+               logical, optional, intent(in) :: reset_nf
             end subroutine init_flow
 
             module subroutine reset_newton(self)
@@ -248,8 +265,9 @@
             !
             ! Type-bound procedures           
 
-            module subroutine init_2d_geom(self)
+            module subroutine init_2d_geom(self, if_debug)
                class(helix), intent(inout) :: self
+               logical, optional, intent(in) :: if_debug
             end subroutine init_2d_geom
 
             module subroutine save_2d_fields(self, u, v, w)
@@ -263,10 +281,11 @@
                class(helix), intent(inout) :: self
             end subroutine outpost_2d
 
-            module subroutine outpost_2d_fields(self, iname, iout)
+            module subroutine outpost_2d_fields(self, iname, iout, only_mesh)
                class(helix), intent(inout) :: self
                character(len=1), intent(in) :: iname
                integer, intent(in) :: iout
+               logical, optional, intent(in) :: only_mesh
             end subroutine outpost_2d_fields            
 
             module subroutine load_2d_fields(self, idx)
@@ -315,10 +334,11 @@
                real(dp), optional, intent(in) :: period
                logical, optional, intent(in) :: var_dt
             end subroutine compute_mflow_fft
-
-            module subroutine extract_mflow_fft(self, if_amplitude)
+            
+            module subroutine extract_mflow_fft(self, period, if_amplitude)
                ! only for constant dt
                class(helix), intent(inout) :: self
+               real(dp), optional, intent(in) :: period
                logical, optional, intent(in) :: if_amplitude
             end subroutine extract_mflow_fft
 
@@ -355,6 +375,11 @@
                class(helix), intent(inout) :: self
                logical, intent(in) :: if_floquet
             end subroutine set_floquet
+
+            module subroutine set_symmetry(self, if_sym)
+               class(helix), intent(inout) :: self
+               logical, intent(in) :: if_sym
+            end subroutine set_symmetry
             
             ! logicals
 
@@ -388,6 +413,21 @@
                logical :: is_extracted
             end function is_extracted_fft
 
+            module pure function is_sym(self) result(mesh_is_sym)
+               class(helix), intent(in) :: self
+               logical :: mesh_is_sym
+            end function is_sym
+
+            module pure function is_torus(self) result(mesh_is_torus)
+               class(helix), intent(in) :: self
+               logical :: mesh_is_torus
+            end function is_torus
+
+            module pure function is_helix(self) result(mesh_is_helix)
+               class(helix), intent(in) :: self
+               logical :: mesh_is_helix
+            end function is_helix
+
             module pure function is_lowner(self, ie) result(is_owner)
                class(helix), intent(in) :: self
                integer, intent(in) :: ie
@@ -419,7 +459,7 @@
             
             module subroutine get_dpds(self, dpds, phase)
                class(helix), intent(in) :: self
-               real(dp), dimension(nf), intent(out) :: dpds
+               real(dp), dimension(lf), intent(out) :: dpds
                real(dp), optional, allocatable, intent(out) :: phase(:)
             end subroutine get_dpds
 
@@ -441,7 +481,47 @@
             module subroutine get_alpha(self, alpha)
                class(helix), intent(in) :: self
                real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: alpha
-            end subroutine get_alpha        
+            end subroutine get_alpha
+            
+            module pure function get_length(self) result(length)
+               class(helix), intent(in) :: self
+               real(dp) :: length
+            end function get_length
+
+            module pure function get_delta(self) result(delta)
+               class(helix), intent(in) :: self
+               real(dp) :: delta
+            end function get_delta
+
+            module pure function get_diameter(self) result(diameter)
+               class(helix), intent(in) :: self
+               real(dp) :: diameter
+            end function get_diameter
+
+            module pure function get_pitch_s(self) result(pitch_s)
+               class(helix), intent(in) :: self
+               real(dp) :: pitch_s
+            end function get_pitch_s
+
+            module pure function get_radius(self) result(radius)
+               class(helix), intent(in) :: self
+               real(dp) :: radius
+            end function get_radius
+
+            module pure function get_curv_radius(self) result(curv_radius)
+               class(helix), intent(in) :: self
+               real(dp) :: curv_radius
+            end function get_curv_radius
+
+            module pure function get_phi(self) result(phi)
+               class(helix), intent(in) :: self
+               real(dp) :: phi
+            end function get_phi
+
+            module pure function get_sweep(self) result(sweep)
+               class(helix), intent(in) :: self
+               real(dp) :: sweep
+            end function get_sweep
 
             module function get_nsteps(self) result(ns)
                class(helix), intent(in) :: self
@@ -484,7 +564,7 @@
 
             module subroutine set_dpds(self, dpds, reset)
                class(helix), intent(inout) :: self
-               real(dp), dimension(nf), intent(in) :: dpds
+               real(dp), dimension(lf), intent(in) :: dpds
                logical, optional, intent(in) :: reset
             end subroutine set_dpds
 
@@ -500,15 +580,19 @@
       contains
 
          ! Constructor for the module level instance of helix
-         subroutine helix_pipe(delta, diameter, pitch_s, length, nslices, nelf)
+         subroutine helix_pipe(delta, diameter, pitch_s, length, nslices, nelf, if_sym, if_debug)
             real(dp), intent(in) :: delta
             real(dp), intent(in) :: diameter
             real(dp), intent(in) :: pitch_s
             real(dp), intent(in) :: length
             integer, intent(in) :: nslices
             integer, intent(in) :: nelf
+            logical, optional, intent(in) :: if_sym
+            logical, optional, intent(in) :: if_debug
             ! internal
+            logical :: debug
             character(len=128) :: msg
+            debug = optval(if_debug, .false.)
 
             ! Geometry
             pipe%delta    = delta
@@ -519,12 +603,25 @@
             ! Mesh specifics
             pipe%nslices  = nslices
             pipe%nelf     = nelf
+            call pipe%set_symmetry(optval(if_sym, .false.))
             
             !  Derived quantities
             pipe%radius      = pipe%diameter*0.5_dp
-            pipe%curv_radius = 1.0_dp/pipe%delta
+            if (pipe%delta /= 0.0_dp) then
+               pipe%curv_radius = 1.0_dp/pipe%delta
+               pipe%if_torus = .true.
+            else
+               pipe%curv_radius = 0.0_dp
+               pipe%if_torus = .false.
+            end if
             pipe%phi         = atan2(pipe%pitch_s,pipe%curv_radius)
-            pipe%sweep       = pipe%length*cos(pipe%phi)/pipe%curv_radius ! sweep angle in radians
+            if (pipe%phi /= 0.0_dp) then
+               pipe%sweep    = pipe%length*cos(pipe%phi)/pipe%curv_radius ! sweep angle in radians
+               pipe%if_helix = .true.
+            else
+               pipe%sweep    = pipe%length/pipe%curv_radius ! sweep angle in radians
+               pipe%if_helix = .false.
+            end if
 
             ! add timers
             call lk_timer%initialize() ! in case it has not been done
@@ -537,14 +634,14 @@
             call lk_timer%add_timer('neklab_helix_compute_mflow_fft', start=.false.)
 
             ! intialize geometry
-            call pipe%init_geom()
+            call pipe%init_geom(if_debug)
             ! compute forcing distribution
             call pipe%compute_fshape()
 
-            ! switch on FT in the unsteady case
-            if (nf > 1) then
-               !call pipe%set_save_fft(.true.)
-               pipe%if_fft = .true.
+            if (debug) then
+               call outpost(pipe%xax, pipe%yax, pipe%zax, pr, t, 'cax')
+               call outpost(pipe%alpha, pipe%as, pipe%fshape, pr, t, 'geo')
+               call nek_end()
             end if
 
          end subroutine helix_pipe

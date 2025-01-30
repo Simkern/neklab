@@ -31,6 +31,8 @@
          public :: setup_nek, setup_nonlinear_solver, setup_linear_solver, nek_status
       ! Utilities for logging
          public :: nek_log_message, nek_log_warning, nek_log_information, nek_log_debug, nek_stop_error
+      ! Utilities for file handling
+         public :: set_fldindex
       
       contains
       
@@ -59,6 +61,8 @@
             real(dp) :: dt_old
             character(len=128) :: msg
             logical :: full_summary
+            logical :: iffxdt
+            common /FIXDT/ iffxdt
       
       ! Only print summary if we switch from linear to nonlinear solvers or vice versa
             full_summary = .false.
@@ -152,6 +156,7 @@
               
       ! Force constant timestep if requested
             if (variable_dt_) then
+               iffxdt = .false.
                ! always recompute dt and flush the internal dtold variable
                call compute_cfl(ctarg, vx, vy, vz, 1.0_dp)
                dt = param(26)/ctarg
@@ -184,6 +189,7 @@
                   if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
                end if
             else
+               iffxdt = .true.
                ! Recompute dt
                if (recompute_dt_) then
                   dt_old = dt
@@ -285,19 +291,19 @@
             if (ifpert) then
                if (full_summary_) then
                   call nek_log_message('LINEAR MODE:', this_module, 'nek_status', nekfmt)
-                  write (msg, '(A,L8)') padl('ifpert: ', 20), ifpert
+                  write (msg, '(A,L15)') padl('ifpert: ', 20), ifpert
                   call nek_log_message(msg, this_module, 'nek_status', nekfmt)
-                  write (msg, '(A,I8)') padl('npert: ', 20), npert
+                  write (msg, '(A,I15)') padl('npert: ', 20), npert
                   call nek_log_message(msg, this_module, 'nek_status', nekfmt)
                   if (ifadj) then
-                     write (msg, '(A,L8)') padl('adjoint mode: ', 20), ifadj
+                     write (msg, '(A,L15)') padl('adjoint mode: ', 20), ifadj
                      call nek_log_message(msg, this_module, 'nek_status', nekfmt)
                   end if
                   if (ifbase) then
-                     write (msg, '(A,L8)') padl('solve for baseflow: ', 20), ifbase
+                     write (msg, '(A,L15)') padl('solve for baseflow: ', 20), ifbase
                      call nek_log_message(msg, this_module, 'nek_status', nekfmt)
                   end if
-                  write (msg, '(A,L8)') padl('OIFS: ', 20), ifchar
+                  write (msg, '(A,L15)') padl('OIFS: ', 20), ifchar
                   call nek_log_message(msg, this_module, 'nek_status', nekfmt)
                else
                   call nek_log_message('LINEAR MODE', this_module, 'nek_status', nekfmt)
@@ -305,7 +311,7 @@
             else
                if (full_summary_) then
                   call nek_log_message('NONLINEAR MODE:', this_module, 'nek_status', nekfmt)
-                  write (msg, '(A,L8)') padl('OIFS: ', 20), ifchar
+                  write (msg, '(A,L15)') padl('OIFS: ', 20), ifchar
                   call nek_log_message(msg, this_module, 'nek_status', nekfmt)
                else
                   call nek_log_message('NONLINEAR MODE', this_module, 'nek_status', nekfmt)
@@ -327,7 +333,7 @@
                end if
                call nek_log_message(msg, this_module, 'nek_status', nekfmt)
                if (nsteps > 0) then
-                  write (msg, '(A,I8)') padl('nsteps: ', 20), nsteps
+                  write (msg, '(A,I15)') padl('nsteps: ', 20), nsteps
                   call nek_log_message(msg, this_module, 'nek_status', nekfmt)
                end if
                write (msg, '(A,F15.4)') padl('target CFL: ', 20), param(26)
@@ -352,7 +358,7 @@
             character(len=*), optional, intent(in) :: fmt
             ! internal
             character(len=128) :: fmt_
-            fmt_ = optval(fmt,'(A)')
+            fmt_ = optval(fmt,default_fmt('', module, procedure))
             call logger%log_message(msg, module=module, procedure=procedure)
             if (nid == 0) print fmt_, trim(msg)
          end subroutine nek_log_message
@@ -365,10 +371,10 @@
             ! internal
             integer :: level
             character(len=128) :: fmt_
-            fmt_ = optval(fmt,'(A,A)')
+            fmt_ = optval(fmt,default_fmt("WARNING:", module, procedure))
             call logger%configuration(level=level)
             call logger%log_warning(msg, module=module, procedure=procedure)
-            if (nid == 0 .and. level == warning_level) print fmt_, "WARNING: ", trim(msg)
+            if (nid == 0 .and. level == warning_level) print fmt_, trim(msg)
          end subroutine nek_log_warning
 
          subroutine nek_log_debug(msg, module, procedure, fmt)
@@ -379,10 +385,10 @@
             ! internal
             integer :: level
             character(len=128) :: fmt_
-            fmt_ = optval(fmt,'(A,A)')
+            fmt_ = optval(fmt,default_fmt("DEBUG:", module, procedure))
             call logger%configuration(level=level)
             call logger%log_debug(msg, module=module, procedure=procedure)
-            if (nid == 0 .and. level == debug_level) print fmt_, "DEBUG: ", trim(msg)
+            if (nid == 0 .and. level == debug_level) print fmt_, trim(msg)
          end subroutine nek_log_debug
 
          subroutine nek_log_information(msg, module, procedure, fmt)
@@ -393,10 +399,10 @@
             ! internal
             integer :: level
             character(len=128) :: fmt_
-            fmt_ = optval(fmt,'(A,A)')
+            fmt_ = optval(fmt,default_fmt("INFO:", module, procedure))
             call logger%configuration(level=level)
             call logger%log_information(msg, module=module, procedure=procedure)
-            if (nid == 0 .and. level == information_level) print fmt_, "INFO: ", trim(msg)
+            if (nid == 0 .and. level == information_level) print fmt_, trim(msg)
          end subroutine nek_log_information
 
          subroutine nek_stop_error(msg, module, procedure, fmt)
@@ -406,10 +412,41 @@
             character(len=*), optional, intent(in) :: fmt
             ! internal
             character(len=128) :: fmt_
-            fmt_ = optval(fmt,'(A,A)')
+            fmt_ = optval(fmt,default_fmt("ERROR:", module, procedure))
             call nekgsync()
-            if (nid == 0) print fmt_, "ERROR: ", trim(msg)
+            if (nid == 0) print fmt_, trim(msg)
             call stop_error(msg, module=module, procedure=procedure)
          end subroutine nek_stop_error
-      
+
+         function default_fmt(prefix, module, procedure) result(fmt)
+            character(len=*), optional, intent(in) :: prefix
+            character(len=*), optional, intent(in) :: module
+            character(len=*), optional, intent(in) :: procedure
+            character(len=128) :: fmt, fmt_string
+            ! internal
+            character(len=128) :: mod, pfx, prc
+            pfx = optval(trim(prefix), '')
+            prc = optval(trim(procedure)//' :', '')
+            if (present(procedure)) then
+               mod = optval(trim(module)//' %', '')
+            else
+               mod = optval(trim(module), '')
+            end if
+            fmt_string = trim(pfx)//' '//trim(mod)//' '//trim(prc)
+            write(fmt,'("(",A,",1X,A)")') '"'//adjustl(trim(fmt_string))//'"'
+         end function default_fmt
+         
+         subroutine set_fldindex(file_prefix, fldindex) !file numbering suffix counter
+            character(len=3) :: file_prefix
+            integer :: fldindex
+            ! internal
+            integer :: iprefix
+            integer :: nopen(99,2)
+            common /RES_WANT/ nopen
+            ! function
+            integer :: i_find_prefix
+      !     change prepost.f line 1094 from "save nopen" to "common /RES_WANT/ nopen"
+            iprefix          = i_find_prefix(file_prefix,99)
+            nopen(iprefix,1) = fldindex - 1
+         end subroutine set_fldindex
       end module neklab_nek_setup

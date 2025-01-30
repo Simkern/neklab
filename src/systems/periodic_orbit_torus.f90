@@ -1,7 +1,7 @@
-      submodule(neklab_systems) periodic_orbit_torus
+      submodule(neklab_systems) periodic_orbit_torus_upo
          implicit none
       contains
-         module procedure nonlinear_map_torus
+         module procedure nonlinear_map_torus_upo
       ! internal
          character(len=128) :: msg
          select type (vec_in)
@@ -36,9 +36,9 @@
                call vec_out%sub(vec_in)
             end select
          end select
-         end procedure nonlinear_map_torus
+         end procedure nonlinear_map_torus_upo
       
-         module procedure jac_direct_map_torus
+         module procedure jac_direct_map_torus_upo
       ! internal
          real(dp) :: atol
          select type (vec_in)
@@ -69,9 +69,9 @@
                param(22) = atol
             end select
          end select
-         end procedure jac_direct_map_torus
+         end procedure jac_direct_map_torus_upo
       
-         module procedure jac_adjoint_map_torus
+         module procedure jac_adjoint_map_torus_upo
       ! internal
          real(dp) :: atol
          select type (vec_in)
@@ -103,5 +103,5 @@
                param(22) = atol
             end select
          end select
-         end procedure jac_adjoint_map_torus
+         end procedure jac_adjoint_map_torus_upo
       end submodule

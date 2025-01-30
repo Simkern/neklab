@@ -4,15 +4,23 @@
       contains
 
          module procedure init_2d_geom
-            integer :: ie, iel, ieg, iseg, iface, isl, level, nxy
+            integer :: ie, iel, ieg, iseg, iface, isl, nxy
             integer, dimension(lelv) :: islice
             integer, dimension(:), allocatable :: unique_segments, segment_owner, segment_count
             integer, dimension(:), allocatable :: idx ! for findloc
             logical, dimension(:), allocatable :: segment_found
+            character(len=128) :: msg
+            ! for debug
+            logical :: debug
             character(len=3) :: fid
             integer :: fileid
             ! functions
             integer, external :: iglsum
+
+            debug = optval(if_debug, .false.)
+            
+            nxy = lx1*ly1
+            call nek_log_message('start extraction', this_module, 'init_2d_geom')
 
             ! Sort local elements according to 2D mesh. 
             ! Here we use a trick that relies on the particular structure of meshes extruded
@@ -51,15 +59,12 @@
                self%lsegment(ie) = idx(1)
             end do
       
-            call logger%configuration(level=level)
-            if (level <= debug_level) then
+            if (debug) then
                print '(A,2(I0,1X),A,*(1X,I3))', 'DEBUG 2dmap: ', nid, self%n2d_lown, 'unique streamwise segments:   ', unique_segments(:self%n2d_lown)
                print '(A,2(I0,1X),A,*(1X,I3))', 'DEBUG 2dmap: ', nid, self%n2d_lown, '# of elements in segment:     ', segment_count(:self%n2d_lown)
                print '(A,2(I0,1X),A,*(1X,I3))', 'DEBUG 2dmap: ', nid, self%n2d_lown, 'local element local  s. owner:', segment_owner(:self%n2d_lown)
                print '(A,2(I0,1X),A,*(1X,L3))', 'DEBUG 2dmap: ', nid, self%n2d_lown, 'local element global s. owner:', self%gowner(:self%n2d_lown)
                print '(A,2(I0,1X),A,I0)'      , 'DEBUG 2dmap: ', nid, self%n2d_lown, 'globally owned: ', self%n2d_gown
-            end if
-            if (level == all_level) then
                call nekgsync()
                do ie = 1, nelv
                   call cfill(vz(1,1,1,ie), 1.0_dp*nid, lx1*ly1*lz1)
@@ -87,7 +92,7 @@
                        end if
 		      	      end do
                   end if
-                  if (level <= debug_level) then
+                  if (debug) then
                      print '(A,I3,A,4(1X,I4),A,3X,F17.8,3x,F17.8)', 'DEBUG 2dmap: ', nid, ' el', lglel(ie), ie, iseg, self%gsegment(ie),  
      &                           ': ', sum(self%x2d(:,:,iseg))/nxy, sum(self%y2d(:,:,iseg))/nxy
                   end if
@@ -104,8 +109,19 @@
             self%noutt = 0
             self%n2d   = iglsum(self%n2d_gown,1)
             self%nload = 0
-            if (self%n2d /= self%nelf) call stop_error('Inconsistent elements in 2D mesh!', module=this_module, procedure='init_geom')
-            if (level <= debug_level) then
+            if (self%n2d /= self%nelf) then
+               call nek_stop_error('Inconsistent elements in 2D mesh!', module=this_module, procedure='init_2d_geom')
+            else
+               call nek_log_message('global 2D element ownership established', this_module, 'init_2d_geom')
+               msg = 'neklab_helix % init_2d_geom :'
+               do ie = 0, np-1
+                  if (nid == ie) print '(A,4X,A,I3,A,I3,A)', trim(msg), 'proc ', ie, ': ', self%n2d_gown, ' 2D elements'
+                  call nekgsync()
+               end do
+               write(msg,'(A,I3,A)') 'total: ', self%n2d, ' 2D elements'
+               call nek_log_message(msg, this_module, 'init_2d_geom')
+            end if
+            if (debug) then
                call nekgsync()
                print '(A,I3,A,*(1x,I0))', 'DEBUG 2dmap: ', nid, ', nelv2iseg: ', self%lsegment(:nelv)
                write(fid,'(I3.3)') nid
@@ -125,6 +141,7 @@
                close (fileid)
                call nekgsync()
             end if
+            call nek_log_message('extraction complete', this_module, 'init_2d_geom')
          end procedure init_2d_geom
 
          module procedure save_2d_fields
@@ -165,7 +182,7 @@
                ! save data to file when buffer is full
                if (self%nsave == lbuf .or. lastep == 1) call self%outpost_2d()
             else
-               call nek_log_information('Baseflow saving turned off', this_module, 'save_2d_fields')
+               call nek_log_debug('Baseflow saving turned off', this_module, 'save_2d_fields')
             end if
          end procedure save_2d_fields
          
@@ -197,10 +214,13 @@
          module procedure outpost_2d_fields
             integer, allocatable :: n2d_gown(:)
             integer, allocatable :: n2d_elmap(:)
-            integer :: ierr, itmp, i, nxy, ip, ibuf, iseg, length, i_own
+            integer :: ierr, itmp, i, nxy, ip, ibuf, iseg, length, i_own, nsave
             integer :: wdsl, isl, isend(lelv)
             character(len=128)  :: fname, msg
             character(len=1024) :: head, ftm
+            character(len=2) :: id
+            character(len=1), parameter :: fileversion = '1'
+            logical :: only_mesh_
             real rtmpv1(lx1*ly1*lelv), rtmpv(lx1*ly1*lelv)
             real*4 rtmpv2(2*lx1*ly1*lelv)
             equivalence (rtmpv1,rtmpv2)
@@ -210,15 +230,27 @@
             wdsl = wdsize/4
             isl  = isize/4
             write(fname,'(A,A,I3.3,A)') iname, '2dtorus', iout, '.fld'
-            write(msg,'(A,I5,4X,A,A)') 'Outpost 2D data: ', self%nsave, 'fname: ', trim(fname)
+            only_mesh_ = optval(only_mesh, .false.)
+            if (only_mesh_) then
+               write(msg,'(A,A)') 'Outpost 2D mesh: ', trim(fname)
+               nsave = 0
+            else
+               write(msg,'(A,I5,4X,A,A)') 'Outpost 2D data: ', self%nsave, 'fname: ', trim(fname)
+               nsave = self%nsave
+            end if
             call nek_log_information(msg, this_module, 'outpost_2d_fields')
             if (nid == 0) then
                call byte_open(fname, ierr)
                if (ierr /= 0) call nek_stop_error('Error opening file '//trim(fname), procedure='outpost_2d_fields')
 
                ! write file's header
-               ftm="('#tor',1x,i1,1x,'(lx1, ly1 =',2i9,') (nelf =',i9,') (time =',e17.9,') (nsave, lbuf =', 2i9,')')"
-               write(head,ftm) wdsize,lx1,ly1,self%nelf,time,self%nsave,lbuf
+               ftm="('#',A1,A2,1x,i1,1x,'(lx1, ly1 =',2i9,') (nelf =',i9,') (time =',e17.9,') (nsave, lbuf =', 2i9,')')"
+               if (self%is_sym()) then
+                  id = 'th'
+               else
+                  id = 'tf'
+               end if
+               write(head,ftm) fileversion, id, wdsize,lx1,ly1,self%nelf,time,nsave,lbuf
                call byte_write(head,116/4,ierr)
                if (ierr /= 0) call nek_stop_error('Error writing header in file '//trim(fname), procedure='outpost_2d_fields')  
 
@@ -230,7 +262,7 @@
                call byte_write(ly1,isl,ierr)
                call byte_write(self%nelf,isl,ierr)
                call byte_write(time,wdsl,ierr)
-               call byte_write(self%nsave,isl,ierr)
+               call byte_write(nsave,isl,ierr)
                call byte_write(lbuf,isl,ierr)
                if (ierr /= 0) call nek_stop_error('Error writing metadata in file '//trim(fname), procedure='outpost_2d_fields')
             end if
@@ -261,7 +293,7 @@
                ! write it to file
                call byte_write(n2d_elmap,self%nelf*isl,ierr)
                ! write timestep information to file
-               call byte_write(self%dt2d(:self%nsave),self%nsave*wdsl,ierr)
+               call byte_write(self%dt2d(:nsave),nsave*wdsl,ierr)
             else
                call crecv(nid,itmp,isize)                  ! hand shake
                call csend(nid,self%n2d_gown,isize,0,0)     ! send number of elements
@@ -280,13 +312,15 @@
             call nek_log_debug('   '//trim(fname)//': write y2d ...', this_module, 'outpost_2d_fields')
             call gather_and_write_slice(self%y2d, n2d_gown)
             ! velocity data
-            write(msg,'(3X,A,A,1X,I5)') trim(fname),': write v[xyz]2d', self%nsave
-            call nek_log_debug(msg, this_module, 'outpost_2d_fields')
-            do i = 1, self%nsave
-               call gather_and_write_slice(self%vx2d(:,:,:,i), n2d_gown)
-               call gather_and_write_slice(self%vy2d(:,:,:,i), n2d_gown)
-               call gather_and_write_slice(self%vz2d(:,:,:,i), n2d_gown)
-            end do
+            if (.not. only_mesh_) then
+               write(msg,'(3X,A,A,1X,I5)') trim(fname),': write v[xyz]2d', nsave
+               call nek_log_debug(msg, this_module, 'outpost_2d_fields')
+               do i = 1, nsave
+                  call gather_and_write_slice(self%vx2d(:,:,:,i), n2d_gown)
+                  call gather_and_write_slice(self%vy2d(:,:,:,i), n2d_gown)
+                  call gather_and_write_slice(self%vz2d(:,:,:,i), n2d_gown)
+               end do
+            end if
             ! master closes the file
             if (nid == 0) then 
                call byte_close(ierr)

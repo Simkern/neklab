@@ -123,22 +123,13 @@ USR+=" floquet_operator_torus.o"
 USR+=" resolvent.o"
 USR+=" neklab_systems.o"
 USR+=" fixed_point.o"
+USR+=" fixed_point_torus.o"
 USR+=" periodic_orbit.o"
 USR+=" periodic_orbit_torus.o"
 USR+=" neklab_otd.o"
 USR+=" neklab_analysis.o"
+USR+=" neklab_analysis_torus.o"
 USR+=" neklab.o"
-ADD_USR="add_USR.sh"
-MAKEFILE_USR="makefile_usr"
-if [ -f $MAKEFILE_USR ]; then
-    if [ -f $ADD_USR ]; then\
-        echo "include makefile_usr" >> makefile_usr.inc
-        source $ADD_USR
-    else
-        echo "Warning: cannot find add_USR.sh!"
-    fi
-fi
-export USR
 
 # Output summary of settings
 echo ""

@@ -17,6 +17,8 @@
       !! --> OTD definition
          use neklab_analysis
       !! --> Stability analysis routines
+         use neklab_analysis_torus
+      !! --> Analysis of the torus
       
          private
       
@@ -62,6 +64,7 @@
          public :: nek_system, nek_jacobian
          public :: nek_system_upo, nek_jacobian_upo
          public :: nek_system_torus, nek_jacobian_torus
+         public :: nek_system_torus_upo, nek_jacobian_torus_upo
       
       ! Data for nek5000 user-defined forcing function
          public :: get_neklab_forcing, set_neklab_forcing, neklab_forcing
@@ -71,15 +74,16 @@
       
       ! Baseflow computation
          public :: newton_fixed_point_iteration
-         public :: newton_periodic_orbit
-         public :: newton_forced_periodic_orbit_torus
-         public :: mflow_newton_periodic_orbit_torus
-         public :: shift_mflow_phase_torus
       
       ! Stability analysis exports.
          public :: linear_stability_analysis_fixed_point
-         public :: linear_stability_analysis_periodic_orbit
          public :: transient_growth_analysis_fixed_point
+
+      ! Torus
+         public :: linear_stability_analysis_periodic_orbit
+         public :: mflow_newton
+         public :: shift_mflow_phase_torus
+         public :: compute_nonlinear_period_torus
       
       ! OTD exports.
          public :: nek_otd, otd_opts

@@ -84,10 +84,25 @@ def write_binary_file(filename, data, meta, debug=False):
     emode   = meta.emode
     nxy     = lx1*ly1
 
-    dims = ( lx1, ly1, nelf, nsave )
-    if not data.check_dims(dims):
-        print('Error in write_binary_file.')
+    if not data.vx.shape == data.vx.shape == data.vx.shape:
+        print(f'Velocity arrays have inconsistent sizes.')
+        print(f'vx, vy, vz:')
+        print(data.vx.shape)
+        print(data.vy.shape)
+        print(data.vz.shape)
         sys.exit()
+
+    if nsave > lbuf:
+        print(f'nsave = {nsave} > {lbuf} = lbuf. Abort.')
+        sys.exit()
+    elif nsave > data.vx.shape[-1]:
+        print(f'nsave = {nsave} > {data.vx.shape[-1]} = vx.shape[-1].')
+        nsave = data.vx.shape[-1]
+        meta.nsave = nsave
+        print(f'Reset nsave = {nsave}')
+    elif nsave < data.vx.shape[-1]:
+        print(f'nsave = {nsave} < {data.vx.shape[-1]} = vx.shape[-1].')
+        print(f'Not all data will be written to file.')
     
     with open(filename, 'wb') as f:
         # Step 1: Write the header (116 bytes)
@@ -101,10 +116,10 @@ def write_binary_file(filename, data, meta, debug=False):
             f"(lx1, ly1 ={lx1:9d}{ly1:9d}) "
             f"(nelf ={nelf:9d}) "
             f"(time ={time:17.9e}) "
-            f"(nsave, lbuf = {nsave:9d}{lbuf:9d})"
+            f"(nsave, lbuf ={nsave:9d}{lbuf:9d})"
         )
         
-        # Write the header data
+        # Write the header datal
         f.write(header.ljust(116).encode('utf-8'))
         f.write(struct.pack(emode+'f', 6.54321))
         
@@ -115,7 +130,7 @@ def write_binary_file(filename, data, meta, debug=False):
 
         # Write element mapping and dt2d data
         write_int(f, emode, nelf, data.elmap)
-        write_flt(f, emode, wdsize, nsave, data.dt)
+        write_flt(f, emode, wdsize, nsave, data.dt[:nsave])
 
         if debug:
             print(f"Written metadata: meta")

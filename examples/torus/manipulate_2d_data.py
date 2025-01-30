@@ -261,7 +261,7 @@ def link_meshes(x0h, y0h, x0f, y0f, pattern=None):
 
     return map_h2f, map_f2h
 
-def h2d_to_f2d(h2d_pattern, hfldr, f2d_file_ref, ffldr):
+def h2d_to_f2d(h2d_pattern, f2d_file_ref, hfldr='.', outfldr='.', outpattern=None):
 
     datah, metah, nsteps  = read_fields(h2d_pattern, cwd=hfldr)
     dataf, metaf          = read_binary_file(f2d_file_ref, only_mesh=True)
@@ -295,6 +295,10 @@ def h2d_to_f2d(h2d_pattern, hfldr, f2d_file_ref, ffldr):
     dataf.vy = vy
     dataf.vz = vz
     dataf.dt = datah.dt
+    metaf.nsave = metah.nsave
     # write file
-    write_fields(h2d_pattern+'_f', dataf, metaf, nsteps, cwd=ffldr, force=True)
+    if outpattern is None:
+        outpattern = h2d_pattern
+    
+    write_fields(outpattern+'_f', dataf, metaf, nsteps, cwd=outfldr, force=True)
 

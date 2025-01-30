@@ -1,24 +1,6 @@
-import sys, re
 import numpy as np
 import matplotlib.pyplot as plt
-from read_2d_data import read_fields
-from plot_2d_data import plot_2d_mesh
-
-def compute_bisector(xt, yt, xb, yb):
-   xm = (xt + xb)/2.0
-   ym = (yt - yb)/2.0
-   mr  = np.array([ xm, ym ])
-   ml  = np.array([ -xm, ym ])
-   # connector
-   dx = xb - xt
-   dy = - yb - yt
-   norm = np.sqrt(dx**2 + dy**2)
-   # bisector
-   ux  = dy/norm  # points in neg x dir
-   uy  = -dx/norm
-   ul = np.array([-ux, uy])
-   ur = np.array([ ux, uy])
-   return ul, ur, norm
+from gmsh_compute import compute_auxiliary_geometry_data
 
 def make_circle(circle, points, npoints=101):
    p1 = points[circle[0] - 1]  # Subtract 1 for 0-indexing
@@ -44,7 +26,7 @@ def make_line(line, points):
    #print(f'line from {p1[0]},{p1[1]} to {p2[0]},{p2[1]}')
    return [p1[0], p2[0]], [p1[1], p2[1]]
 
-def plot_gmsh(geom, half=False, aux1=False, aux2=False, hlines=False, print_pts=False, extract_polygons=False):
+def plot_gmsh(ax, geom, half=False, aux1=False, aux2=False, hlines=False, print_pts=False, extract_polygons=False):
 
    # Extract data
    R, rt, rb, RBt, RBb, tht, thb, lambda1t, lambda1b, lambda2, dyc = geom.values()
@@ -81,53 +63,20 @@ def plot_gmsh(geom, half=False, aux1=False, aux2=False, hlines=False, print_pts=
    Dyb  = R * sinb
    Dyxb = np.sqrt((dyb + lRb)**2 + dxb**2) - lRb # for the half mesh
 
-   # midpoint tb1
-   xm = (dxt + dxb)/2.0
-   ym = (dyt - dyb)/2.0
-   mr  = np.array([ xm, ym ])
-   ml  = np.array([ -xm, ym ])
-   # bisector
-   ul, ur, norm = compute_bisector(dxt, dyt, dxb, dyb)
-   h   = norm/2.0
-   L   = np.sqrt((lRs + ra)**2 - h**2) # distance along bisector
-   if print_pts:
-      print(f'xm = {xm}')
-      print(f'ym = {ym}')
-      print(f'n  = {norm}')
-      print(f'h  = {h}')
-      print(f'ur = {ur}')
-      print(f'ul = {ul}')
-      print(f'L  = {L}')
-
-   # midpoint tb2
-   xmB = (dxBt + dxBb)/2.0
-   ymB = (dyBt - dyBb)/2.0
-   mrB  = np.array([ xmB, ymB ])
-   mlB  = np.array([ -xmB, ymB ])
-   # bisector
-   ulB, urB, normB = compute_bisector(dxBt, dyBt, dxBb, dyBb)
-   hB   = normB/2.0
-   LB   = np.sqrt(RBb**2 - hB**2) # distance along bisector
-   if print_pts:
-      print(f'xmB = {xmB}')
-      print(f'ymB = {ymB}')
-      print(f'nB  = {normB}')
-      print(f'hB  = {hB}')
-      print(f'urB = {urB}')
-      print(f'ulB = {ulB}')
-      print(f'LB  = {LB}')
-
-   points_aux2 = np.array([  mr,  ml,  mrB,  mlB ])
-
+   rings = []
+   rings.append([ dxt,  dyt,  dxb,  dyb, lambda2*R + ra])
+   rings.append([dxBt, dyBt, dxBb, dyBb, RBb])
+   aux, midpoints = np.array(compute_auxiliary_geometry_data(rings))
+   
    points_aux = np.array([  
       [0, 0],
-      ml + L*ul,
+      aux[0],
       [0, -lRt],
-      mr + L*ur,
+      aux[1],
       [0, lRb],
       [0, -dyc],
-      mlB + LB*ulB,
-      mrB + LB*urB
+      aux[2],
+      aux[3]
    ])
    naux = len(points_aux)
 
@@ -159,37 +108,20 @@ def plot_gmsh(geom, half=False, aux1=False, aux2=False, hlines=False, print_pts=
 
    pts = np.concatenate([points, points_aux, points_sym], axis=0)
 
-   b0 = [ 
-      points_aux2[0],
-      points_aux2[2]
-   ]
-   l0 = [ 
-      points[2-1],
-      points[3-1],
-      points[6-1],
-      points[7-1],
-   ]
-   
+   b0 = [ midpoints[i] for i in [0,2] ]
+   l0 = [ points[i-1] for i in [2, 3, 6, 7] ]
+ 
    if not half:
-      b0 += [
-         points_aux2[1],
-         points_aux2[3]
-      ]
-      l0 += [
-         points_sym[21-naux-npts-1],
-         points_sym[22-naux-npts-1],
-         points_sym[25-naux-npts-1],
-         points_sym[26-naux-npts-1]
-      ]
+      b0 += [ midpoints[i] for i in [1, 3] ]
+      l0 += [ points_sym[i-naux-npts-1] for i in [21, 22, 25, 26] ]
+   bline0 = np.array(b0)
+   hline0 = np.array(l0)
 
    b1 = [ points_aux[3], points_aux[6] ]
    l1 = 2*[ points_aux[3] ] + 2*[ points_aux[6] ]
    if not half:
       b1 += [ points_aux[1], points_aux[7] ]
-      l1 += 2*[ points_aux[1] ] + 2*[ points_aux[7] ]
-
-   bline0 = np.array(b0)
-   hline0 = np.array(l0)
+      l1 += 2*[ points_aux[1] ] + 2*[ points_aux[7] ]  
    bline1 = np.array(b1)
    hline1 = np.array(l1)
 
@@ -274,9 +206,6 @@ def plot_gmsh(geom, half=False, aux1=False, aux2=False, hlines=False, print_pts=
          [ 23, 25 ],
          [ 24, 26 ]
       ]
-   
-   # Plot the points
-   fig, ax = plt.subplots(figsize=(10,8))
 
    if aux1:
       # Plot auxiliary points (group 1)
@@ -302,8 +231,8 @@ def plot_gmsh(geom, half=False, aux1=False, aux2=False, hlines=False, print_pts=
 
    if aux2:
       # Plot auxiliary points 2
-      ax.scatter(points_aux2[:, 0], points_aux2[:, 1], color='black', label='Aux2')
-      for ia, point in enumerate(points_aux2):
+      ax.scatter(midpoints[:, 0], midpoints[:, 1], color='black', label='Midpoints')
+      for ia, point in enumerate(midpoints):
          ax.text(point[0], point[1], f'{ia+1}', color='black', fontsize=12, ha='left', va='bottom')
    
    if hlines:
@@ -338,7 +267,6 @@ def plot_gmsh(geom, half=False, aux1=False, aux2=False, hlines=False, print_pts=
    # Labels and title
    ax.set_xlabel('X')
    ax.set_ylabel('Y')
-   ax.set_title('Plot of Points')
    ax.legend()
 
    # Display the plot

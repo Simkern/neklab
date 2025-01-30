@@ -1,7 +1,7 @@
 import sys, os, shutil, time
 import subprocess
 import numpy as np
-from gmsh_plotter import compute_bisector
+from gmsh_compute import compute_auxiliary_geometry_data
 
 # Function to create Point
 def create_point(ip, a, b, c, d):
@@ -113,33 +113,11 @@ def generate_gmsh_script(geom, mesh, half=False, meshDim=2, filename="pipe_mesh.
     dxBb = RBb * cosb
     dyBb = RBb * sinb
 
-    ## INNER RING
-    # midpoint
-    xm = (dxt + dxb)/2.0
-    ym = (dyt - dyb)/2.0
-    # bisector
-    _, ur, norm = compute_bisector(dxt, dyt, dxb, dyb)
-    ux  = ur[0]            # x-component of normalized bisector
-    uy  = ur[1]            # y-component of normalized bisector
-    h   = norm/2.0         # half-distance between arc points
-    L   = np.sqrt((lambda2*R + ra)**2 - h**2) # distance along bisector
-    # auxiliary points
-    paux0 = [ -xm - L*ux, ym + L*uy ]
-    paux1 = [  xm + L*ux, ym + L*uy ]
+    rings = []
+    rings.append([ dxt,  dyt,  dxb,  dyb, lambda2*R + ra])
+    rings.append([dxBt, dyBt, dxBb, dyBb, RBb])
     
-    ## MIDDLE RING
-    # midpoint
-    xmB = (dxBt + dxBb)/2.0
-    ymB = (dyBt - dyBb)/2.0
-    # bisector
-    _, urB, normB = compute_bisector(dxBt, dyBt, dxBb, dyBb)
-    uxB  = urB[0]           # x-component of normalized bisector
-    uyB  = urB[1]           # y-component of normalized bisector
-    hB   = normB/2.0         # half-distance between arc points
-    LB   = np.sqrt(RBb**2 - hB**2) # distance along bisector
-    # auxiliary points
-    paux2 = [ -xmB - LB*uxB, ymB + LB*uyB ]
-    paux3 = [  xmB + LB*uxB, ymB + LB*uyB ]
+    pts_aux, _ = compute_auxiliary_geometry_data(rings)
 
     # General Settings Section
     general_settings = f"""
@@ -235,14 +213,14 @@ Dyxb=Hypot(dyb + lambda1b*R, dxb) - lambda1b*R;"""
     points.append(f"""
 //auxiliary points (only help define the geometry)
 // center""")
-    ipts += 1; points.append(create_point(ipts,        0,            0, 0, 1.0))
-    ipts += 1; points.append(create_point(ipts, paux0[0],     paux0[1], 0, 1.0))
-    ipts += 1; points.append(create_point(ipts,        0,'-lambda1t*R', 0, 1.0))
-    ipts += 1; points.append(create_point(ipts, paux1[0],     paux1[1], 0, 1.0))
-    ipts += 1; points.append(create_point(ipts,        0, 'lambda1b*R', 0, 1.0))
-    ipts += 1; points.append(create_point(ipts,        0,       '-dyc', 0, 1.0))
-    ipts += 1; points.append(create_point(ipts, paux2[0],     paux2[1], 0, 1.0))
-    ipts += 1; points.append(create_point(ipts, paux3[0],     paux3[1], 0, 1.0))
+    ipts += 1; points.append(create_point(ipts,             0,             0, 0, 1.0))
+    ipts += 1; points.append(create_point(ipts, pts_aux[0][0], pts_aux[0][1], 0, 1.0))
+    ipts += 1; points.append(create_point(ipts,             0, '-lambda1t*R', 0, 1.0))
+    ipts += 1; points.append(create_point(ipts, pts_aux[1][0], pts_aux[1][1], 0, 1.0))
+    ipts += 1; points.append(create_point(ipts,             0,  'lambda1b*R', 0, 1.0))
+    ipts += 1; points.append(create_point(ipts,             0,        '-dyc', 0, 1.0))
+    ipts += 1; points.append(create_point(ipts, pts_aux[2][0], pts_aux[2][1], 0, 1.0))
+    ipts += 1; points.append(create_point(ipts, pts_aux[3][0], pts_aux[3][1], 0, 1.0))
     if not half:
         header = f"""
 // left side points"""

@@ -68,13 +68,16 @@ if __name__ == "__main__":
     }
 
     if args.plt:
-        plot_gmsh(geom_params, half=True, aux1=True, aux2=True, hlines=True)
-        plot_gmsh(geom_params, half=False, aux1=True, aux2=True, hlines=True)
+        fig, ax = plt.subplots(1, 2, figsize=(20, 20))
+        plot_gmsh(ax[0], geom_params, half=True, aux1=True, aux2=True, hlines=True)
+        plot_gmsh(ax[1], geom_params, half=False, aux1=True, aux2=True, hlines=True)
         plt.show()
         sys.exit()
     else:
         if args.chk:
-            plot_gmsh(geom_params, half=is_half, aux1=True, aux2=True, hlines=True)
+            fig, ax = plt.subplots(figsize=(20, 20))
+            plot_gmsh(ax, geom_params, half=is_half, aux1=True, aux2=True, hlines=True)
+            plt.show()
 
             user_input = input(f"Do you want to generate the GMSH script'? (y/n): ")
             if user_input.lower() in ['', 'y', 'yes']:

@@ -98,12 +98,12 @@ def animate_2d_fld(ax, x, y, fld, step=80):
             plt.pause(0.001)
 
 def play_file(pattern, cwd='.'):
-    x, y, vx, vy, vz, elmap, dt2d, metadata, nsteps = read_fields(pattern, only_mesh=False, cwd=cwd)
+    data, meta, nsteps = read_fields(pattern, only_mesh=False, cwd=cwd)
 
     # Create the figure and axis
     fig, ax = plt.subplots()
 
-    animate_2d_fld(ax, x, y, vx)
+    animate_2d_fld(ax, data.x, data.y, data.vx)
 
 if __name__ == '__main__':
     play_file('n2dtorus')

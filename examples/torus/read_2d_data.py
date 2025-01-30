@@ -1,7 +1,50 @@
 import sys, os
-import struct
-import glob
+import struct, glob
 import numpy as np
+
+class data2d:
+
+    def __init__(self, x, y, vx, vy, vz, dt, elmap, if_sol=True):
+        self.x     = x
+        self.y     = y
+        self.vx    = vx
+        self.vy    = vy
+        self.vz    = vz
+        self.dt    = dt
+        self.elmap = elmap
+        self.if_sol= if_sol
+    
+    def check_dims(self, dims):
+        passed = True
+        if not (self.vx.shape == self.vy.shape == self.vz.shape == dims):
+            print(f'Velocity arrays have inconsistent sizes.')
+            print(f'vx, vy, vz:')
+            print(self.vx.shape)
+            print(self.vy.shape)
+            print(self.vz.shape)
+            print(dims)
+            passed = False
+        if not (len(self.dt) == dims[-1]):
+            print(f'timestep array has an inconsistent size.')
+            print(f'dt:')
+            print(len(self.dt))
+            print(dims[3])
+            passed = False
+        return passed
+
+class meta2d:
+
+    def __init__(self, version, if_half, wdsize, emode, lx1, ly1, nelf, time, nsave, lbuf):
+        self.version = version
+        self.if_half = if_half
+        self.wdsize  = wdsize
+        self.emode   = emode
+        self.lx1     = lx1
+        self.ly1     = ly1
+        self.nelf    = nelf
+        self.time    = time
+        self.nsave   = nsave
+        self.lbuf    = lbuf
 
 def read_int(f,emode,nvar):
     """read integer array"""
@@ -22,9 +65,9 @@ def read_flt(f,emode,wdsize,nvar):
 
 def read_fields(filepattern, only_mesh=False, cwd='.'):
 
-    pat = os.path.join(cwd, filepattern+'*')
+    pat = os.path.join(cwd, filepattern+'[0-9][0-9][0-9].fld')
 
-    files = sorted(glob.glob(pat))
+    files = glob.glob(pat)
     # Check if there are any files that match the pattern
     nfiles = len(files)
     if files:
@@ -35,28 +78,40 @@ def read_fields(filepattern, only_mesh=False, cwd='.'):
         print(f"No files found matching the pattern '{filepattern}'.")
         sys.exit()
 
-    vx_list, vy_list, vz_list, dt2d_list = [], [], [], []
-    for file in files:
-        x, y, vxr, vyr, vzr, elmap, dt2d, metadata = read_binary_file(file, only_mesh)
-        # Append the velocity arrays along with other necessary checks
-        vx_list.append(vxr)
-        vy_list.append(vyr)
-        vz_list.append(vzr)
-        dt2d_list.append(dt2d)
+    vx_list, vy_list, vz_list, dt_list = [], [], [], []
+    
+    if only_mesh:
+        data_part, meta = read_binary_file(file, only_mesh=True)
+        vx = data_part.vx
+        vy = data_part.vy
+        vz = data_part.vz
+        dt = data_part.dt
+        nsteps = 0
+        is_sol = False
+    else:
+        for file in files:
+            data_part, meta = read_binary_file(file, only_mesh=False)
+            # Append the velocity arrays along with other necessary checks
+            vx_list.append(data_part.vx)
+            vy_list.append(data_part.vy)
+            vz_list.append(data_part.vz)
+            dt_list.append(data_part.dt)
 
-    # Concatenate the velocity arrays along the last dimension (axis=3)
-    vx = np.concatenate(vx_list, axis=3)
-    vy = np.concatenate(vy_list, axis=3)
-    vz = np.concatenate(vz_list, axis=3)
-    dt2d = np.concatenate(dt2d_list)
+        # Concatenate the velocity arrays along the last dimension (axis=3)
+        vx = np.concatenate(vx_list, axis=3)
+        vy = np.concatenate(vy_list, axis=3)
+        vz = np.concatenate(vz_list, axis=3)
+        dt = np.concatenate(dt_list)
+        nsteps = vx.shape[3]
+        is_sol = True
 
-    nsteps = vx.shape[3]
+    data = data2d(data_part.x, data_part.y, vx, vy, vz, dt, data_part.elmap, is_sol)
 
-    return x, y, vx, vy, vz, elmap, dt2d, metadata, nsteps
+    return data, meta, nsteps
 
 def read_binary_file(filename, only_mesh = False, debug = False):
     # Open the file in binary mode
-    print(f'Reading {filename:s}:')
+    print(f'\nReading {filename:s}:')
     with open(filename, 'rb') as f:
         # Step 1: Read the header (assuming a fixed size of 128 bytes for example)
         header = f.read(116).split()
@@ -90,51 +145,38 @@ def read_binary_file(filename, only_mesh = False, debug = False):
            emode = '<'
         elif (etagB == 6.54321):
            emode = '>'
+        print(f'  read ', end='')
+        print(f'metadata ', end='')
+        lx1   = read_int(f, emode, 1)[0]
+        ly1   = read_int(f, emode, 1)[0]
+        nelf  = read_int(f, emode, 1)[0]
+        time  = read_flt(f, emode, wdsize, 1)[0]
+        nsave = read_int(f, emode, 1)[0]
+        lbuf  = read_int(f, emode, 1)[0]
+        meta = meta2d(version, if_half, wdsize, emode, lx1, ly1, nelf, time, nsave, lbuf)
 
-        print(f'  read metadata')
-        metadata = {
-            'version': version,
-            'if_half': if_half,
-            'wdsize': wdsize,
-            'emode': emode,
-            'lx1': read_int(f, emode, 1)[0],
-            'ly1': read_int(f, emode, 1)[0],
-            'nelf': read_int(f, emode, 1)[0],
-            'time': read_flt(f, emode, wdsize, 1)[0],
-            'nsave': read_int(f, emode, 1)[0],
-            'lbuf': read_int(f, emode, 1)[0],
-        }
-        lx1 = metadata['lx1']
-        ly1 = metadata['ly1']
-        nsave = metadata['nsave']
-        nelf = metadata['nelf']
-
-        print(f'  read elmap')
+        print(f'elmap ', end='')
         elmap = read_int(f,emode,nelf)
-        print(f'  read dt')
+        print(f'dt')
         dt2d = read_flt(f,emode,wdsize,nsave)
         idx = np.argsort(elmap)
         
         nxy = lx1 * ly1
-        if debug:
-            xavg, yavg = np.zeros(nelf,), np.zeros(nelf,)
-        print(f'  read x')
+        print(f'  read x ', end='')
         x = np.zeros((lx1,ly1,nelf))
         for i in idx:
             xel = read_flt(f,emode,wdsize,nxy)
             x[:,:,i] = xel.reshape((lx1,ly1), order='F')
-            if debug:
-                xavg[i] = np.mean(xel)
-        print(f'  read y')
+        print(f'y')
         y = np.zeros((lx1,ly1,nelf))
         for i in idx:
             yel = read_flt(f,emode,wdsize,nxy)
             y[:,:,i] = yel.reshape((lx1,ly1), order='F')
-            if debug:
-                yavg[i] = np.mean(yel)
         vx, vy, vz = np.empty((lx1,ly1,nelf,nsave)), np.empty((lx1,ly1,nelf,nsave)), np.empty((lx1,ly1,nelf,nsave))
+        if_sol = False
         if not only_mesh:
-            print(f'  read vxyz for {nsave:d} snapshots.')
+            print(f'  read vxyz for {nsave:d} snapshot(s).')
+            if_sol = True
             if debug:
                 print(f'  Read fld:')
             for ibuf in range(nsave):
@@ -153,6 +195,8 @@ def read_binary_file(filename, only_mesh = False, debug = False):
                     vz[:,:,i,ibuf] = eldata.reshape((lx1,ly1), order='F')
             if debug:
                 print(f'')
+        data = data2d(x, y, vx, vy, vz, dt2d, elmap, if_sol)
+        print('')
 
         # Return the parsed data
-        return x, y, vx, vy, vz, elmap, dt2d, metadata
+        return data, meta

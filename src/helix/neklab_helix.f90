@@ -580,13 +580,11 @@
       contains
 
          ! Constructor for the module level instance of helix
-         subroutine helix_pipe(delta, diameter, pitch_s, length, nslices, nelf, if_sym, if_debug)
+         subroutine helix_pipe(delta, diameter, pitch_s, length, if_sym, if_debug)
             real(dp), intent(in) :: delta
             real(dp), intent(in) :: diameter
             real(dp), intent(in) :: pitch_s
             real(dp), intent(in) :: length
-            integer, intent(in) :: nslices
-            integer, intent(in) :: nelf
             logical, optional, intent(in) :: if_sym
             logical, optional, intent(in) :: if_debug
             ! internal
@@ -601,8 +599,6 @@
             pipe%length   = length
 
             ! Mesh specifics
-            pipe%nslices  = nslices
-            pipe%nelf     = nelf
             call pipe%set_symmetry(optval(if_sym, .false.))
             
             !  Derived quantities

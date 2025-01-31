@@ -174,14 +174,14 @@ c-----------------------------------------------------------------------
       real, parameter :: pitch_s     = 0.0d0
       real, parameter :: length      = 1.0d0
       ! mesh parameters
-      integer, parameter :: nslices  = 5
-      integer, parameter :: nelf     = 108
       logical, parameter :: if_sym   = .false.
+      ! debug 2d geometry generation
+      logical, parameter :: if_debug = .false.
       if (istep.eq.0) then
          ! Setup logger
          call logger_setup(nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
          ! Initialize type, set geometry and compute forcing distribution
-         call helix_pipe(delta, diameter, pitch_s, length, nslices,nelf,if_sym=if_sym)
+         call helix_pipe(delta, diameter, pitch_s, length, if_sym, if_debug)
       endif
       end
 c-----------------------------------------------------------------------

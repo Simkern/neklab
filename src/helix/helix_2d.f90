@@ -4,11 +4,13 @@
       contains
 
          module procedure init_2d_geom
-            integer :: ie, iel, ieg, iseg, iface, isl, nxy
+            integer :: ie, iel, ieg, iseg, iface, isl, nxy, nelf, nslices, nown
             integer, dimension(lelv) :: islice
             integer, dimension(:), allocatable :: unique_segments, segment_owner, segment_count
             integer, dimension(:), allocatable :: idx ! for findloc
             logical, dimension(:), allocatable :: segment_found
+            real(dp) :: xmin
+            logical :: has_P
             character(len=128) :: msg
             ! for debug
             logical :: debug
@@ -21,6 +23,38 @@
             
             nxy = lx1*ly1
             call nek_log_message('start extraction', this_module, 'init_2d_geom')
+
+            ! Find number of elements in the first slice of the mesh
+            nelf = 0
+            do ie = 1, nelv
+               ! the element should have a face on the yz plane
+               xmin = abs(minval(xm1(:,:,:,ie)))
+               has_P = .false.
+               do iface = 1, 2*ndim
+               ! and have a periodic bc
+                  if (cbc(iface,ie,1) == 'P  ') has_P = .true.
+               end do
+               if (xmin < 1e-6_dp .and. has_P) nelf = nelf + 1
+            end do
+            ! gather info from all procs
+            nelf = iglsum(nelf, 1)
+            ! deduce number of slices
+            nslices = nelgv/nelf
+            ! stamp logs
+            write(msg,'(A,I8)') 'Elements in cross-stream plane:   ', nelf
+            call nek_log_message(msg, this_module, 'init_2d_geom')
+            write(msg,'(A,I8)') 'Elements in streamwise direction: ', nslices
+            call nek_log_message(msg, this_module, 'init_2d_geom')
+            write(msg,'(A,I8)') 'Total number of elements mesh:    ', nelgv
+            call nek_log_message(msg, this_module, 'init_2d_geom')
+
+            ! sanity check
+            if (nelf*nslices /= nelgv) then
+               call nek_stop_error('Inconsistent mesh partitioning!', module=this_module, procedure='init_2d_geom')
+            else
+               self%nelf = nelf
+               self%nslices = nslices
+            end if
 
             ! Sort local elements according to 2D mesh. 
             ! Here we use a trick that relies on the particular structure of meshes extruded
@@ -110,13 +144,20 @@
             self%n2d   = iglsum(self%n2d_gown,1)
             self%nload = 0
             if (self%n2d /= self%nelf) then
-               call nek_stop_error('Inconsistent elements in 2D mesh!', module=this_module, procedure='init_2d_geom')
+               write(msg,'(A,I0)') 'Number of globally owned 2D elements: ', self%n2d
+               call nek_log_message(msg, this_module, 'init_2d_geom')
+               write(msg,'(A,I0)') 'Total number of 2D elements:          ', self%nelf
+               call nek_log_message(msg, this_module, 'init_2d_geom')
+               call nek_stop_error('Inconsistent element ownership!', module=this_module, procedure='init_2d_geom')
             else
                call nek_log_message('global 2D element ownership established', this_module, 'init_2d_geom')
-               msg = 'neklab_helix % init_2d_geom :'
+               ! this is quite ugly, but it's just once for information purposes ...
                do ie = 0, np-1
-                  if (nid == ie) print '(A,4X,A,I3,A,I3,A)', trim(msg), 'proc ', ie, ': ', self%n2d_gown, ' 2D elements'
-                  call nekgsync()
+                  nown = 0
+                  if (nid == ie) nown = self%n2d_gown
+                  nown = iglsum(nown, 1)
+                  write(msg,'(A,I3,A,I3,A)') 'proc ', ie, ': ', nown, ' 2D elements'
+                  call nek_log_message(msg, this_module, 'init_2d_geom')
                end do
                write(msg,'(A,I3,A)') 'total: ', self%n2d, ' 2D elements'
                call nek_log_message(msg, this_module, 'init_2d_geom')

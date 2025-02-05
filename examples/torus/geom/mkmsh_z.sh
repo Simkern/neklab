@@ -1,4 +1,10 @@
-if [ $# -ne 2 ]; then echo -e "\nWrong argument. Abort.\n"; exit 1; fi
+if [ $# -ne 2 ]; then
+	echo -e "\nWrong argument. Abort.\n";
+	echo "#"
+	echo "#  Usage: bash mkmsh_z.sh torus_coarse2D nz"
+	echo "#"
+	exit 1;
+fi
 #
 #  Usage: bash mkmsh_z.sh torus_coarse2D nz
 #

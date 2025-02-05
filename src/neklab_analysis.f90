@@ -13,7 +13,7 @@
          use LightKrylov_Timing, only: timer => global_lightkrylov_timer
          use LightKrylov_AbstractVectors, only: abstract_vector_rdp
          use LightKrylov_AbstractSystems, only: abstract_system_rdp
-         use LightKrylov_Utils, only: newton_dp_metadata
+         use LightKrylov_NewtonKrylov, only: newton_dp_metadata
          use neklab_vectors
          use neklab_linops
          use neklab_utils
@@ -186,7 +186,7 @@
             end select
 
             if (present(is_new_solution)) then
-               is_new_solution = meta%new_solution
+               is_new_solution = .not. meta%input_is_fixed_point
             end if
 
 		      call logger%log_message('Exiting newton iteration.', module=this_module)
@@ -247,7 +247,7 @@
       
                      if (log_level <= debug_level) then
                         allocate (G(r, r)); G = 0.0_dp
-                        call innerprod(G, OTD%basis, OTD%basis)
+                        G = innerprod(OTD%basis, OTD%basis)
                         write (msg, '(A,I5,A,*(1X,E10.3))') 'Step ', istep, ': norm.  err pre: ',  (G(i,i) - 1.0_dp, i=1, r)
                         call logger%log_information(msg, module=this_module, procedure='OTD main')
                         write (msg, '(A,I5,A,*(1X,E10.3))') 'Step ', istep, ': ortho. err pre: ', ((G(i,j), j=i+1, r), i=1, r)
@@ -272,7 +272,7 @@
                      end if
                   end do
       ! compute reduced operator
-                  call innerprod(Lr, OTD%basis, Lu)
+                  Lr = innerprod(OTD%basis, Lu)
       
                   Phi = 0.0_dp
                   do i = 1, r

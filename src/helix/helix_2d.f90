@@ -4,6 +4,7 @@
       contains
 
          module procedure init_2d_geom
+            character(len=*), parameter :: this_procedure = 'init_2d_geom'
             integer :: ie, iel, ieg, iseg, iface, isl, nxy, nelf, nslices, nown
             integer, dimension(lelv) :: islice
             integer, dimension(:), allocatable :: unique_segments, segment_owner, segment_count
@@ -19,10 +20,11 @@
             ! functions
             integer, external :: iglsum
 
+            call lk_timer%start('neklab_helix_'//this_procedure)
             debug = optval(if_debug, .false.)
             
             nxy = lx1*ly1
-            call nek_log_message('start extraction', this_module, 'init_2d_geom')
+            call nek_log_message('start extraction', this_module, this_procedure)
 
             ! Find number of elements in the first slice of the mesh
             nelf = 0
@@ -42,15 +44,15 @@
             nslices = nelgv/nelf
             ! stamp logs
             write(msg,'(A,I8)') 'Elements in cross-stream plane:   ', nelf
-            call nek_log_message(msg, this_module, 'init_2d_geom')
+            call nek_log_message(msg, this_module, this_procedure)
             write(msg,'(A,I8)') 'Elements in streamwise direction: ', nslices
-            call nek_log_message(msg, this_module, 'init_2d_geom')
+            call nek_log_message(msg, this_module, this_procedure)
             write(msg,'(A,I8)') 'Total number of elements mesh:    ', nelgv
-            call nek_log_message(msg, this_module, 'init_2d_geom')
+            call nek_log_message(msg, this_module, this_procedure)
 
             ! sanity check
             if (nelf*nslices /= nelgv) then
-               call nek_stop_error('Inconsistent mesh partitioning!', module=this_module, procedure='init_2d_geom')
+               call nek_stop_error('Inconsistent mesh partitioning!', this_module, this_procedure)
             else
                self%nelf = nelf
                self%nslices = nslices
@@ -145,22 +147,22 @@
             self%nload = 0
             if (self%n2d /= self%nelf) then
                write(msg,'(A,I0)') 'Number of globally owned 2D elements: ', self%n2d
-               call nek_log_message(msg, this_module, 'init_2d_geom')
+               call nek_log_message(msg, this_module, this_procedure)
                write(msg,'(A,I0)') 'Total number of 2D elements:          ', self%nelf
-               call nek_log_message(msg, this_module, 'init_2d_geom')
-               call nek_stop_error('Inconsistent element ownership!', module=this_module, procedure='init_2d_geom')
+               call nek_log_message(msg, this_module, this_procedure)
+               call nek_stop_error('Inconsistent element ownership!', this_module, this_procedure)
             else
-               call nek_log_message('global 2D element ownership established', this_module, 'init_2d_geom')
+               call nek_log_message('global 2D element ownership established', this_module, this_procedure)
                ! this is quite ugly, but it's just once for information purposes ...
                do ie = 0, np-1
                   nown = 0
                   if (nid == ie) nown = self%n2d_gown
                   nown = iglsum(nown, 1)
                   write(msg,'(A,I3,A,I3,A)') 'proc ', ie, ': ', nown, ' 2D elements'
-                  call nek_log_message(msg, this_module, 'init_2d_geom')
+                  call nek_log_message(msg, this_module, this_procedure)
                end do
                write(msg,'(A,I3,A)') 'total: ', self%n2d, ' 2D elements'
-               call nek_log_message(msg, this_module, 'init_2d_geom')
+               call nek_log_message(msg, this_module, this_procedure)
             end if
             if (debug) then
                call nekgsync()
@@ -182,21 +184,23 @@
                close (fileid)
                call nekgsync()
             end if
-            call nek_log_message('extraction complete', this_module, 'init_2d_geom')
+            call nek_log_message('extraction complete', this_module, this_procedure)
+            call lk_timer%stop('neklab_helix_'//this_procedure)
          end procedure init_2d_geom
 
          module procedure save_2d_fields
+            character(len=*), parameter :: this_procedure = 'save_2d_fields'
             integer :: iseg, ie, ifc, level, nxy
             real(dp) :: xavg, yavg, vxavg, vyavg, vzavg
             character(len=128) :: msg
             nxy = lx1*ly1
             call logger%configuration(level=level)
             if (self%save_2d_base) then
-               call lk_timer%start('neklab_helix_save_2d')
+               call lk_timer%start('neklab_helix_'//this_procedure)
                self%nsave = self%nsave + 1
                ! save data to buffer
                write(msg,'(A,I5,A,I5,A,E12.5,A,F12.8)') 'Save 2D field ', self%nsave, '/', lbuf, ', time=', time, ', dt=', dt
-               call logger%log_debug(msg, this_module, 'save_2d_fields')
+               call logger%log_debug(msg, this_module, this_procedure)
                if (nid == 0) print '(A,A)', 'neklab_helix: ', trim(msg)
                do iseg = 1, self%n2d_gown
                   ie  = self%id2d(iseg, 1)
@@ -212,7 +216,7 @@
                      vzavg = sum(self%vz2d(:,:,iseg,self%nsave))/nxy
                      print '(A,I8,I8,A,5(3X,F16.8))', 'DEBUG: save el', ie, iseg, ': ', xavg, yavg, vxavg, vyavg, vzavg
                   end if
-                  call lk_timer%stop('neklab_helix_save_2d')
+                  call lk_timer%stop('neklab_helix_'//this_procedure)
                end do
                ! save timestep information and record minimum dt
                self%dt2d(self%nsave) = dt
@@ -223,13 +227,13 @@
                ! save data to file when buffer is full
                if (self%nsave == lbuf .or. lastep == 1) call self%outpost_2d_fields()
             else
-               call nek_log_debug('Baseflow saving turned off', this_module, 'save_2d_fields')
+               call nek_log_debug('Baseflow saving turned off', this_module, this_procedure)
             end if
          end procedure save_2d_fields
          
          module procedure outpost_2d_fields
+            character(len=*), parameter :: this_procedure = 'outpost_2d_fields'
             if (self%nsave > 0) then
-               call lk_timer%start('neklab_helix_outpost_2d')
                if (self%is_newton()) then
                   self%noutn = self%noutn + 1
                   call self%write_2d(self%fname_2d('n', self%noutn))
@@ -246,16 +250,15 @@
                   end if
                end if
                self%nsave = 0
-               call lk_timer%stop('neklab_helix_outpost_2d')
             else
-               call nek_log_message('No 2D data to outpost.', this_module, 'outpost')
+               call nek_log_message('No 2D data to outpost.', this_module, this_procedure)
             end if
          end procedure outpost_2d_fields
 
          module procedure load_2d_fields
             ! only nid 0 will read
+            character(len=*), parameter :: this_procedure = 'load_2d_fields'
             character(len=132) :: fname
-            call lk_timer%start('neklab_helix_load_2d')
             if (self%is_newton()) then
                fname = self%fname_2d('n', idx)
             else if (self%is_floquet()) then
@@ -264,10 +267,10 @@
                fname = self%fname_2d('c', idx)
             end if
             call self%read_2d(fname)
-            call lk_timer%stop('neklab_helix_load_2d')
          end procedure load_2d_fields
 
          module procedure set_baseflow
+            character(len=*), parameter :: this_procedure = 'set_baseflow'
             integer  :: ie, ix, iy, iz, iseg, ifld_
             real(dp) :: s, phi, u, v, w
             character(len=128) :: msg
@@ -278,19 +281,19 @@
                   ! load next file
                   self%noutn = self%noutn + 1
                   write(msg,'(A,I5)') 'Load file: ', self%noutn
-                  call nek_log_debug(msg, this_module, 'set_baseflow')
+                  call nek_log_debug(msg, this_module, this_procedure)
                   call self%load_2d_fields(self%noutn)
                end if
                ifld_ = ifld - (self%noutn-1)*lbuf
             else
                ifld_ = ifld
-               if (ifld_ > self%nload) call nek_stop_error('Inconsistent ifld!', this_module, 'set_baseflow')
+               if (ifld_ > self%nload) call nek_stop_error('Inconsistent ifld!', this_module, this_procedure)
             end if
-            call lk_timer%start('neklab_helix_set_baseflow')
+            call lk_timer%start('neklab_helix_'//this_procedure)
             ! set dt
             param(12) = -abs(self%dt2d(ifld_)) ! negative to force the stepsize in settime
             write(msg,'(A,I5,"/",I5,A,I5,A,F10.6)') 'Set field ', ifld_, lbuf, ' (', ifld, '), dt= ', -param(12)
-            call logger%log_debug(msg, this_module, 'set_baseflow')
+            call logger%log_debug(msg, this_module, this_procedure)
             if (nid == 0) print '(A,A)', 'neklab_helix: ', trim(msg)
             do ie = 1, nelv
             iseg = self%lsegment(ie) ! local segment
@@ -308,11 +311,11 @@
             end do
             end do
             end do
-            call lk_timer%stop('neklab_helix_set_baseflow')
+            call lk_timer%stop('neklab_helix_'//this_procedure)
          end procedure set_baseflow
 
          module procedure load_baseflow
-            ! internal
+            character(len=*), parameter :: this_procedure = 'load_baseflow'
             integer :: ifld_, nchar
             character(len=132) :: filename
             ifld_ = optval(ifld, 1)
@@ -320,7 +323,7 @@
             nchar = min(len(fname), 132)
             filename(1:nchar) = fname(1:nchar)
             call self%read_2d(filename)
-            if (ifld > self%nload) call nek_stop_error('Inconsistent ifld', this_module, 'load_baseflow')
+            if (ifld > self%nload) call nek_stop_error('Inconsistent ifld', this_module, this_procedure)
             call self%set_baseflow(vx, vy, vz, ifld)
          end procedure load_baseflow
 
@@ -355,6 +358,7 @@
          end procedure compute_2d_usrt
          
          module procedure set_2d_mode
+            character(len=*), parameter :: this_procedure = 'set_2d_mode'
             if (trim(mode)=='newton') then
                self%noutn = 0
                self%nload = 0
@@ -370,7 +374,7 @@
                call self%set_floquet(.true.)
                call self%set_newton(.false.)
             else
-               call nek_stop_error('Selected mode '//trim(mode)//' is invalid.', this_module, 'set_2d_mode')
+               call nek_stop_error('Selected mode '//trim(mode)//' is invalid.', this_module, this_procedure)
             end if
          end procedure set_2d_mode
       

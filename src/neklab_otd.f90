@@ -86,12 +86,12 @@
                   call apply_L(vec_out%vx, vec_out%vy, vec_out%vz,
      $   vec_in%vx, vec_in%vy, vec_in%vz, vec_in%pr, trans = .false.)
                class default
-                  call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'", &
-                  & this_module, 'apply_LNS')
+                  call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'",
+     & this_module, 'apply_LNS')
                end select
             class default
-               call stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_dvector'", &
-               & this_module, 'apply_LNS')
+               call stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_dvector'",
+     & this_module, 'apply_LNS')
             end select
             return
          end subroutine apply_LNS
@@ -110,12 +110,12 @@
                   call apply_L(vec_out%vx, vec_out%vy, vec_out%vz,
      $   vec_in%vx, vec_in%vy, vec_in%vz, vec_in%pr, trans = .true.)
                class default
-                  call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'", &
-                  & this_module, 'apply_adjLNS')
+                  call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'",
+     & this_module, 'apply_adjLNS')
                end select
             class default
-               call stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_dvector'", &
-               & this_module, 'apply_adjLNS')
+               call stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_dvector'",
+     & this_module, 'apply_adjLNS')
             end select
             return
          end subroutine apply_adjLNS

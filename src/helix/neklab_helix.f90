@@ -651,12 +651,13 @@
 
             ! add timers
             call lk_timer%initialize() ! in case it has not been done
-            call lk_timer%add_timer('neklab_helix_init_geom', start=.false.)
-            call lk_timer%add_timer('neklab_helix_save_2d', start=.false.)
-            call lk_timer%add_timer('neklab_helix_load_2d', start=.false.)
-            call lk_timer%add_timer('neklab_helix_outpost_2d', start=.false.)
-            call lk_timer%add_timer('neklab_helix_set_baseflow', start=.false.)
-            call lk_timer%add_timer('neklab_helix_compute_ubar', start=.false.)
+            call lk_timer%add_timer('neklab_helix_init_geom',         start=.false.)
+            call lk_timer%add_timer('neklab_helix_init_2d_geom',      start=.false.)
+            call lk_timer%add_timer('neklab_helix_save_2d_fields',    start=.false.)
+            call lk_timer%add_timer('neklab_helix_read_2d',           start=.false.)
+            call lk_timer%add_timer('neklab_helix_write_2d',          start=.false.)
+            call lk_timer%add_timer('neklab_helix_set_baseflow',      start=.false.)
+            call lk_timer%add_timer('neklab_helix_compute_ubar',      start=.false.)
             call lk_timer%add_timer('neklab_helix_compute_mflow_fft', start=.false.)
 
             ! intialize geometry

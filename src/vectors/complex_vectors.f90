@@ -65,8 +65,8 @@
             call nek_daxpby(self%re, 1.0_dp, wrk%re, 1.0_dp)
             call nek_daxpby(self%im, 1.0_dp, wrk%im, 1.0_dp)
          class default
-            call stop_error("The intent [IN] argument 'vec' must be of type 'nek_zvector'" &
-            & this_module, 'nek_zaxpby')
+            call stop_error("The intent [IN] argument 'vec' must be of type 'nek_zvector'",
+     & this_module, 'nek_zaxpby')
          end select
          end procedure
       
@@ -78,8 +78,8 @@
             alpha_i = self%re%dot(vec%im) - self%im%dot(vec%re)
             alpha = cmplx(alpha_r, alpha_i, kind=dp)
          class default
-            call stop_error("The intent [IN] argument 'vec' must be of type 'nek_zvector'" &
-            & this_module, 'nek_zdot')
+            call stop_error("The intent [IN] argument 'vec' must be of type 'nek_zvector'",
+     & this_module, 'nek_zdot')
          end select
          end procedure
       

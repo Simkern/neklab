@@ -85,6 +85,7 @@
          end procedure forcing_summary
 
          module procedure init_geom
+            character(len=*), parameter :: this_procedure = 'init_geom'
             real(dp) :: minv, maxv, torus_r, s_angle
             real(dp) :: x_torus, y_torus, z_torus, sweep, r
             real(dp), dimension(lx1,ly1,lz1,lelv) :: tmp, pipe_r
@@ -93,8 +94,8 @@
             ! functions
             real(dp), external :: glmax, glmin
 
-            if (self%is_initialized) call stop_error('Attempting to reinitialize the mesh', this_module, 'init_geom')
-            call lk_timer%start('neklab_helix_init_geom')
+            if (self%is_initialized) call stop_error('Attempting to reinitialize the mesh', this_module, this_procedure)
+            call lk_timer%start('neklab_helix_'//this_procedure)
 
          !  Geometry modification for helical pipe
 
@@ -119,18 +120,18 @@
             call copy(pipe_r, ym1,lv) ! local distance from pipe center
             minv = glmin(xm1,lv); maxv = glmax(xm1,lv)
             write(msg,'(2(A,F16.12),A)') 'x: min ', minv, ' max ', maxv, ' (streamwise)'
-            call nek_log_message(msg, this_module, 'init_geom')
+            call nek_log_message(msg, this_module, this_procedure)
             minv = glmin(ym1,lv); maxv = glmax(ym1,lv)
             write(msg,'(2(A,F16.12))') 'y: min ', minv, ' max ', maxv
-            call nek_log_message(msg, this_module, 'init_geom')
+            call nek_log_message(msg, this_module, this_procedure)
             minv = glmin(zm1,lv); maxv = glmax(zm1,lv)
             write(msg,'(2(A,F16.12))') 'z: min ', minv, ' max ', maxv
-            call nek_log_message(msg, this_module, 'init_geom')
-            call nek_log_message('Mesh rescaled and rotated.', this_module, 'init_geom')
+            call nek_log_message(msg, this_module, this_procedure)
+            call nek_log_message('Mesh rescaled and rotated.', this_module, this_procedure)
 
             ! Set up and extract 2D geometry
             call self%init_2d_geom(if_debug)
-            call nek_log_message('2D geometry extracted.', this_module, 'init_geom')
+            call nek_log_message('2D geometry extracted.', this_module, this_procedure)
 
             ! Morph the mesh into a torus
             if (self%is_torus()) then
@@ -155,11 +156,11 @@
                end do
                end do
                write(msg,'(2(A,F16.12))') 'radius: ', torus_r
-               call nek_log_message(msg, this_module, 'init_geom')
+               call nek_log_message(msg, this_module, this_procedure)
                minv = glmin(self%sweep_angle,lv); maxv = glmax(self%sweep_angle,lv)
                write(msg,'(2(A,F16.12))') 'sweep: min ', minv, ' max ', maxv
-               call nek_log_message(msg, this_module, 'init_geom')
-               call nek_log_message('Mesh morphed into torus.', this_module, 'init_geom')
+               call nek_log_message(msg, this_module, this_procedure)
+               call nek_log_message('Mesh morphed into torus.', this_module, this_procedure)
             end if
             call copy(self%xax, xm1, lv) ! xax set before curvature in z is added!
             call copy(self%yax, ym1, lv) ! yax set before curvature in z is added!
@@ -184,8 +185,8 @@
                enddo
                minv = glmin(zm1,lv); maxv = glmax(zm1,lv)
                write(msg,'(2(A,F16.12))') 'z: min ', minv, ' max ', maxv
-               call nek_log_message(msg, this_module, 'init_geom')
-               call nek_log_message('Mesh morphed into helix.', this_module, 'init_geom')
+               call nek_log_message(msg, this_module, this_procedure)
+               call nek_log_message('Mesh morphed into helix.', this_module, this_procedure)
             end if
             param(59) = 1.   !  All elements deformed
 
@@ -203,11 +204,12 @@
             call comment() ! set internal variable ifcour for standard timestep logging (--> needs to be called at istep == 0)
             istep = itmp
             self%is_initialized = .true.
-            call lk_timer%stop('neklab_helix_init_geom')
+            call lk_timer%stop('neklab_helix_'//this_procedure)
             
          end procedure init_geom
 
          module procedure init_flow
+            character(len=*), parameter :: this_procedure = 'init_flow'
             integer :: i, n
             logical :: reset_nf_
             character(len=128) :: msg
@@ -216,49 +218,49 @@
             reset_nf_ = optval(reset_nf, .false.)
             n = size(dpds)
             write(msg,'(A,I0,A)') 'nf = ', n, ' forcing components provided.'
-            call nek_log_information(msg, this_module, 'init_flow')
+            call nek_log_information(msg, this_module, this_procedure)
             if (self%nf == 0) then
                self%nf = n
                write(msg,'(A,I0)') 'Number of considered forcing components set to nf = ', self%nf
-               call nek_log_message(msg, this_module, 'init_flow')
+               call nek_log_message(msg, this_module, this_procedure)
             else if (reset_nf) then
                if (n /= self%nf) then
                   self%nf = n
                   write(msg,'(A,I0)') 'Number of considered forcing components reset to nf = ', self%nf
-                  call nek_log_warning(msg, this_module, 'init_flow')
+                  call nek_log_warning(msg, this_module, this_procedure)
                else
                   write(msg,'(A,I0)') 'Number of considered forcing components unchanged. nf = ', self%nf
-                  call nek_log_information(msg, this_module, 'init_flow')
+                  call nek_log_information(msg, this_module, this_procedure)
                end if
             end if
             if (self%womersley /= 0.0_dp) then
                self%if_steady = .false.
-               call nek_log_information('Running unsteady case.', this_module, 'init_flow')
+               call nek_log_information('Running unsteady case.', this_module, this_procedure)
                self%omega     = (self%womersley**2)*cpfld(1,1)    ! pulsation frequency
                self%pulse_T   = 2.0_dp*pi/self%omega               ! pulsation period
                if (self%nf == 1) then
                   write(msg,'(A,I0,A)') 'nf > ', 1, ' forcing components required for unsteady case.'
-                  call nek_stop_error(msg, this_module, 'init_flow')
+                  call nek_stop_error(msg, this_module, this_procedure)
                else if (mod(self%nf,2)==0) then
                   msg = 'Unsteady case requires an uneven number of forcing components'
-                  call nek_stop_error(msg, this_module, 'init_flow')
+                  call nek_stop_error(msg, this_module, this_procedure)
                end if
-               call nek_log_message('Unsteady flow parameters set.', this_module, 'init_flow')
+               call nek_log_message('Unsteady flow parameters set.', this_module, this_procedure)
             else
                self%if_steady = .true.
-               call nek_log_message('Running steady case.', this_module, 'init_flow')
+               call nek_log_message('Running steady case.', this_module, this_procedure)
                self%omega     = 0.0_dp   
                self%pulse_T   = 0.0_dp  
                if (self%nf > 1) then
                   write(msg,'(A,I0,A)') 'Components nf > ', 1, ' will be ignored.'
-                  call nek_log_warning(msg, this_module, 'init_flow')
+                  call nek_log_warning(msg, this_module, this_procedure)
                end if
-               call nek_log_message('Steady flow parameters set.', this_module, 'init_flow')
+               call nek_log_message('Steady flow parameters set.', this_module, this_procedure)
             end if
             self%dpds = 0.0_dp
             self%dpds(:self%nf) = dpds
             call pipe%compute_bf_forcing(0.0_dp) ! ensure that the forcing is set (in particular for steady flows)
-            call nek_log_message('Baseflow forcing set.', this_module, 'init_flow')
+            call nek_log_message('Baseflow forcing set.', this_module, this_procedure)
             call self%parameter_summary()
          end procedure init_flow
 
@@ -351,6 +353,7 @@
          end procedure compute_bf_forcing
 
          module procedure shift_mflow_phase
+            character(len=*), parameter :: this_procedure = 'shift_mflow_phase'
             integer :: i
             real(dp) :: dpdsr, dpdsi, alpha, dalpha, dt_phase, prop
             real(dp) :: dpds(lf)
@@ -366,11 +369,11 @@
                dt_phase = dalpha/pipe%get_omega()
                prop = dt_phase/pipe%get_period()*100
                write(msg,'(A,I0)') 'adjusting forcing component: ', icomp
-               call nek_log_message(msg,'neklab_helix','shift_mflow_phase')
+               call nek_log_message(msg, this_module, this_procedure)
                write(msg,'(3X,A,F16.8)') 'dalpha  = ', dalpha
-               call nek_log_message(msg,'neklab_helix','shift_mflow_phase')
+               call nek_log_message(msg, this_module, this_procedure)
                write(msg,'(3X,A,F16.8,A,F10.5,A)') 'dt_phase= ', dt_phase , '  (', prop, ' % T)'
-               call nek_log_message(msg,'neklab_helix','shift_mflow_phase')
+               call nek_log_message(msg, this_module, this_procedure)
                ! update forcing (rotation) to remove shift
                self%dpds(i  ) = dpdsr*cos(dalpha) - dpdsi*sin(dalpha)
                self%dpds(i+1) = dpdsr*sin(dalpha) + dpdsi*cos(dalpha)

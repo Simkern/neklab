@@ -35,12 +35,12 @@
       ! Evaluate residual F(X) - X.
                call vec_out%sub(vec_in)
             class default
-               call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'", &
-               & this_module, 'nonlinear_map_torus_upo')
+               call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'",
+     & this_module, 'nonlinear_map_torus_upo')
             end select
          class default
-            call stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_dvector'", &
-            & this_module, 'nonlinear_map_torus_upo')
+            call stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_dvector'",
+     & this_module, 'nonlinear_map_torus_upo')
          end select
          end procedure nonlinear_map_torus_upo
       
@@ -74,12 +74,12 @@
                call vec_out%sub(vec_in)
                param(22) = atol
             class default
-               call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'", &
-               & this_module, 'jac_direct_map_torus_upo')
+               call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'",
+     & this_module, 'jac_direct_map_torus_upo')
             end select
          class default
-            call stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_dvector'", &
-            & this_module, 'jac_direct_map_torus_upo')
+            call stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_dvector'",
+     & this_module, 'jac_direct_map_torus_upo')
          end select
          end procedure jac_direct_map_torus_upo
       
@@ -114,12 +114,12 @@
                call vec_out%sub(vec_in)
                param(22) = atol
             class default
-               call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'", &
-               & this_module, 'jac_adjoint_map_torus_upo')
+               call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'",
+     & this_module, 'jac_adjoint_map_torus_upo')
             end select
          class default
-            call stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_dvector'", &
-            & this_module, 'jac_adjoint_map_torus_upo')
+            call stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_dvector'",
+     & this_module, 'jac_adjoint_map_torus_upo')
          end select
          end procedure jac_adjoint_map_torus_upo
       end submodule

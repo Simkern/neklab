@@ -85,12 +85,12 @@
 
                self%baseflow_computed = .true. ! we only need to do this once
                class default
-               call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'", &
-               & this_module, 'floquet_matvec')
+               call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'",
+     & this_module, 'floquet_matvec')
             end select
          class default
-            call stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_dvector'", &
-            & this_module, 'floquet_matvec')
+            call stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_dvector'",
+     & this_module, 'floquet_matvec')
          end select
          end procedure floquet_matvec
       
@@ -140,12 +140,12 @@
       ! Extract the final solution to vector.
                call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
             class default
-               call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'", &
-               & this_module, 'floquet_rmatvec')
+               call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'",
+     & this_module, 'floquet_rmatvec')
             end select
          class default
-            call stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_dvector'", &
-            & this_module, 'floquet_rmatvec')
+            call stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_dvector'",
+     & this_module, 'floquet_rmatvec')
          end select
          end procedure floquet_rmatvec
 

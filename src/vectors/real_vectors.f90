@@ -95,14 +95,14 @@
             call add2s2(self%pr, vec%pr, beta, n2)
             if (ifto) call add2s2(self%theta(:, 1), vec%theta(:, 1), beta, n1)
          class default
-            call stop_error("The intent [IN] argument 'vec' must be of type 'nek_ext_dvector'" &
-            & this_module, 'nek_daxpby')
+            call stop_error("The intent [IN] argument 'vec' must be of type 'nek_ext_dvector'",
+     & this_module, 'nek_daxpby')
          end select
          end procedure
       
          module procedure nek_ddot
          real(kind=dp), external :: glsc3
-         integer :: n
+         integer :: i, n
          n = nx1*ny1*nz1*nelv
          select type (vec)
          type is (nek_dvector)
@@ -118,8 +118,8 @@
             end do
             end if
          class default
-            call stop_error("The intent [IN] argument 'vec' must be of type 'nek_ext_dvector'" &
-            & this_module, 'nek_ddot')
+            call stop_error("The intent [IN] argument 'vec' must be of type 'nek_ext_dvector'",
+     & this_module, 'nek_ddot')
          end select
          end procedure
       

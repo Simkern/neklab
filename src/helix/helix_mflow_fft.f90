@@ -4,15 +4,16 @@
       contains
 
          module procedure compute_mflow_fft
+            character(len=*), parameter :: this_procedure = 'compute_mflow_fft'
             integer :: i, j
             real(dp) :: ubar, tau, dtau, twopi, pd
             logical :: var_dt_
             real(dp) :: ubar_old, tau_old, dt0, dfftv1, dfftv2
             var_dt_ = optval(var_dt, .false.)
             pd = optval(period, self%pulse_T)
-            if (pd == 0.0_dp) call nek_stop_error('Period not set or zero.', this_module, 'compute_mflow_fft')
+            if (pd == 0.0_dp) call nek_stop_error('Period not set or zero.', this_module, this_procedure)
             if (self%is_save_fft()) then
-               call lk_timer%start('neklab_helix_compute_mflow_fft')
+               call lk_timer%start('neklab_helix_'//this_procedure)
                twopi = 8.0_dp*atan(1.0_dp)
                ! compute period, current ubar and time constants
                ubar = self%compute_ubar(vx,vy,vz)
@@ -66,11 +67,12 @@
                ! increment integration time
                self%fft_time = self%fft_time + dt
                if (nid == 0) print '(A,2(F18.12),F12.6)', 'neklab_helix: Compute mflow fft ', self%fft_time, pd, self%fft_time/pd
-               call lk_timer%stop('neklab_helix_compute_mflow_fft')
+               call lk_timer%stop('neklab_helix_'//this_procedure)
             end if
          end procedure compute_mflow_fft
 
          module procedure extract_mflow_fft
+            character(len=*), parameter :: this_procedure = 'extract_mflow_fft'
             real(dp) :: pd, pd_chk
             integer :: i, j, nprint
             logical :: if_amplitude_
@@ -78,7 +80,7 @@
             character(len=128), parameter :: fmt = '(A,1X,F16.8,1X,A,*(1X,F16.8))'
             if_amplitude_ = optval(if_amplitude, .true.)
             pd = optval(period, self%pulse_T)
-            if (pd == 0.0_dp) call nek_stop_error('Period not set or zero.', this_module, 'compute_mflow_fft')
+            if (pd == 0.0_dp) call nek_stop_error('Period not set or zero.', this_module, this_procedure)
             ! extract the computed FFT data, compute amplitudes and phases
             self%fft_rtime = self%fft_time ! total integration time since last call
             call copy(self%mflow, self%fftv, 2*nfft+1)
@@ -98,20 +100,20 @@
             if (if_amplitude_) then
                nprint = (self%nf+1)/2
                write(msg,fmt) 'Period',self%fft_rtime,'massflow FT amplitude  ',self%mflow_amplitude(:nprint)
-               call nek_log_message(msg, this_module,'extract_mflow_fft')
+               call nek_log_message(msg, this_module, this_procedure)
                write(msg,fmt) 'Period',self%fft_rtime,'massflow FT phase angle',self%mflow_phase(:nprint)
-               call nek_log_message(msg, this_module,'extract_mflow_fft')
+               call nek_log_message(msg, this_module, this_procedure)
                if (self%omega /= 0.0_dp) then
                   write(msg,fmt) 'Period',self%fft_rtime,'massflow FT t-shift    ',self%mflow_phase(:nprint)/self%omega
-                  call nek_log_debug(msg, this_module,'extract_mflow_fft')
+                  call nek_log_debug(msg, this_module, this_procedure)
                end if
             else
                write(msg,fmt) 'Period',self%fft_rtime,'massflow FT cmplx',self%mflow(:self%nf)
-               call nek_log_message(msg, this_module,'extract_mflow_fft')
+               call nek_log_message(msg, this_module, this_procedure)
             end if
             if (abs(pd_chk - 1.0_dp) > 1.0e-06_dp) then
                write(msg, '(A,E15.8,A,2(F16.8,1X))') 'Period check: ', pd_chk - 1.0_dp, ': ', pd, self%fft_rtime
-               call nek_log_message(msg, this_module,'extract_mflow_fft')
+               call nek_log_message(msg, this_module, this_procedure)
                call nek_stop_error('Period check failed. Maybe the integration time does not equal the period precisely.')
             end if
             self%fft_is_extracted = .true.
@@ -127,6 +129,7 @@
          end procedure reset_mflow_fft
 
          module procedure get_mflow_fft
+            character(len=*), parameter :: this_procedure = 'get_mflow_fft'
             logical :: if_amplitude_
             character(len=128) :: msg
             if_amplitude_ = optval(if_amplitude, .true.)
@@ -142,13 +145,12 @@
                   allocate(mflow(2*nfft+1))
                   mflow = self%mflow
                   if (present(phase)) then
-                     msg = 'To obtain phase information, use if_amplitude = .true.. No phase information returned.'
-                     call nek_log_message(msg, this_module, 'get_mflow_fft')
+                     msg = 'To obtain phase information, use if_amplitude = .true. No phase information returned.'
+                     call nek_log_message(msg, this_module, this_procedure)
                   end if
                end if
             else
-               msg = 'mflow FT data has not been extracted.'
-               call nek_stop_error(msg, this_module, 'get_mflow_fft')
+               call nek_stop_error('mflow FT data has not been extracted.', this_module, this_procedure)
             end if
          end procedure get_mflow_fft
       

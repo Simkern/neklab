@@ -18,6 +18,7 @@ $(OBJDIR)/periodic_orbit_torus.o			:$(NEKLAB_SOURCE_ROOT)/src/systems/periodic_o
 $(OBJDIR)/neklab_otd.o			:$(NEKLAB_SOURCE_ROOT)/src/neklab_otd.f90			;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_helix.o			:$(NEKLAB_SOURCE_ROOT)/src/helix/neklab_helix.f90			;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/helix_utils.o			:$(NEKLAB_SOURCE_ROOT)/src/helix/helix_utils.f90			;$(FC) -c $(FL2) $< -o $@
+$(OBJDIR)/helix_io.o			:$(NEKLAB_SOURCE_ROOT)/src/helix/helix_io.f90			;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/helix_gs.o			:$(NEKLAB_SOURCE_ROOT)/src/helix/helix_gs.f90			;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/helix_2d.o			:$(NEKLAB_SOURCE_ROOT)/src/helix/helix_2d.f90			;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/helix_mflow_fft.o			:$(NEKLAB_SOURCE_ROOT)/src/helix/helix_mflow_fft.f90			;$(FC) -c $(FL2) $< -o $@

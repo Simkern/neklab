@@ -127,14 +127,18 @@
             procedure, pass(self), public :: setup_summary
             procedure, pass(self), public :: parameter_summary
             procedure, pass(self), public :: forcing_summary
+            ! helix_IO
+            procedure, pass(self), public :: fname_2d
+            procedure, pass(self), public :: write_2d
+            procedure, pass(self), public :: read_2d
+            procedure, pass(self) :: get_nsteps_from_header
             ! helix_2d
             procedure, pass(self) :: init_2d_geom
             procedure, pass(self), public :: save_2d_fields
-            procedure, pass(self), public :: outpost_2d
             procedure, pass(self), public :: outpost_2d_fields
             procedure, pass(self), public :: load_2d_fields
-            procedure, pass(self) :: get_nsteps_from_header
             procedure, pass(self), public :: set_baseflow
+            procedure, pass(self), public :: load_baseflow
             procedure, pass(self), public :: compute_2d_usrt
             procedure, pass(self), public :: set_2d_mode
             ! helix_mflow_fft
@@ -261,46 +265,63 @@
             end subroutine forcing_summary
 
             !-----------------------------------------------------
-            ! neklab_helix % helix_2d
+            ! neklab_helix % helix_IO
             !
-            ! Type-bound procedures           
+            ! Type-bound procedures
 
-            module subroutine init_2d_geom(self, if_debug)
-               class(helix), intent(inout) :: self
-               logical, optional, intent(in) :: if_debug
-            end subroutine init_2d_geom
-
-            module subroutine save_2d_fields(self, u, v, w)
-               class(helix), intent(inout) :: self
-               real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: u
-               real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: v
-               real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: w
-            end subroutine save_2d_fields
-         
-            module subroutine outpost_2d(self)
-               class(helix), intent(inout) :: self
-            end subroutine outpost_2d
-
-            module subroutine outpost_2d_fields(self, iname, iout, only_mesh)
-               class(helix), intent(inout) :: self
+            module pure function fname_2d(self, iname, iout) result(fname)
+               class(helix), intent(in) :: self
                character(len=1), intent(in) :: iname
                integer, intent(in) :: iout
-               logical, optional, intent(in) :: only_mesh
-            end subroutine outpost_2d_fields            
+               character(len=132) :: fname
+            end function fname_2d
 
-            module subroutine load_2d_fields(self, idx)
+            module subroutine write_2d(self, fname, only_mesh)
+               ! only nid 0 will read
+               class(helix), intent(in) :: self
+               character(len=132), intent(in) :: fname
+               logical, optional, intent(in) :: only_mesh
+            end subroutine write_2d
+            
+            module subroutine read_2d(self, fname)
                ! only nid 0 will read
                class(helix), intent(inout) :: self
-               integer, intent(in) :: idx
-            end subroutine load_2d_fields
-
+               character(len=132), intent(in) :: fname
+            end subroutine read_2d
+            
             module subroutine get_nsteps_from_header(self, fname, nsaver)
                ! only nid 0 will read
                class(helix), intent(in) :: self
                character(len=132), intent(in) :: fname
                integer, intent(out) :: nsaver
             end subroutine get_nsteps_from_header
-
+            
+            !-----------------------------------------------------
+            ! neklab_helix % helix_2d
+            !
+            ! Type-bound procedures
+            
+            module subroutine init_2d_geom(self, if_debug)
+               class(helix), intent(inout) :: self
+               logical, optional, intent(in) :: if_debug
+            end subroutine init_2d_geom
+            
+            module subroutine save_2d_fields(self, u, v, w)
+               class(helix), intent(inout) :: self
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: u
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: v
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: w
+            end subroutine save_2d_fields
+            
+            module subroutine outpost_2d_fields(self)
+               class(helix), intent(inout) :: self
+            end subroutine outpost_2d_fields
+            
+            module subroutine load_2d_fields(self, idx)
+               class(helix), intent(inout) :: self
+               integer, intent(in) :: idx
+            end subroutine load_2d_fields
+            
             module subroutine set_baseflow(self, basex, basey, basez, ifld)
                class(helix), intent(inout) :: self
                real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: basex
@@ -308,6 +329,15 @@
                real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: basez
                integer, intent(in) :: ifld
             end subroutine set_baseflow
+
+            module subroutine load_baseflow(self, basex, basey, basez, fname, ifld)
+               class(helix), intent(inout) :: self
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: basex
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: basey
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: basez
+               character(len=*), intent(in) :: fname
+               integer, optional, intent(in) :: ifld
+            end subroutine load_baseflow
 
             module subroutine compute_2d_usrt(self)
                ! this routine will overwrite self%v[xyz]2d

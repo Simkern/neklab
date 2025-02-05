@@ -72,7 +72,10 @@ examples/**/*.f
 **/mesh_test/torus.usr
 **/mesh_test/torus.re2
 **/mesh_test/torus.ma2
-**/mesh_test/*test
+**/geom/*.re?
+**/geom/*.ma2
+**/geomh/*.re?
+**/geomh/*.ma2
 **/test2D*
 **/test3D*
 **/logfile.txt

@@ -70,8 +70,7 @@ c-----------------------------------------------------------------------
          call compute_nonlinear_period_torus(ref, bf, save_2d = .false., variable_dt = .false., if_fft = .true., if_res = .true.)
 
          call pipe%set_save_base(.true.)
-         call pipe%save_2d_fields(vx, vy, vz)
-         call pipe%outpost_2d_fields(iname='x', iout=1)
+         call pipe%save_2d_fields(vx, vy, vz) ! this outposts automatically since lastep == 1
 
          call outpost(vx, vy, vz, pr, t, 'msh')
 

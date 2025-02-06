@@ -179,15 +179,22 @@
                call byte_read(lbufr,  isl, ierr)
                write(msg,'(A,3(1X,I0),1X,E15.7,2(1X,I0))') 'metadata: ', nxr, nyr, nelfr, timer, nsaver, lbufr
                call nek_log_debug(msg, this_module, this_procedure)
-               if (lx1 /= nxr .or. ly1 /= nyr) then
-                  call nek_stop_error('Reading '//trim(fname)//': Inconsistent lx1/ly1', this_module, this_procedure)
-               end if
-               if (nelfr /= nelf) then
-                  call nek_stop_error('Reading '//trim(fname)//': Inconsistent nelf', this_module, this_procedure)
-               end if
-               if (lbufr /= lbuf) then
-                  call nek_stop_error('Reading '//trim(fname)//': Inconsistent lbuf', this_module, this_procedure)
-               end if
+            end if
+            ! check header
+            call bcast(nxr, isize)
+            call bcast(nyr, isize)
+            if (lx1 /= nxr .or. ly1 /= nyr) then
+               call nek_stop_error('Reading '//trim(fname)//': Inconsistent lx1/ly1', this_module, this_procedure)
+            end if
+            call bcast(nelfr, isize)
+            if (nelfr /= nelf) then
+               call nek_stop_error('Reading '//trim(fname)//': Inconsistent nelf', this_module, this_procedure)
+            end if
+            call bcast(lbufr, isize)
+            if (lbufr /= lbuf) then
+               call nek_stop_error('Reading '//trim(fname)//': Inconsistent lbuf', this_module, this_procedure)
+            end if
+            if (nid == 0) then
                ! read global element mapping
                call byte_read(global_map, nelf*isl, ierr)
                if (ierr /= 0) call nek_stop_error('Error reading gloabl element map from file '//trim(fname), this_module, this_procedure)

@@ -373,7 +373,7 @@
             call pipe%set_save_fft(save_fft_old)
          end subroutine shift_mflow_phase_torus
 
-         subroutine compute_nonlinear_period_torus(bf_out, bf_in, save_2d, variable_dt, if_fft, if_res)
+         subroutine compute_nonlinear_period_torus(bf_out, bf_in, save_2d, variable_dt, if_fft, if_res, cfl_limit)
             type(nek_dvector), intent(out) :: bf_out
       !! Output of the nonlinear solver after a period
             type(nek_dvector), intent(in) :: bf_in
@@ -386,27 +386,30 @@
       !! Compute mflow fft?
             logical, optional, intent(in) :: if_res
       !! Compute periodic residual?
+            real(dp), optional, intent(in) :: cfl_limit
+      !! CFL limit for calculation
             ! internal
             logical :: get_2d, get_fft, var_dt, get_res
             logical :: get_2d_old, get_fft_old
-            real(dp) :: pd, ubar, rnorm
+            real(dp) :: pd, ubar, rnorm, cfl
             character(len=128) :: msg
       ! set optional arguments
             get_2d  = optval(save_2d, .false.)
             var_dt  = optval(variable_dt, .true.)     
             get_fft = optval(if_fft, .true.)
             get_res = optval(if_res, .false.)
+            cfl     = optval(cfl_limit, 0.5_dp)
       ! set baseflow intial condition
             call vec2nek(vx, vy, vz, pr, t, bf_in)
       ! set nek status
             pd = pipe%get_period()
             if (pd == 0.0_dp) pd = param(10) ! for the steady case
+            time = 0.0_dp
             call setup_nonlinear_solver(recompute_dt = .true.,
      $                                  endtime      = pd, 
      $                                  variable_dt  = var_dt,
-     $                                  cfl_limit    = 0.4_dp)
+     $                                  cfl_limit    = cfl)
             call nek_status(full_summary=.true.)
-            time = 0.0_dp
             call pipe%reset_mflow_fft() ! in case we compute the FFT
             get_2d_old  = pipe%is_save_2d();  call pipe%set_save_base(get_2d)
             get_fft_old = pipe%is_save_fft(); call pipe%set_save_fft(get_fft)

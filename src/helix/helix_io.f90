@@ -40,8 +40,11 @@
             call nek_log_information(msg, this_module, this_procedure)
             if (nid == 0) then
                call byte_open(fname, ierr)
-               if (ierr /= 0) call nek_stop_error('Error opening file '//trim(fname), this_module, this_procedure)
+            end if
+            call bcast(ierr, isize)
+            if (ierr /= 0) call nek_stop_error('Error opening file '//trim(fname), this_module, this_procedure)
 
+            if (nid == 0) then
                ! write file's header
                ftm="('#',A1,A2,1x,i1,1x,'(lx1, ly1 =',2i9,') (nelf =',i9,') (time =',e17.9,') (nsave, lbuf =', 2i9,')')"
                if (self%is_sym()) then
@@ -51,11 +54,13 @@
                end if
                write(head,ftm) fileversion, id, wdsize,lx1,ly1,self%nelf,time,nsave,lbuf
                call byte_write(head,116/4,ierr)
-               if (ierr /= 0) call nek_stop_error('Error writing header in file '//trim(fname), this_module, this_procedure)  
+            end if
+            call bcast(ierr, isize)
+            if (ierr /= 0) call nek_stop_error('Error writing header in file '//trim(fname), this_module, this_procedure)  
 
+            if (nid == 0) then
                ! write big/little endian test
                call byte_write(test,1,ierr)
-
                ! write metadata
                call byte_write(lx1,isl,ierr)
                call byte_write(ly1,isl,ierr)
@@ -63,8 +68,9 @@
                call byte_write(time,wdsl,ierr)
                call byte_write(nsave,isl,ierr)
                call byte_write(lbuf,isl,ierr)
-               if (ierr /= 0) call nek_stop_error('Error writing metadata in file '//trim(fname), this_module, this_procedure)
             end if
+            call bcast(ierr, isize)
+            if (ierr /= 0) call nek_stop_error('Error writing metadata in file '//trim(fname), this_module, this_procedure)
 
             ! gather information about elements on other procs  
             allocate(n2d_gown(np))           ! number of elements owned by each proc
@@ -88,7 +94,6 @@
                   n2d_elmap(iseg+1:iseg+i_own) = isend(:i_own)
                   iseg = iseg + i_own
                enddo
-               if (iseg /= self%nelf) call nek_stop_error('Not all elements in slice found!', this_module, this_procedure)
                ! write it to file
                call byte_write(n2d_elmap,self%nelf*isl,ierr)
                ! write timestep information to file
@@ -102,6 +107,8 @@
                end do
                call csend(nid,isend(:length),length*isize,0,0)   ! send global element map
             endif
+            call bcast(iseg, isize)
+            if (iseg /= self%nelf) call nek_stop_error('Not all elements in slice found!', this_module, this_procedure)
             call bcast(n2d_gown, np*isize)         ! broadcast to all procs
             call bcast(n2d_elmap, self%nelf*isize) ! broadcast to all procs
 
@@ -123,8 +130,9 @@
             ! master closes the file
             if (nid == 0) then 
                call byte_close(ierr)
-               if (ierr /= 0) call nek_stop_error('Error closing file '//trim(fname), this_module, this_procedure)
             end if
+            call bcast(ierr, isize)
+            if (ierr /= 0) call nek_stop_error('Error closing file '//trim(fname), this_module, this_procedure)
             call lk_timer%stop('neklab_helix_'//this_procedure)
          end procedure write_2d
 
@@ -155,12 +163,13 @@
             allocate(gmap_index(nelf))
             if (nid == 0) then
                call byte_open(fname,ierr)
-               if (ierr /= 0) call nek_stop_error('Error opening file '//trim(fname), this_module, this_procedure)
+            end if
+            call bcast(ierr, isize)
+            if (ierr /= 0) call nek_stop_error('Error opening file '//trim(fname), this_module, this_procedure)
+            if (nid == 0) then
                ! read header
-               if (ierr == 0) then
-                  call blank     (hdr,hdrsize)
-                  call byte_read (hdr,hdrsize/4,ierr)
-               endif
+               call blank     (hdr,hdrsize)
+               call byte_read (hdr,hdrsize/4,ierr)
                if (ierr == 0) then
                   call byte_read (test_pattern,1,ierr)
                   if_byte_sw = if_byte_swap_test(test_pattern,ierr) ! determine endianess
@@ -180,6 +189,8 @@
                write(msg,'(A,3(1X,I0),1X,E15.7,2(1X,I0))') 'metadata: ', nxr, nyr, nelfr, timer, nsaver, lbufr
                call nek_log_debug(msg, this_module, this_procedure)
             end if
+            call bcast(ierr, isize)
+            if (ierr /= 0) call nek_stop_error('Error reading metadata from '//trim(fname), this_module, this_procedure)
             ! check header
             call bcast(nxr, isize)
             call bcast(nyr, isize)
@@ -197,16 +208,23 @@
             if (nid == 0) then
                ! read global element mapping
                call byte_read(global_map, nelf*isl, ierr)
-               if (ierr /= 0) call nek_stop_error('Error reading gloabl element map from file '//trim(fname), this_module, this_procedure)
+            end if
+            call bcast(ierr, isize)
+            if (ierr /= 0) call nek_stop_error('Error reading gloabl element map from file '//trim(fname), this_module, this_procedure)
+            if (nid == 0) then
                ! read timestep information
                call byte_read(dt2dr(:nsaver), nsaver*wdsl, ierr)
                self%dt2d = dt2dr
-               if (ierr /= 0) call nek_stop_error('Error reading timestep information from file '//trim(fname), this_module, this_procedure)
+            end if
+            call bcast(ierr, isize)
+            if (ierr /= 0) call nek_stop_error('Error reading timestep information from file '//trim(fname), this_module, this_procedure)
+            if (nid == 0) then
                ! read coords but skip them
                call byte_read(fldum, nxy*nelf*wdsl, ierr)
                call byte_read(fldum, nxy*nelf*wdsl, ierr)
-               if (ierr /= 0) call nek_stop_error('Error reading coordinates from file '//trim(fname), this_module, this_procedure)
             end if
+            call bcast(ierr, isize)
+            if (ierr /= 0) call nek_stop_error('Error reading coordinates from file '//trim(fname), this_module, this_procedure)
             call bcast(nsaver, isize)          ! broadcast number of saved snapshots
             call bcast(self%dt2d, lbuf*wdsize) ! broadcast timestep data
             call bcast(global_map, nelf*isize) ! broadcast global element map
@@ -220,8 +238,9 @@
                if (nid == 0) then ! read v[xyz]2d for all elements at the current timestep
                   call byte_read(slicedata, length*wdsl, ierr)
                   if (if_byte_sw) call byte_reverse(slicedata, length, ierr)
-                  if (ierr /= 0) call stop_error('Error reading element data', this_module, this_procedure)
                end if
+               call bcast(ierr, isize)
+               if (ierr /= 0) call stop_error('Error reading element data', this_module, this_procedure)
                call bcast(slicedata, length*wdsize) ! broadcast 2D data to all procs
                ! distribute to local segment owners
                do iseg = 1, self%n2d_lown
@@ -235,8 +254,9 @@
             ! master closes the file
             if (nid == 0) then 
                call byte_close(ierr)
-               if (ierr /= 0) call nek_stop_error('Error closing file '//trim(fname), this_module, this_procedure)
             end if
+            call bcast(ierr, isize)
+            if (ierr /= 0) call nek_stop_error('Error closing file '//trim(fname), this_module, this_procedure)
             self%nload = nsaver
             write(msg,'(A,A,A,I0)') 'Loaded 2D data from file ', trim(fname), ': ', self%nload
             call nek_log_information(msg, this_module, this_procedure)
@@ -258,12 +278,13 @@
             hdrsize = 116
             if (nid == 0) then
                call byte_open(fname,ierr)
-               if (ierr /= 0) call nek_stop_error('Error opening file '//trim(fname), this_module, this_procedure)
+            end if
+            call bcast(ierr, isize)
+            if (ierr /= 0) call nek_stop_error('Error opening file '//trim(fname), this_module, this_procedure)
+            if (nid == 0) then
                ! read header
-               if (ierr == 0) then
-                  call blank     (hdr,hdrsize)
-                  call byte_read (hdr,hdrsize/4,ierr)
-               endif
+               call blank     (hdr,hdrsize)
+               call byte_read (hdr,hdrsize/4,ierr)
                if (ierr == 0) then
                   call byte_read (test_pattern,1,ierr)
                   if_byte_sw = if_byte_swap_test(test_pattern,ierr) ! determine endianess
@@ -282,9 +303,14 @@
                call byte_read(lbufr,  isl, ierr)
                write(msg,'(A,3(1X,I0),1X,E15.7,2(1X,I0))') 'metadata: ', nxr, nyr, nelfr, timer, nsaver, lbufr
                call nek_log_debug(msg, this_module, this_procedure)
+            end if 
+            call bcast(ierr, isize)
+            if (ierr /= 0) call nek_stop_error('Error reading metadata from '//trim(fname), this_module, this_procedure)
+            if (nid == 0) then
                call byte_close(ierr)
-               if (ierr /= 0) call nek_stop_error('Error closing file '//trim(fname), this_module, this_procedure)
             end if
+            call bcast(ierr, isize)
+            if (ierr /= 0) call nek_stop_error('Error closing file '//trim(fname), this_module, this_procedure)
             write(msg,'(3X,A,A,I0,A)') trim(fname), ': ', nsaver, ' timesteps.'
             call nek_log_message(msg, this_module, this_procedure)
          end procedure get_nsteps_from_header
@@ -326,13 +352,14 @@
                      call byte_write(rtmpv2,length,ierr)
                   endif
                end do
-               if (ierr /= 0) call nek_stop_error('Error writing slice data', this_module, 'gather_and_write_slice')
             else 
                ! send data to master
                call crecv2(nid,idum,isize,0) ! hand shake
                length = nxy*n2d_gown(nid+1)
                call csend(nid,slicedata,length*wdsize,0,0)
             end if
+            call bcast(ierr, isize)
+            if (ierr /= 0) call nek_stop_error('Error writing slice data', this_module, 'gather_and_write_slice')
          end subroutine gather_and_write_slice
 
       end submodule helix_io

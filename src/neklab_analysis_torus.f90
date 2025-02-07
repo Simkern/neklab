@@ -147,7 +147,7 @@
                write(msg,'(A,I0,A,I0,A)') 'nmf= ', nmf, ' and nf= ', nf, ' incompatible.'
                call nek_stop_error(msg, module=this_module, procedure='mflow_newton')
             else
-               write(msg,'(A,I0,A)') 'Starting Newton iteration for nf = ', nf, ' mass flow components.'
+               write(msg,'(A,I0,A)') 'Starting Newton iteration for nmf = ', nmf, ' mass flow components.'
                call nek_log_information(msg, module=this_module, procedure='mflow_newton')
             end if
             allocate(dpds_tmp(nf))
@@ -218,11 +218,11 @@
                         dpds_tmp(j  ) = cos(phase(i))*fpert(i)
                         dpds_tmp(j+1) = sin(phase(i))*fpert(i)
                      end if
-                     write(msg,'(A,A,A,*(1X,F16.10))') step_id, coef_id, padl('old frc:',pad), dpds(:nmf)
+                     write(msg,'(A,A,A,*(1X,F16.10))') step_id, coef_id, padl('old frc:',pad), dpds(:nf)
                      call nek_log_message(msg, module=this_module, procedure='mflow_newton')
                      write(msg,'(A,A,A,*(1X,F16.10))') step_id, coef_id, padl('prt frc:',pad), dpds_tmp
                      call nek_log_message(msg, module=this_module, procedure='mflow_newton')
-                     dpds_tmp = dpds_tmp + dpds(:nmf)
+                     dpds_tmp = dpds_tmp + dpds(:nf)
                      write(msg,'(A,A,A,*(1X,F16.10))') step_id, coef_id, padl('new frc:',pad), dpds_tmp
                      call nek_log_message(msg, module=this_module, procedure='mflow_newton')
                      call pipe%init_flow(dpds_tmp, Wo)
@@ -275,7 +275,7 @@
                ! Update forcing
                call nek_log_message('Forcing prior to Newton step:', module='neklab_helix')
                call pipe%forcing_summary()
-               call pipe%init_flow(dpds(:nmf), Wo)
+               call pipe%init_flow(dpds(:nf), Wo)
                !
                ! Take Newton step for the forcing and compute periodic orbit
                !

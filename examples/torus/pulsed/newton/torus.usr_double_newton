@@ -105,7 +105,7 @@ c-----------------------------------------------------------------------
          
          ! finalize timers
          !
-         call timer%finalize(); call sys%jacobian%finalize_timer(); call timer%finalize()
+         call sys%jacobian%finalize_timer(); call timer%finalize()
 
          call nek_end()
       end if

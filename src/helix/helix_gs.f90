@@ -240,9 +240,9 @@
                end if
             else
                if (new_flag) then
-                  call nek_log_information(trim(flag_name)//' switched ON. (unchanged)', this_module, 'set_logical')
+                  if (nid == 0) print '(A)', 'set_logical % '//trim(flag_name)//' switched ON. (unchanged)'
                else
-                  call nek_log_information(trim(flag_name)//' switched OFF. (unchanged)', this_module, 'set_logical')
+                  if (nid == 0) print '(A)', 'set_logical % '//trim(flag_name)//' switched OFF. (unchanged)'
                end if
             end if
             out_flag = new_flag

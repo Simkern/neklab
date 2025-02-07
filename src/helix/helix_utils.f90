@@ -223,7 +223,7 @@
                self%nf = n
                write(msg,'(A,I0)') 'Number of considered forcing components set to nf = ', self%nf
                call nek_log_message(msg, this_module, this_procedure)
-            else if (reset_nf) then
+            else if (reset_nf_) then
                if (n /= self%nf) then
                   self%nf = n
                   write(msg,'(A,I0)') 'Number of considered forcing components reset to nf = ', self%nf

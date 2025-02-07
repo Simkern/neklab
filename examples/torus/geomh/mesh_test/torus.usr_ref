@@ -47,22 +47,20 @@ c-----------------------------------------------------------------------
       ! Tolerance for the Newton solver
       real(dp) :: tol
       ! flow parameters
-      real, parameter :: dp0ds = 7.9486896e-2
-      real(dp), dimension(1) :: dpds
+      real, parameter :: dp0ds = 7.9486896e-2_dp
+      real(dp), dimension(1), parameter :: dpds = [ dp0ds ]
 
       integer :: iglsum
 
       if (istep.eq.0) then
-	   ! Set flow parameters
-         dpds = [ dp0ds ]
-	   call pipe%init_flow(dpds)
-         call pipe%compute_bf_forcing(0.0)
+	 ! Set flow parameters
+	 call pipe%init_flow(dpds, womersley = 0.0d0)
 			
          call gfldr('rsttorus0.f00001_full')
          call nek2vec(bf, vx, vy, vz, pr, t)
          call outpost(vx, vy, vz, pr, t, 'msh')
 
-         call pipe%outpost_2d_fields('m', 1, only_mesh=.true.)
+         call pipe%write_2d(pipe%fname_2d('m', 1), only_mesh=.true.)
 
          call setup_nonlinear_solver(recompute_dt = .true., 
      $                                endtime     = 0.1d0,

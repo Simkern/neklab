@@ -195,14 +195,17 @@
             call bcast(nxr, isize)
             call bcast(nyr, isize)
             if (lx1 /= nxr .or. ly1 /= nyr) then
+               call nek_log_message(msg, this_module, this_procedure)
                call nek_stop_error('Reading '//trim(fname)//': Inconsistent lx1/ly1', this_module, this_procedure)
             end if
             call bcast(nelfr, isize)
             if (nelfr /= nelf) then
+               call nek_log_message(msg, this_module, this_procedure)
                call nek_stop_error('Reading '//trim(fname)//': Inconsistent nelf', this_module, this_procedure)
             end if
             call bcast(lbufr, isize)
             if (lbufr /= lbuf) then
+               call nek_log_message(msg, this_module, this_procedure)
                call nek_stop_error('Reading '//trim(fname)//': Inconsistent lbuf', this_module, this_procedure)
             end if
             if (nid == 0) then

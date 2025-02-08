@@ -2,11 +2,9 @@
 # nek parameter file
 #
 [GENERAL] 
-#startFrom = BF_torus0.f00001
 stopAt = endTime
-endTime = 87.19522467106364
+endTime = 1.0
 
-dt = -3.963419303e-03  # 4.471549982e-03
 timeStepper = bdf3
 variableDt = yes
 targetCFL = 0.5

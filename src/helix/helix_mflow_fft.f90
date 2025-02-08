@@ -32,10 +32,10 @@
                      do i = 2, 2*nfft, 2
                         dfftv1 = ubar_old*cos(j*twopi*tau_old)*   dt0
                         dfftv2 = ubar    *cos(j*twopi*tau    )*(1-dt0)
-                        self%fftv(i)   = self%fftv(i)   + (dfftv1 + dfftv2)*0.5*dtau
+                        self%fftv(i)   = self%fftv(i)   + (dfftv1 + dfftv2)*dtau
                         dfftv1 = ubar_old*sin(j*twopi*tau_old)*   dt0
                         dfftv2 = ubar    *sin(j*twopi*tau    )*(1-dt0)
-                        self%fftv(i+1) = self%fftv(i+1) + (dfftv1 + dfftv2)*0.5*dtau
+                        self%fftv(i+1) = self%fftv(i+1) + (dfftv1 + dfftv2)*dtau
                         j = j + 1
                      end do
                   else
@@ -45,10 +45,10 @@
                      do i = 2, 2*nfft, 2
                         dfftv1 = ubar_old*cos(j*twopi*tau_old)
                         dfftv2 = ubar    *cos(j*twopi*tau    )
-                        self%fftv(i)   = self%fftv(i)   + (dfftv1 + dfftv2)*0.5*dtau
+                        self%fftv(i)   = self%fftv(i)   + (dfftv1 + dfftv2)*dtau
                         dfftv1 = ubar_old*sin(j*twopi*tau_old)
                         dfftv2 = ubar    *sin(j*twopi*tau    )
-                        self%fftv(i+1) = self%fftv(i+1) + (dfftv1 + dfftv2)*0.5*dtau
+                        self%fftv(i+1) = self%fftv(i+1) + (dfftv1 + dfftv2)*dtau
                         j = j + 1
                      end do
                   end if

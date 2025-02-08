@@ -149,7 +149,7 @@
             real(dp) :: dt2dr(lbuf)
             real(dp) :: timer
             character(len=132) :: hdr
-            character(len=256) :: msg
+            character(len=256) :: msg, msg_dbg
             character(len=4)   :: sdummy
             common /CTMP1/ fldum(lx1*ly1*lelv)
             real fldum
@@ -186,7 +186,8 @@
                call byte_read(timer, wdsl, ierr)
                call byte_read(nsaver, isl, ierr)
                call byte_read(lbufr,  isl, ierr)
-               write(msg,'(A,3(1X,I0),1X,E15.7,2(1X,I0))') 'metadata: ', nxr, nyr, nelfr, timer, nsaver, lbufr
+               write(msg,    '(A,3(1X,I0),1X,E15.7,2(1X,I0))') 'metadata:  ', nxr, nyr, nelfr, timer, nsaver, lbufr
+               write(msg_dbg,'(A,3(1X,I0),1X,E15.7,2(1X,I0))') 'localdata: ', lx1, ly1, nelf, time, self%nsave, lbuf
                call nek_log_debug(msg, this_module, this_procedure)
             end if
             call bcast(ierr, isize)
@@ -195,17 +196,20 @@
             call bcast(nxr, isize)
             call bcast(nyr, isize)
             if (lx1 /= nxr .or. ly1 /= nyr) then
-               call nek_log_message(msg, this_module, this_procedure)
+               call nek_log_message(msg,     this_module, this_procedure)
+               call nek_log_message(msg_dbg, this_module, this_procedure)
                call nek_stop_error('Reading '//trim(fname)//': Inconsistent lx1/ly1', this_module, this_procedure)
             end if
             call bcast(nelfr, isize)
             if (nelfr /= nelf) then
-               call nek_log_message(msg, this_module, this_procedure)
+               call nek_log_message(msg,     this_module, this_procedure)
+               call nek_log_message(msg_dbg, this_module, this_procedure)
                call nek_stop_error('Reading '//trim(fname)//': Inconsistent nelf', this_module, this_procedure)
             end if
             call bcast(lbufr, isize)
             if (lbufr /= lbuf) then
-               call nek_log_message(msg, this_module, this_procedure)
+               call nek_log_message(msg,     this_module, this_procedure)
+               call nek_log_message(msg_dbg, this_module, this_procedure)
                call nek_stop_error('Reading '//trim(fname)//': Inconsistent lbuf', this_module, this_procedure)
             end if
             if (nid == 0) then
@@ -261,7 +265,7 @@
             call bcast(ierr, isize)
             if (ierr /= 0) call nek_stop_error('Error closing file '//trim(fname), this_module, this_procedure)
             self%nload = nsaver
-            write(msg,'(A,A,A,I0)') 'Loaded 2D data from file ', trim(fname), ': ', self%nload
+            write(msg,'(A,I0)') 'Loaded 2D data from file '//trim(fname)//': ', self%nload
             call nek_log_information(msg, this_module, this_procedure)
             call lk_timer%stop('neklab_helix_'//this_procedure)
          end procedure read_2d

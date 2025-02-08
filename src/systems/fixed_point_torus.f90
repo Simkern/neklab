@@ -1,4 +1,4 @@
-      submodule(neklab_systems) periodic_orbit_torus
+      submodule(neklab_systems) fixed_point_torus
          implicit none
       contains
          module procedure nonlinear_map_torus
@@ -53,8 +53,9 @@
                call abs_vec2nek(vx, vy, vz, pr, t, self%X)
       ! Ensure correct nek status
                call setup_linear_solver(solve_baseflow = .false.,
-     $                                  recompute_dt   = .false.,
-     $                                  vtol           = atol*0.5, 
+     $                                  recompute_dt   = .true.,
+     $                                  cfl_limit      = 0.5_dp, 
+     $                                  vtol           = atol*0.5,
      $                                  ptol           = atol*0.5)
       ! Set the initial condition for Nek5000's linearized solver.
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
@@ -91,7 +92,8 @@
       ! Ensure correct nek status
                call setup_linear_solver(transpose      = .true., 
      $                                  solve_baseflow = .false.,
-     $                                  recompute_dt   = .false.,
+     $                                  recompute_dt   = .true.,
+     $                                  cfl_limit      = 0.5_dp, 
      $                                  vtol           = atol*0.5, 
      $                                  ptol           = atol*0.5)
       ! Set the initial condition for Nek5000's linearized solver.

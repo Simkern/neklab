@@ -106,9 +106,9 @@
          n = nx1*ny1*nz1*nelv
          select type (vec)
          type is (nek_dvector)
-            alpha =         glsc3(self%vx, self%vx, bm1, n)
-            alpha = alpha + glsc3(self%vy, self%vy, bm1, n)
-            if (if3d) alpha = alpha + glsc3(self%vz, self%vz, bm1, n)
+            alpha =         glsc3(self%vx, vec%vx, bm1, n)
+            alpha = alpha + glsc3(self%vy, vec%vy, bm1, n)
+            if (if3d) alpha = alpha + glsc3(self%vz, vec%vz, bm1, n)
             if (ifto) then
                alpha = alpha + glsc3(self%theta(:, 1), vec%theta(:, 1), bm1, n)
             end if

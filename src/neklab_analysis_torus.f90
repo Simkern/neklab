@@ -373,7 +373,7 @@
             call pipe%set_save_fft(save_fft_old)
          end subroutine shift_mflow_phase_torus
 
-         subroutine compute_nonlinear_period_torus(bf_out, bf_in, save_2d, variable_dt, if_fft, if_res, cfl_limit)
+         subroutine compute_nonlinear_period_torus(bf_out, bf_in, save_2d, variable_dt, if_fft, if_res, cfl_limit, tstart)
             type(nek_dvector), intent(out) :: bf_out
       !! Output of the nonlinear solver after a period
             type(nek_dvector), intent(in) :: bf_in
@@ -388,6 +388,8 @@
       !! Compute periodic residual?
             real(dp), optional, intent(in) :: cfl_limit
       !! CFL limit for calculation
+            real(dp), optional, intent(in) :: tstart
+      !! time setting at start
             ! internal
             logical :: get_2d, get_fft, var_dt, get_res
             logical :: get_2d_old, get_fft_old
@@ -399,12 +401,13 @@
             get_fft = optval(if_fft, .true.)
             get_res = optval(if_res, .false.)
             cfl     = optval(cfl_limit, 0.5_dp)
+            time    = optval(tstart, 0.0_dp)
+      ! set period
+            pd = pipe%get_period()
+            if (pd == 0.0_dp) pd = param(10) ! for the steady case
       ! set baseflow intial condition
             call vec2nek(vx, vy, vz, pr, t, bf_in)
       ! set nek status
-            pd = pipe%get_period()
-            if (pd == 0.0_dp) pd = param(10) ! for the steady case
-            time = 0.0_dp
             call setup_nonlinear_solver(recompute_dt = .true.,
      $                                  endtime      = pd, 
      $                                  variable_dt  = var_dt,
@@ -420,7 +423,7 @@
                   istep = istep + 1
                   call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
                   call nek_advance()
-                  call pipe%save_2d_fields(vx,vy,vz) ! outposts automatically at lastep == 1
+                  if (get_2d)  call pipe%save_2d_fields(vx,vy,vz) ! outposts automatically at lastep == 1
                   if (get_fft) call pipe%compute_mflow_fft(period = pd, var_dt = .true.) ! integrate Fourier coefficients
                   ubar = pipe%compute_ubar(vx,vy,vz)
                   write(msg,'(3(F16.8,1X),A,F16.8)') time, time/pd, mod(time,pd), 'massflow UBAR: ', ubar
@@ -430,7 +433,7 @@
                do istep = 1, nsteps
                   call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
                   call nek_advance()
-                  call pipe%save_2d_fields(vx,vy,vz) ! outposts automatically at lastep == 1
+                  if (get_2d)  call pipe%save_2d_fields(vx,vy,vz) ! outposts automatically at lastep == 1
                   if (get_fft) call pipe%compute_mflow_fft(period = pd)      ! integrate Fourier coefficients
                   ubar = pipe%compute_ubar(vx,vy,vz)
                   write(msg,'(3(F16.8,1X),A,F16.8)') time, time/pd, mod(time,pd), 'massflow UBAR: ', ubar

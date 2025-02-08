@@ -53,9 +53,9 @@
       ! Integrate the equations forward in time.
                time = 0.0_dp
                do istep = 1, nsteps
-               call nek_advance()
+                  call nek_advance()
                end do
-      ! Extract the final solution to vector.
+      ! Extract the final solution to vector.   
                call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
       ! Evaluate [ exp(tau*J) - I ] @ dx.
                call vec_out%sub(vec_in)
@@ -92,7 +92,7 @@
       ! Integrate the equations forward in time.
                time = 0.0_dp
                do istep = 1, nsteps
-               call nek_advance()
+                  call nek_advance()
                end do
       ! Extract the final solution to vector.
                call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)

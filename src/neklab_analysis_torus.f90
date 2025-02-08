@@ -116,9 +116,9 @@
       !! Maximum number of newton steps to converge the mass flow rate
       ! internal
             type(nek_dvector) :: ref
-            logical :: is_new_solution
+            logical :: is_fp
             integer :: tol_mode_, maxiter_newton_
-            integer :: nmf, nf, inwt, i, j
+            integer :: nmf, nf, inwt, i, j, icnt
             real(dp) :: Wo, df0
             real(dp) :: dpds(lf)
             real(dp), allocatable :: phase(:), dpds_tmp(:)
@@ -153,7 +153,7 @@
             allocate(dpds_tmp(nf))
             allocate(dmf(nmf), mf_err(nmf), deltaf(nmf), fpert(nmf))
             allocate(jac(nmf,nmf))
-            df0 = min(1.0e-06_dp,100*tol) ! amplitude of forcing perturbation for finite difference approximation of gradient
+            df0 = min(1.0e-05_dp,100*tol) ! amplitude of forcing perturbation for finite difference approximation of gradient
             tol_df = tol
             fpert(1)  = df0
             fpert(2:) = 20*df0
@@ -206,8 +206,10 @@
                   write(msg,'(A,A,I0,A)') step_id, 'compute mflow gradient for Fourier coefficient ', i, ' ...'
                   call nek_log_information(msg, module=this_module, procedure='mflow_newton')
                   ! iterate in case the forcing is too low the first time around
-                  is_new_solution = .false.
-                  do while (.not. is_new_solution)
+                  is_fp = .true.
+                  icnt = 0
+                  do while (is_fp)
+                     if (icnt > 0) call nek_log_message('Repeat finite difference step.',this_module, 'mflow_newton')
                      ! Set flow parameters
                      dpds_tmp = 0.0_dp
                      fpert(i) = -sign(fpert(i), mf_err(i)) ! take the step in the direction of the root
@@ -230,10 +232,11 @@
                      ! reset baseflow
                      call bf%zero(); call bf%add(ref)
                      ! Run Newton-Krylov solver to find baseflow of perturbed system
-                     call newton_fixed_point_iteration(sys, bf, tol_df, tol_mode, is_new_solution=is_new_solution)
+                     call newton_fixed_point_iteration(sys, bf, tol_df, tol_mode, input_is_fixed_point=is_fp)
 
+                     icnt = icnt + 1
                      ! increase perturbation amplitude if newton exited without iteration
-                     if (.not. is_new_solution) then
+                     if (is_fp) then
                         fpert(i) = 10*fpert(i)
                         write(msg,'(A,I0,A,F16.10)') 'Perturbation is too small for component ', i, ': Reset |df| = ', fpert(i)
                         call nek_log_message(msg, module=this_module, procedure='mflow_newton')

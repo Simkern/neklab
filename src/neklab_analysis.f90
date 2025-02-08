@@ -141,7 +141,7 @@
             return
          end subroutine transient_growth_analysis_fixed_point
       
-         subroutine newton_fixed_point_iteration(sys, bf, tol, tol_mode, is_new_solution)
+         subroutine newton_fixed_point_iteration(sys, bf, tol, tol_mode, input_is_fixed_point)
             class(abstract_system_rdp), intent(inout) :: sys
       !! System for which a fixed point is sought
             class(abstract_vector_rdp), intent(inout) :: bf
@@ -150,7 +150,7 @@
       !! Absolute tolerance for the Newton solver
             integer, optional, intent(in) :: tol_mode
       !! constant or dynamic tolerances?
-            logical, optional, intent(out) :: is_new_solution
+            logical, optional, intent(out) :: input_is_fixed_point
       !! optional flag to return whether the intial condition is a fixed point (and no new solution is computed)
       
       ! Misc
@@ -170,8 +170,8 @@
             if (tol_mode_ == 1) then
                call newton(sys, bf, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_constant_tol, meta=meta)
             else
-		         call newton(sys, bf, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_dynamic_tol, meta=meta)
-		      end if
+		   call newton(sys, bf, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_dynamic_tol, meta=meta)
+		end if
       
       ! Outpost initial condition.
             file_prefix = 'nwt'
@@ -185,11 +185,11 @@
                call nek_stop_error('bf is of unrecognized type!', module=this_module, procedure='newton_fixed_point_iteration')
             end select
 
-            if (present(is_new_solution)) then
-               is_new_solution = .not. meta%input_is_fixed_point
+            if (present(input_is_fixed_point)) then
+               input_is_fixed_point = meta%input_is_fixed_point
             end if
 
-		      call logger%log_message('Exiting newton iteration.', module=this_module)
+		call logger%log_message('Exiting newton iteration.', module=this_module)
       
             return
          end subroutine newton_fixed_point_iteration

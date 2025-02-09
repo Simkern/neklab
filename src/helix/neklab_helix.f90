@@ -621,10 +621,11 @@
             integer :: ie, iface
             logical :: debug
             real(dp) :: xmin
-            logical :: has_sym_bc
+            integer :: nsym
             character(len=128) :: msg
             ! functions
             real(dp), external :: glmin
+            integer, external :: iglsum
             
             ! Optional debug argument
             debug = optval(if_debug, .false.)
@@ -639,15 +640,16 @@
                call nek_log_message('Full torus setup defined.', this_module, 'helix_pipe')
             end if
             ! are symmetry conditions set in symmetric case?
-            has_sym_bc = .false.
+            nsym = 0
             do ie = 1, nelv
                do iface = 1, 2*ndim
-                  if (cbc(iface,ie,1) .eq. 'SYM') has_sym_bc = .true.
+                  if (cbc(iface,ie,1) .eq. 'SYM') nsym = nsym + 1
                end do
             end do
-            if (if_sym .and. .not. has_sym_bc) then
+            nsym = iglsum(nsym, 1)
+            if (if_sym .and. nsym == 0) then
                call nek_stop_error('Mesh does not have symmetry conditions.', this_module, 'helix_pipe')
-            else if (.not. if_sym .and. has_sym_bc) then
+            else if (.not. if_sym .and. nsym > 0) then
                call nek_stop_error('Mesh has symmetry conditions.', this_module, 'helix_pipe')
             end if
             ! is the mesh consistent with the setup?

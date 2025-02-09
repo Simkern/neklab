@@ -618,9 +618,43 @@
             logical, optional, intent(in) :: if_sym
             logical, optional, intent(in) :: if_debug
             ! internal
+            integer :: ie, iface
             logical :: debug
+            real(dp) :: xmin
+            logical :: has_sym_bc
             character(len=128) :: msg
+            ! functions
+            real(dp), external :: glmin
+            
+            ! Optional debug argument
             debug = optval(if_debug, .false.)
+            
+            ! Case setup
+            call pipe%set_symmetry(optval(if_sym, .false.))
+            
+            ! Sanity checks
+            if (if_sym) then
+               call nek_log_message('Symmetric half torus setup defined.', this_module, 'helix_pipe')
+            else
+               call nek_log_message('Full torus setup defined.', this_module, 'helix_pipe')
+            end if
+            ! are symmetry conditions set in symmetric case?
+            has_sym_bc = .false.
+            do ie = 1, nelv
+               do iface = 1, 2*ndim
+                  if (cbc(iface,ie,1) .eq. 'SYM') has_sym_bc = .true.
+               end do
+            end do
+            if (if_sym .and. .not. has_sym_bc) then
+               call nek_stop_error('Mesh does not have symmetry conditions.', this_module, 'helix_pipe')
+            else if (.not. if_sym .and. has_sym_bc) then
+               call nek_stop_error('Mesh has symmetry conditions.', this_module, 'helix_pipe')
+            end if
+            ! is the mesh consistent with the setup?
+            xmin = glmin(xm1,lv)
+            if ((if_sym .and. xmin < -0.1_dp) .or. (.not. if_sym .and. xmin > -0.1_dp)) then
+               call nek_stop_error('Case setup and mesh domain are inconsistent.', this_module, 'helix_pipe')
+            end if
 
             ! Geometry
             pipe%delta    = delta
@@ -628,9 +662,6 @@
             pipe%pitch_s  = pitch_s
             pipe%length   = length
 
-            ! Mesh specifics
-            call pipe%set_symmetry(optval(if_sym, .false.))
-            
             !  Derived quantities
             pipe%radius      = pipe%diameter*0.5_dp
             if (pipe%delta /= 0.0_dp) then

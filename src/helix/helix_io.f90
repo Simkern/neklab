@@ -161,6 +161,7 @@
             nelf = self%nelf
             allocate(global_map(nelf))
             allocate(gmap_index(nelf))
+            call nekgsync() ! sync procs to avoid false positives in error checks
             if (nid == 0) then
                call byte_open(fname,ierr)
             end if

@@ -316,18 +316,19 @@
             end if
          end subroutine mflow_newton
 
-         subroutine shift_mflow_phase_torus(bf, nmf)
+         subroutine shift_mflow_phase_torus(bf, mflow_target)
             type(nek_dvector), intent(inout) :: bf
       !! Current baseflow to be shifted
-            integer, intent(in) :: nmf
-      !! number of mass flow components to consider
+            real(dp), dimension(:), intent(in) :: mflow_target
+      !! Target values for the mass flow rate for each Fourier component
             ! internal
-            integer :: i
+            integer :: i, nmf
             real(dp) :: phase_dt, Tend
             real(dp), allocatable :: mflow(:), phase(:)
             logical :: save_base_old, save_fft_old
             character(len=128) :: msg
             real(dp), parameter :: tol_dt = 1.0e-04_dp
+            nmf = size(mflow_target)
             call nek_log_message('Current forcing:', this_module, 'shift_mflow_phase_torus')
             call pipe%forcing_summary()
             call pipe%get_mflow_fft(mflow, phase, if_amplitude=.true.)

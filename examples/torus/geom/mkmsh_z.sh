@@ -20,7 +20,7 @@ echo "  n2to3 ..."
 sed "s/casename2D/${CNAME}/g" ${TDIR}/n2to3_cmd_template.txt > n2to3_cmd.txt;
 sed -i "s/casename3D/${CNAME}_${NZ}z_3D/g" n2to3_cmd.txt;
 sed -i "s/2D_//g" n2to3_cmd.txt;
-sed -i "s/^5$/${NZ}/g" n2to3_cmd.txt;
+sed -i "s/^3$/${NZ}/g" n2to3_cmd.txt;
 n2to3 < n2to3_cmd.txt >> $LOGFILE;
 if grep -qi "Error" $LOGFILE; then echo -e "  Error! Check $LOGFILE for details. Abort \n"; exit 1; fi
 

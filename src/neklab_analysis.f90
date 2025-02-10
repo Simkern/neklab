@@ -21,7 +21,6 @@
          use neklab_otd
          use neklab_systems
 
-      
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -50,6 +49,7 @@
 		!! Initial guess for the eigenvectors
       
       ! Eigenvalue computation related variables.
+            character(len=*), parameter :: this_procedure = 'stability_main'
             type(nek_dvector), allocatable :: eigvecs(:)
             complex(kind=dp), allocatable :: eigvals(:)
             real(kind=dp), allocatable :: residuals(:)
@@ -89,7 +89,7 @@
       ! Export eigenfunctions to disk.
             call outpost_dnek(eigvecs(:nev), file_prefix)
 
-		      call logger%log_message('Exiting eigenvalue computation.', module=this_module)
+		      call logger%log_message('Exiting eigenvalue computation.', this_module, this_procedure)
 
       ! Finalize exptA timings
             call exptA%finalize_timer()
@@ -109,6 +109,7 @@
       !! Maximum dimension of the Krylov subspace in LightKrylov.
       
       ! Singular value decomposition.
+            character(len=*), parameter :: this_procedure = 'transient_growth_main'
             type(nek_dvector), allocatable :: U(:), V(:)
             real(kind=dp), allocatable :: S(:), residuals(:)
             integer :: info
@@ -154,6 +155,7 @@
       !! optional flag to return whether the intial condition is a fixed point (and no new solution is computed)
       
       ! Misc
+            character(len=*), parameter :: this_procedure = 'newton_main'
             integer :: info, tol_mode_
             type(newton_dp_opts) :: opts
             character(len=3) :: file_prefix
@@ -161,7 +163,7 @@
       
 		      tol_mode_ = optval(tol_mode, 1)
 
-      	   call logger%log_message('Starting newton iteration.', module=this_module)
+      	   call logger%log_message('Starting newton iteration.', this_module, this_procedure)
       
       ! Define options for the Newton solver
             opts = newton_dp_opts(maxiter=40, ifbisect=.true.)
@@ -170,8 +172,8 @@
             if (tol_mode_ == 1) then
                call newton(sys, bf, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_constant_tol, meta=meta)
             else
-		   call newton(sys, bf, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_dynamic_tol, meta=meta)
-		end if
+		         call newton(sys, bf, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_dynamic_tol, meta=meta)
+		      end if
       
       ! Outpost initial condition.
             file_prefix = 'nwt'
@@ -182,14 +184,14 @@
             type is (nek_ext_dvector)
                call outpost_ext_dnek(bf, file_prefix)
             class default
-               call nek_stop_error('bf is of unrecognized type!', module=this_module, procedure='newton_fixed_point_iteration')
+               call nek_stop_error('bf is of unrecognized type!', this_module, this_procedure)
             end select
 
             if (present(input_is_fixed_point)) then
                input_is_fixed_point = meta%input_is_fixed_point
             end if
 
-		call logger%log_message('Exiting newton iteration.', module=this_module)
+		call logger%log_message('Exiting newton iteration.', this_module, this_procedure)
       
             return
          end subroutine newton_fixed_point_iteration
@@ -199,6 +201,7 @@
             type(otd_opts), optional, intent(in) :: opts_
             type(otd_opts) :: opts
       ! internal
+            character(len=*), parameter :: this_procedure = 'OTD_main'
             real(dp), dimension(:), allocatable :: sigma
             real(dp), dimension(:, :), allocatable :: Lr, Phi, svec, G
             complex(dp), dimension(:), allocatable :: lambda
@@ -249,18 +252,18 @@
                         allocate (G(r, r)); G = 0.0_dp
                         G = innerprod(OTD%basis, OTD%basis)
                         write (msg, '(A,I5,A,*(1X,E10.3))') 'Step ', istep, ': norm.  err pre: ',  (G(i,i) - 1.0_dp, i=1, r)
-                        call logger%log_information(msg, module=this_module, procedure='OTD main')
+                        call logger%log_information(msg, this_module, this_procedure)
                         write (msg, '(A,I5,A,*(1X,E10.3))') 'Step ', istep, ': ortho. err pre: ', ((G(i,j), j=i+1, r), i=1, r)
-                        call logger%log_information(msg, module=this_module, procedure='OTD main')
+                        call logger%log_information(msg, this_module, this_procedure)
                      end if
          
                      call orthonormalize_basis(OTD%basis)
 
                      if (log_level <= debug_level) then
                         write (msg, '(A,I5,A,*(1X,E10.3))') 'Step ', istep, ': norm.  err post:',  (G(i,i) - 1.0_dp, i=1, r)
-                        call logger%log_debug(msg, module=this_module, procedure='OTD main')
+                        call logger%log_debug(msg, this_module, this_procedure)
                         write (msg, '(A,I5,A,*(1X,E10.3))') 'Step ', istep, ': ortho. err post:', ((G(i,j), j=i+1, r), i=1, r)
-                        call logger%log_debug(msg, module=this_module, procedure='OTD main')
+                        call logger%log_debug(msg, this_module, this_procedure)
                      end if
                   end if
       ! compute Lu

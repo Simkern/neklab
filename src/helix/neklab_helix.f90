@@ -619,7 +619,7 @@
             logical, optional, intent(in) :: if_debug
             ! internal
             integer :: ie, iface
-            logical :: debug
+            logical :: debug, symmetry
             real(dp) :: xmin
             integer :: nsym
             character(len=128) :: msg
@@ -629,12 +629,13 @@
             
             ! Optional debug argument
             debug = optval(if_debug, .false.)
+            symmetry = optval(if_sym, .false.)
             
             ! Case setup
-            call pipe%set_symmetry(optval(if_sym, .false.))
+            call pipe%set_symmetry(symmetry)
             
             ! Sanity checks
-            if (if_sym) then
+            if (symmetry) then
                call nek_log_message('Symmetric half torus setup defined.', this_module, 'helix_pipe')
             else
                call nek_log_message('Full torus setup defined.', this_module, 'helix_pipe')
@@ -647,14 +648,14 @@
                end do
             end do
             nsym = iglsum(nsym, 1)
-            if (if_sym .and. nsym == 0) then
+            if (symmetry .and. nsym == 0) then
                call nek_stop_error('Mesh does not have symmetry conditions.', this_module, 'helix_pipe')
-            else if (.not. if_sym .and. nsym > 0) then
+            else if (.not. symmetry .and. nsym > 0) then
                call nek_stop_error('Mesh has symmetry conditions.', this_module, 'helix_pipe')
             end if
             ! is the mesh consistent with the setup?
             xmin = glmin(xm1,lv)
-            if ((if_sym .and. xmin < -0.1_dp) .or. (.not. if_sym .and. xmin > -0.1_dp)) then
+            if ((symmetry .and. xmin < -0.1_dp) .or. (.not. symmetry .and. xmin > -0.1_dp)) then
                call nek_stop_error('Case setup and mesh domain are inconsistent.', this_module, 'helix_pipe')
             end if
 

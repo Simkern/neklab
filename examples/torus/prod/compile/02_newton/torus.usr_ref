@@ -1,0 +1,174 @@
+c-----------------------------------------------------------------------
+      subroutine uservp (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      udiff =0.0d0
+      utrans=0.0d0
+      end
+c-----------------------------------------------------------------------
+      subroutine userf(ix,iy,iz,ieg)
+      use neklab
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      ffx = 0.0d0
+      ffy = 0.0d0
+      ffz = 0.0d0
+      
+      if (jp == 0) call neklab_forcing(ffx,ffy,ffz,ix,iy,iz,ieg,jp)
+      
+      end
+c-----------------------------------------------------------------------
+      subroutine userq(ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      qvol = 0.0d0
+      source = 0.0d0
+      end
+c-----------------------------------------------------------------------
+      subroutine userchk
+      use stdlib_logger, only: debug_level, information_level
+      use LightKrylov_Constants
+      use LightKrylov_Timing, only: timer => global_lightkrylov_timer
+      use LightKrylov_Logger
+      use neklab
+      use neklab_helix
+      use neklab_nek_setup
+      implicit none     
+      include "SIZE"
+      include "TOTAL"
+      
+      ! System for which we seek a fixed point
+      type(nek_system_torus_upo), allocatable :: sys
+      ! State vectors
+      type(nek_dvector) :: bf, ref
+      ! flow parameters
+      real(dp), parameter :: womersley   = 100.0_dp
+      real(dp), parameter :: dp0ds       = 7.946035446259826e-02
+      real(dp), parameter :: dp1dsr      = 6.088015703926612e-04
+      real(dp), parameter :: dp1dsi      = 1.210241163576931e-02
+      real(dp), dimension(3), parameter :: dpds = [ dp0ds, dp1dsr, dp1dsi ]
+      real(dp), dimension(2), parameter :: mflow_target = [ 1.0_dp, 0.01_dp ]
+      integer :: nmf
+      character(len=128) :: msg
+      character(len=*), parameter :: fmt = '(A,I3,A,F6.2,A,E15.8)'
+
+      ! parameters
+      real(dp) ::            tol_nwt      = 1e-8_dp
+      real(dp) ::            tol_mf       = 1e-6_dp
+      integer, parameter ::  tol_mode     = 2
+      integer, parameter ::  max_nwt_iter = 10
+
+      if (istep.eq.0) then
+	 ! Set flow parameters
+         call pipe%init_flow(dpds, womersley)
+
+         ! Set initial condition
+         call load_fld('rsttorus0.f00001')
+         call nek2vec(bf, vx, vy, vz, pr, t)
+
+         ! define system
+         sys = nek_system_torus_upo()
+         sys%jacobian = nek_jacobian_torus_upo()
+         sys%jacobian%X = bf
+
+         ! run mflow Newton
+         !
+         call mflow_newton(sys, bf, mflow_target, tol_nwt, tol_mf, tol_mode, max_nwt_iter)
+
+         ! shift phase
+         !
+         call shift_mflow_phase_torus(bf, mflow_target)
+
+         ! run nonlinear check
+         !
+         call compute_nonlinear_period_torus(ref, bf, save_2d     = .true.,
+     $                                                variable_dt = .true., 
+     $                                                if_fft      = .true., 
+     $                                                if_res      = .true.)
+         ! finalize timers
+         !
+         call sys%jacobian%finalize_timer(); call timer%finalize()
+
+         call nek_end()
+      end if
+      
+      return
+
+      end
+c----------------------------------------------------------------------------------
+      subroutine userbc(i,j,k,iside,eg)
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      integer i,j,k,iside,eg
+      if (JP.eq.0) then ! velocity
+            ux = 1.0d0
+            uy = 0.0d0
+            uz = 0.0d0
+            temp=0.0d0
+         else           ! perturbation
+            ux = 0.0d0
+            uy = 0.0d0
+            uz = 0.0d0
+            temp=0.0d0
+         endif
+      end
+c-----------------------------------------------------------------------
+      subroutine useric(i,j,k,eg)
+      implicit none 
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      integer i,j,k,eg
+        if (JP.eq.0) then ! velocity
+            ux = 1.0d0
+            uy = 0.0d0
+            uz = 0.0d0
+            temp=0.0d0
+         else             ! perturbation
+            ux = 0.0d0
+            uy = 0.0d0
+            uz = 0.0d0
+            temp=0.0d0
+         endif
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      call setbc(1,1,'W  ')
+      call setbc(2,1,'SYM')
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat2
+      use stdlib_logger, only: debug_level, information_level
+      use LightKrylov_Logger
+      use neklab_helix
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      ! geometry parameters
+      real, parameter :: delta       = 0.3d0
+      real, parameter :: diameter    = 2.0d0
+      real, parameter :: pitch_s     = 0.0d0
+      real, parameter :: length      = 2.0d0
+      ! mesh parameters
+      logical, parameter :: if_sym   = .true.
+      ! debug 2d geometry generation
+      logical, parameter :: if_debug = .false.
+      if (istep.eq.0) then
+         ! Setup logger
+         call logger_setup(nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
+         ! Initialize type, set geometry and compute forcing distribution
+         call helix_pipe(delta, diameter, pitch_s, length, if_sym, if_debug)
+      endif
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat3
+      end
+c-----------------------------------------------------------------------

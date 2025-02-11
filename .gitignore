@@ -69,9 +69,10 @@ examples/**/*.f
 
 # mesh testing
 **/mesh_test/SIZE
-**/mesh_test/torus.usr
-**/mesh_test/torus.re2
-**/mesh_test/torus.ma2
+**/mesh_test/torus.usr*
+**/mesh_test/torus.re2*
+**/mesh_test/torus.ma2*
+**/mesh_test/*/
 **/geom/*.re?
 **/geom/*.ma2
 **/geomh/*.re?
@@ -81,4 +82,7 @@ examples/**/*.f
 **/logfile.txt
 **/build.txt
 **/out_gmsh.txt
+**/xx*
+**/geom/*
+**/geomh/*
 

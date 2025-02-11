@@ -335,15 +335,17 @@
             end if
       ! stamp logs
             call nek_log_message('OUTPUT:', this_module, this_procedure)
+            call pipe%setup_summary()
             call pipe%parameter_summary()
-            write(msg,'(3X,A,*(1X,F16.10))') 'mf_state    = ', mflow_old(:nmf)
+            call pipe%forcing_summary()
+            write(msg,'(3X,A,*(1X,F16.12))') 'mf_state    = ', mflow_old(:nmf)
             call nek_log_message(msg, this_module, this_procedure)
-            write(msg,'(3X,A,*(1X,F16.10))') 'mf_target   = ', mflow_target
+            write(msg,'(3X,A,*(1X,F16.12))') 'mf_target   = ', mflow_target
             call nek_log_message(msg, this_module, this_procedure)
-            write(msg,'(3X,A,*(1X,F16.10))') 'mflow error = ', sum(abs(mf_err))
+            write(msg,'(3X,A,*(1X,F16.12))') 'mflow error = ', sum(abs(mf_err))
             call nek_log_message(msg, this_module, this_procedure)
             if (size(mflow_old) > nmf) then
-               write(msg,'(3X,A,*(1X,F16.10))') 'ext. mflow  = ', mflow_old(nmf+1:)
+               write(msg,'(3X,A,*(1X,F16.12))') 'ext. mflow  = ', mflow_old(nmf+1:)
                call nek_log_message(msg, this_module, this_procedure)
             end if
          end subroutine mflow_newton

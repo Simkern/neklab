@@ -132,6 +132,7 @@
 				real(dp) :: dt_minmax(2)
             real(dp) :: tol_mf_inexact, tol_df
             character(len=128) :: msg, fmt
+            character(len=2048) :: long_msg
             character(len=10) :: step_id
             character(len=18) :: coef_id
             integer, parameter :: pad = 10
@@ -142,7 +143,7 @@
       ! preparation & checks
             Wo = pipe%get_Wo()
             nmf = size(mflow_target) ! number of mass flow Fourier components to converge
-		      write(fmt,'("(A,",I0,"(1X,F16.10),A,E16.8)")') nmf
+	      write(fmt,'("(A,",I0,"(1X,F16.10),A,E16.8)")') nmf
             nf = pipe%get_nf() ! number of real forcing components (real and imaginary parts counted individually)
             if (nmf > nfft) then
                write(msg,'(A,I0,A,I0,A)') 'nmf= ', nmf, ' > nfft= ', nfft,'. Increase nfft in neklab_helix.'
@@ -165,7 +166,7 @@
             call nek_log_message('Newton configuration:', this_module, this_procedure)
             write(msg,'(3X,A,1X,E16.8)')     padr('target tol:',     18), tol
             call nek_log_message(msg, this_module, this_procedure)
-            write(msg,'(3X,A,A)')            padr('tol. scheduling:',18), merge('constant', 'dynamic ', tol_mode_==1)
+            write(msg,'(3X,A,A)') padr('tol. scheduling:',18), padr(merge('constant', 'dynamic ', tol_mode_==1), 16)
             call nek_log_message(msg, this_module, this_procedure)
             write(msg,'(3X,A,*(1X,F16.12))') padr('forcing |df|:',   18), fpert
             call nek_log_message(msg, this_module, this_procedure)
@@ -187,9 +188,9 @@
             call nek_log_message('Reference solution set.', this_module, this_procedure)
             mf_err = mflow_old(:nmf) - mflow_target
 		! determine an approximation of the integration error for the mass flux
-				call pipe%get_dt_minmax(dt_minmax)
-				tol_mf_inexact = (sum(dt_minmax)*0.5)**2/100.0
-				write(msg,'(A,1X,E16.8)') 'Approximate mass flow computation error: ', tol_mf_inexact
+            call pipe%get_dt_minmax(dt_minmax)
+            tol_mf_inexact = (sum(dt_minmax)*0.5)**2/100.0
+		write(msg,'(A,1X,E16.8)') 'Approximate mass flow computation error: ', tol_mf_inexact
             call nek_log_message(msg, this_module, this_procedure)
             if (tol_mf_inexact > tol_mf) then
                write(msg,'(A,1X,E16.8)') 'Reset tolerance for mass flow to tol= ', tol_mf_inexact
@@ -320,7 +321,7 @@
 		         write(msg,'(A,I0,A)') 'Newton iteration converged after ', inwt, ' iterations.'
                   call nek_log_message(msg, this_module, this_procedure)
                   exit df_loop ! converged
-					else
+	         else
       ! save intermediate solution
                   call set_fldindex('nwf', 1)
                   call outpost_dnek(bf, 'nwf')
@@ -342,11 +343,11 @@
             call nek_log_message(msg, this_module, this_procedure)
             write(msg,'(3X,A,*(1X,F16.12))') 'mf_target   = ', mflow_target
             call nek_log_message(msg, this_module, this_procedure)
-            write(msg,'(3X,A,*(1X,F16.12))') 'mflow error = ', sum(abs(mf_err))
+            write(msg,'(3X,A,1X,F16.12)') 'mflow error = ', sum(abs(mf_err))
             call nek_log_message(msg, this_module, this_procedure)
             if (size(mflow_old) > nmf) then
-               write(msg,'(3X,A,*(1X,F16.12))') 'ext. mflow  = ', mflow_old(nmf+1:)
-               call nek_log_message(msg, this_module, this_procedure)
+               write(long_msg,'(3X,A,*(1X,F16.12))') 'ext. mflow  = ', mflow_old(nmf+1:)
+               call nek_log_message(long_msg, this_module, this_procedure)
             end if
          end subroutine mflow_newton
 

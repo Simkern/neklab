@@ -313,7 +313,7 @@ if __name__ == '__main__':
    print(df)
 
    if refdir is None:  # startup
-      cpldir = os.path.join(cdir, '01_cold_startup')
+      cpldir = os.path.join(cdir, '01_cold_start')
       ofile = os.path.join(cpldir,usr)
       rfile = os.path.join(cpldir,usr_ref)
       write_usr_01(home, ofile, rfile, df, tol, Tend)
@@ -327,12 +327,11 @@ if __name__ == '__main__':
    if user_input.lower() not in ['', 'y', 'yes']:
       sys.exit()
 
-   # create folders
-   create_folder(home, dname)
-  
-   if create_folder(home, casename) or args.update:
-      
-      compile_nek(cpldir)
+   compile_nek(cpldir)
+
+   # create folders 
+   create_folder(home, dname) # main folder
+   if create_folder(home, casename) or args.update: # Q folders
       
       copy_file(home, 'nek5000', cpldir, casename)
       copy_file(home, 'torus.usr', cpldir, casename)

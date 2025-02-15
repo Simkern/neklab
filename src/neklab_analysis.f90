@@ -166,7 +166,7 @@
       	   call logger%log_message('Starting newton iteration.', this_module, this_procedure)
       
       ! Define options for the Newton solver
-            opts = newton_dp_opts(maxiter=40, ifbisect=.true.)
+            opts = newton_dp_opts(maxiter=40, ifbisect=.false.)
       
       ! Call to LightKrylov.
             if (tol_mode_ == 1) then

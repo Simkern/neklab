@@ -161,7 +161,7 @@
             df0 = min(1.0e-05_dp,100*tol) ! amplitude of forcing perturbation for finite difference approximation of gradient
             tol_df = tol
             fpert(1)  = df0
-            fpert(2:) = 20*df0
+            fpert(2:) = 10*df0
       ! stamp logs
             call nek_log_message('Newton configuration:', this_module, this_procedure)
             write(msg,'(3X,A,1X,E16.8)')     padr('target tol:',     18), tol

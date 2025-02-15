@@ -13,7 +13,7 @@ def create_folder(home, fldr):
         print(f"Folder {fldr.replace(home+'/','')} created.")
         return True
     else:
-        print(f"Folder {fldr.replace(home+'/','')} already exists. Skip.")
+        print(f"Folder {fldr.replace(home+'/','')} already exists. Skip creation.")
         return False
 
 def copy_file(home, ifile, from_fldr, to_fldr):
@@ -34,7 +34,8 @@ def link_IC(home, from_fldr, sfile, to_fldr, dfile):
       else:
          print(f"Symbolic link for {dfile} already exists in {to_fldr.replace(home+'/','')}. Skip.")
    else:
-      print(f"Error: '{sfile}' not found in {from_fldr.replace(home+'/','')}. Skipping link creation.")
+      os.symlink(src, dest)
+      print(f"Error: '{sfile}' not found in {from_fldr.replace(home+'/','')} (yet).")
 
 def link_mesh(home, geom_fldr, to_fldr, meshname):
    for ext in ['.re2', '.ma2']:

@@ -97,7 +97,7 @@
             if (self%is_initialized) call stop_error('Attempting to reinitialize the mesh', this_module, this_procedure)
             call lk_timer%start('neklab_helix_'//this_procedure)
 
-         !  Geometry modification for helical pipe
+            !  Geometry modification for helical pipe
 
             pi = 4.0_dp*atan(1.0_dp)
             nxy = lx1*ly1
@@ -164,7 +164,6 @@
             end if
             call copy(self%xax, xm1, lv) ! xax set before curvature in z is added!
             call copy(self%yax, ym1, lv) ! yax set before curvature in z is added!
-            
 
             ! Morph the torus into a helix
             if (self%is_helix()) then

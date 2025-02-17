@@ -170,16 +170,19 @@
                write(fid,'(I3.3)') nid
                fileid = 2000+nid
                open (fileid, file='torus_map'//fid//'.txt', status='replace', action='write')
-               write(fileid, *) 'nelv = ', nelv
-               write(fileid, '(6(1X,A11),2(1X,A7),A12)') 'ie','ieg','slice','self%gsegment','gllel','gllnid','s%lowner','s%gowner','s%n2iseg'
+               write(fileid, '(A20,A10,I8,A)') padr('3D ELEMENTS:',20), padr('nelv:',10), nelv, CHAR(10)
+               write(fileid, '(9(1X,A11))') 'ie','ieg','islice','s%gsegment','gllel','gllnid',
+     &                        's%lowner','s%gowner','s%n2iseg'
                do ie = 1, nelv
                   ieg = lglel(ie)
-                  write(fileid, '(6(I12),2(1X,L7),I12)') ie, ieg, islice(ie), self%gsegment(ie), gllel(ieg), gllnid(ieg), self%lowner(ie), self%gowner(ie), self%lsegment(ie)
+                  write(fileid, '(6(I12),2(1X,L11),I12)') ie, ieg, islice(ie), self%gsegment(ie), gllel(ieg),
+     &                        gllnid(ieg), self%lowner(ie), self%gowner(ie), self%lsegment(ie)
                end do
-               write(fileid, *) 'n2d_lown = ', self%n2d_lown
-               write(fileid, '(*(1X,A11))') 'iel','ieg','s%id2d:ie', 's%id2d:ifc', 's%id2d%iseg'
+               write(fileid, '(A,A20,A10,I8,A)')  CHAR(10), padr('2D ELEMENTS:',20),
+     &                        padr('n2d_lown:',10), self%n2d_lown, CHAR(10)
+               write(fileid, '(*(1X,A11))') 'iel','ieg','s%id2d:ie', 's%id2d:ifc', 's%id2d:iseg', 's%gowner'
                do ie = 1, self%n2d_lown
-                  write(fileid, *) ie, lglel(self%id2d(ie,1)), self%id2d(ie,:)
+                  write(fileid, '(5(I12),L12)') ie, lglel(self%id2d(ie,1)), self%id2d(ie,:), self%gowner(ie)
                end do
                close (fileid)
                call nekgsync()

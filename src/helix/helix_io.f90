@@ -151,10 +151,12 @@
             character(len=132) :: hdr
             character(len=256) :: msg, msg_dbg
             character(len=4)   :: sdummy
-            common /CTMP1/ fldum(lx1*ly1*lelv)
-            real fldum
+            real(dp), allocatable :: x2dr(:,:,:), y2dr(:,:,:)
+            real(dp) :: xyavgr, xyavg
+            real(dp), parameter :: mesh_tol  = 1e-10_dp
             ! functions
             logical, external :: if_byte_swap_test
+            integer, external :: iglsum
             call lk_timer%start('neklab_helix_'//this_procedure)
             hdrsize = 116
             nxy = lx1*ly1
@@ -164,13 +166,13 @@
             call nekgsync() ! sync procs to avoid false positives in error checks
             if (nid == 0) then
                call byte_open(fname,ierr)
+               ! read header
+               call blank     (hdr,hdrsize)
+               call byte_read (hdr,hdrsize/4,ierr)
             end if
             call bcast(ierr, isize)
             if (ierr /= 0) call nek_stop_error('Error opening file '//trim(fname), this_module, this_procedure)
             if (nid == 0) then
-               ! read header
-               call blank     (hdr,hdrsize)
-               call byte_read (hdr,hdrsize/4,ierr)
                if (ierr == 0) then
                   call byte_read (test_pattern,1,ierr)
                   if_byte_sw = if_byte_swap_test(test_pattern,ierr) ! determine endianess
@@ -226,17 +228,38 @@
             end if
             call bcast(ierr, isize)
             if (ierr /= 0) call nek_stop_error('Error reading timestep information from file '//trim(fname), this_module, this_procedure)
+            length = nxy*nelf
+            allocate(x2dr(lx1,ly1,nelf))
+            allocate(y2dr(lx1,ly1,nelf))
             if (nid == 0) then
                ! read coords but skip them
-               call byte_read(fldum, nxy*nelf*wdsl, ierr)
-               call byte_read(fldum, nxy*nelf*wdsl, ierr)
+               call byte_read(x2dr, length*wdsl, ierr)
+               if (if_byte_sw) call byte_reverse(x2dr, length, ierr)
+               call byte_read(y2dr, length*wdsl, ierr)
+               if (if_byte_sw) call byte_reverse(y2dr, length, ierr)
             end if
             call bcast(ierr, isize)
             if (ierr /= 0) call nek_stop_error('Error reading coordinates from file '//trim(fname), this_module, this_procedure)
             call bcast(nsaver, isize)          ! broadcast number of saved snapshots
             call bcast(self%dt2d, lbuf*wdsize) ! broadcast timestep data
             call bcast(global_map, nelf*isize) ! broadcast global element map
-            call sort_index(global_map, gmap_index)
+            call sort_index(global_map, gmap_index) ! argsort element mapping
+            call bcast(x2dr, length*wdsize)    ! broadcast element coordinates
+            call bcast(y2dr, length*wdsize)    ! broadcast element coordinates
+            ! Check if the local ordering is the same as in the input file
+            ierr = 0
+            do iseg = 1, self%n2d_gown   ! iterate over owned elements on each proc
+               gseg = self%id2d(iseg,3)  ! find global segment
+               ! get the local average positions
+               xyavg  = sum(self%x2d(:,:,iseg)) + sum(self%y2d(:,:,iseg))
+               ! get the average positions from the file data
+               iel  = gmap_index(gseg)
+               xyavgr = sum(x2dr(:,:,iel))      + sum(y2dr(:,:,iel))
+               !print *, nid, iseg, gseg, iel, xyavg, xyavgr, abs(xyavg - xyavgr)
+               if (abs(xyavg - xyavgr) > mesh_tol) ierr = ierr + 1
+            end do
+            ierr = iglsum(ierr, 1)
+            if (ierr > 0) call nek_stop_error('Inconsistent element mapping in '//trim(fname), this_module, this_procedure)
             ! initialize data and prepare arrays
             length = 3*nxy*nelf
             allocate(slicedata(lx1,ly1,nelf,3))

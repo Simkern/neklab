@@ -4,7 +4,7 @@
          module procedure init_exptA
          ! For the baseflow field for dt/nsteps/cfl computation.
          call vec2nek(vx, vy, vz, pr, t, self%baseflow)
-         call logger%log_message("Set self%baseflow -> vx, vy, vz, pr, t", this_module, "init_exptA")
+         call nek_log_message("Set self%baseflow -> vx, vy, vz, pr, t", this_module, "init_exptA")
          ! Setup Nek5000 for perturbation solver.
          call setup_linear_solver(solve_baseflow=.false., endtime=self%tau, recompute_dt=.true., cfl_limit=0.5_dp)
          end procedure
@@ -27,11 +27,11 @@
          ! Copy the final solution to vector.
                call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
             class default
-               call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'",
+               call nek_stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'",
      & this_module, 'exptA_matvec')
             end select
          class default
-            call stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_dvector'",
+            call nek_stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_dvector'",
      & this_module, 'exptA_matvec')
          end select
          end procedure
@@ -54,11 +54,11 @@
          ! Copy the final solution to vector.
                call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
             class default
-               call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'",
+               call nek_stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'",
      & this_module, 'exptA_rmatvec')
             end select
          class default
-            call stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_dvector'",
+            call nek_stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_dvector'",
      & this_module, 'exptA_rmatvec')
          end select
          end procedure

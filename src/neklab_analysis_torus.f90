@@ -433,7 +433,7 @@
             ! internal
             character(len=*), parameter :: this_procedure = 'nonlinear_period'
             logical :: get_2d, get_fft, var_dt, get_res
-            logical :: get_2d_old, get_fft_old
+            logical :: get_2d_old, get_fft_old, newton_old, floquet_old
             real(dp) :: pd, ubar, rnorm, cfl
             character(len=128) :: msg
             character(len=*), parameter :: fmt = '(3(F16.8,1X),A,F16.8)'
@@ -444,6 +444,11 @@
             get_res = optval(if_res, .false.)
             cfl     = optval(cfl_limit, 0.5_dp)
             time    = optval(tstart, 0.0_dp)
+      ! save toolbox status
+            get_2d_old  = pipe%is_save_2d();  call pipe%set_save_base(get_2d)
+            get_fft_old = pipe%is_save_fft(); call pipe%set_save_fft(get_fft)
+            newton_old  = pipe%is_newton():   call pipe%set_newton(.false.)  ! in case we save 2d fields
+            floquet_old = pipe%is_floquet();  call pipe%set_floquet(.false.) ! in case we save 2d fields
       ! set period
             pd = pipe%get_period()
             if (pd == 0.0_dp) pd = param(10) ! for the steady case
@@ -456,8 +461,6 @@
      $                                  cfl_limit    = cfl)
             call nek_status(full_summary=.true.)
             call pipe%reset_mflow_fft() ! in case we compute the FFT
-            get_2d_old  = pipe%is_save_2d();  call pipe%set_save_base(get_2d)
-            get_fft_old = pipe%is_save_fft(); call pipe%set_save_fft(get_fft)
       ! compute period
             if (var_dt) then ! variable timestep
                istep = 0
@@ -497,6 +500,8 @@
       ! reset logical flags
             call pipe%set_save_base(get_2d_old)
             call pipe%set_save_fft(get_fft_old)
+            call pipe%set_newton(newton_old)
+            call pipe%set_floquet(floquet_old)
          end subroutine compute_nonlinear_period_torus
       
          end module neklab_analysis_torus

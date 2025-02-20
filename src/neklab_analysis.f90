@@ -75,7 +75,8 @@
             allocate (eigvecs(nev)); call zero_basis(eigvecs)
       
       ! Run the eigenvalue analysis.
-		      call eigs(exptA, eigvecs, eigvals, residuals, info, x0=X0, kdim=kdim, transpose=adjoint_)
+		call eigs(exptA, eigvecs, eigvals, residuals, info, x0=X0, kdim=kdim, 
+     $                  transpose=adjoint_, write_intermediate=.true.)
       
       ! Transform eigenspectrum to continuous-time representation.
             eigvals = log(eigvals)/exptA%tau
@@ -126,7 +127,7 @@
             allocate (V(nsv)); call initialize_krylov_subspace(V)
       
       ! Call to LightKrylov.
-            call svds(exptA, U, S, V, residuals, info, kdim=kdim)
+            call svds(exptA, U, S, V, residuals, info, kdim=kdim, write_intermediate=.true.)
       
       ! Save singular spectrum to disk.
             if (nid == 0) then

@@ -67,7 +67,7 @@ def read_fields(filepattern, only_mesh=False, cwd='.'):
 
     pat = os.path.join(cwd, filepattern+'[0-9][0-9][0-9].fld')
 
-    files = glob.glob(pat)
+    files = sorted(glob.glob(pat))
     # Check if there are any files that match the pattern
     nfiles = len(files)
     if files:

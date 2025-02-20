@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
 from read_2d_data import read_fields
 
@@ -66,13 +67,14 @@ def plot_2d_fld(ax, x, y, fld, istep=0, draw_elements=False, draw_mesh=False):
     c.set_clim(vmin, vmax)
     cbar = fig.colorbar(c, ax=ax)
 
-def animate_2d_fld(ax, x, y, fld, step=80):
+def animate_2d_fld(ax, data, step=80, if_half=False):
 
     # Initialize the variables to store vmin and vmax for coloring
-    nelf = x.shape[-1]
-    nsteps = fld.shape[-1]
-    dvmin = fld.min()
-    dvmax = fld.max()
+    nelf = data.x.shape[-1]
+    nsteps = data.vx.shape[-1]
+    dvmin = data.vx.min()
+    dvmax = data.vx.max()
+    T = sum(data.dt)
 
     # Define the update function for the animation
     for k in range(4):
@@ -81,29 +83,35 @@ def animate_2d_fld(ax, x, y, fld, step=80):
 
             # Loop to create the contours
             for i in range(nelf):
-                xi = np.squeeze(x[:,:,i])
-                yi = np.squeeze(y[:,:,i])
-                vxi = np.squeeze(fld[:,:,i,j])
+                xi = np.squeeze(data.x[:,:,i])
+                yi = np.squeeze(data.y[:,:,i])
+                vxi = np.squeeze(data.vx[:,:,i,j])
 
                 # Create the contour plot for each element
                 contour = ax.contourf(xi, yi, vxi, vmin=dvmin, vmax=dvmax)
+                if if_half:
+                    contour = ax.contourf(-xi, yi, vxi, vmin=dvmin, vmax=dvmax)
 
             # Add a color bar to the figure (only once)
             if j == 0 and k == 0:
-                plt.colorbar(contour, ax=ax)
                 ax.set_aspect('equal', 'box')
 
-            ax.set_title(f'Plot {j + 1} of {nsteps}')  # Display current plot number (1-based index)
-
+            t = sum(data.dt[:j])
+            tp = t/T*100
+            ax.set_title(f't = {t:5.3f}     ({tp:3.0f} % T)\n', fontsize=20)  # Display current plot number (1-based index)
+            plt.axis('off')
             plt.pause(0.001)
 
 def play_file(pattern, cwd='.'):
     data, meta, nsteps = read_fields(pattern, only_mesh=False, cwd=cwd)
 
     # Create the figure and axis
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(15, 15))
 
-    animate_2d_fld(ax, data.x, data.y, data.vx)
+    animate_2d_fld(ax, data, if_half = meta.if_half)
 
 if __name__ == '__main__':
-    play_file('n2dtorus')
+    #play_file('n2dtorus')
+    #play_file('prod/run/Wo_040.0/Q_0.180/n2dtorus')
+    #play_file('prod/run/Wo_025.0/Q_0.350/n2dtorus')
+    play_file('prod/run/Wo_035.0/Q_0.280/n2dtorus')

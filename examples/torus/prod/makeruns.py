@@ -10,19 +10,19 @@ import argparse
 def create_folder(home, fldr):
     if not os.path.exists(fldr):
         os.makedirs(fldr)
-        print(f"Folder {fldr.replace(home+'/','')} created.")
+        print(f'Folder {fldr.replace(home+"/","")} created.')
         return True
     else:
-        print(f"Folder {fldr.replace(home+'/','')} already exists. Skip creation.")
+        print(f'Folder {fldr.replace(home+"/","")} already exists. Skip creation.')
         return False
 
 def copy_file(home, ifile, from_fldr, to_fldr):
    file = os.path.join(from_fldr,ifile)
    if os.path.exists(file):
       shutil.copy(file, to_fldr)
-      print(f"\tcp: '{ifile}' -> {to_fldr.replace(home+'/','')}")
+      print(f'\tcp: {ifile} -> {to_fldr.replace(home+"/","")}')
    else:
-      print(f"Error: '{ifile}' not found. Skipping copy.")
+      print(f'Error: {ifile} not found. Skipping copy.')
 
 def link_IC(home, from_fldr, sfile, to_fldr, dfile):
    src = os.path.join(from_fldr, sfile)
@@ -30,12 +30,12 @@ def link_IC(home, from_fldr, sfile, to_fldr, dfile):
    if os.path.exists(src):
       if not os.path.exists(dest):
          os.symlink(src, dest)
-         print(f"\tslink: {sfile} -> {dest.replace(home+'/','')}")
+         print(f'\tslink: {sfile} -> {dest.replace(home+"/","")}')
       else:
-         print(f"Symbolic link for {dfile} already exists in {to_fldr.replace(home+'/','')}. Skip.")
+         print(f'Symbolic link for {dfile} already exists in {to_fldr.replace(home+"/","")}. Skip.')
    else:
       os.symlink(src, dest)
-      print(f"Error: '{sfile}' not found in {from_fldr.replace(home+'/','')} (yet).")
+      print(f'Error: {sfile} not found in {from_fldr.replace(home+"/","")} (yet).')
 
 def link_mesh(home, geom_fldr, to_fldr, meshname):
    for ext in ['.re2', '.ma2']:
@@ -46,11 +46,11 @@ def link_mesh(home, geom_fldr, to_fldr, meshname):
       if os.path.exists(src):
          if not os.path.exists(dest):
             os.symlink(src, dest)
-            print(f"\tslink: {sfile} -> {dest.replace(home+'/','')}")
+            print(f'\tslink: {sfile} -> {dest.replace(home+"/","")}')
          else:
-            print(f"Symbolic link for {sfile} already exists in {to_fldr.replace(home+'/','')}. Skip.")
+            print(f'Symbolic link for {sfile} already exists in {to_fldr.replace(home+"/","")}. Skip.')
       else:
-         print(f"Error: '{sfile}' not found in {geom_fldr.replace(home+'/','')}. Skipping link creation.")
+         print(f'Error: '{sfile}' not found in {geom_fldr.replace(home+"/","")}. Skipping link creation.')
 
 def check_compilation(logfile):
     success_msg = "#############################################################\n#                  Compilation successful!                  #\n#############################################################"
@@ -61,18 +61,18 @@ def check_compilation(logfile):
             if success_msg in content:
                 print(success_msg)  # Print the success message if found
             else:
-                print(f"Error in compilation. Abort.")
+                print(f'Error in compilation. Abort.')
                 sys.exit(1)
     except FileNotFoundError:
-        print(f"Error: The file {logfile} was not found.")
+        print(f'Error: The file {logfile} was not found.')
         sys.exit(1)
     except Exception as e:
-        print(f"Error: {e}")
+        print(f'Error: {e}')
         sys.exit(-1)
 
 def compile_nek(compile_fldr):
    # Run mnl in the shell
-   print("\tcompile nek ...")
+   print('\tcompile nek ...')
    # Open the log file for writing (this will overwrite the file)
    logfile = "build.txt"
    with open(logfile, "w") as log_file:
@@ -82,23 +82,23 @@ def compile_nek(compile_fldr):
    print("\tdone.")
 
 def write_usr_01(home, usr, usr_ref, data, tol, Tend):
-   print(f'\nReading from\t{usr_ref.replace(home+'/','')}')
-   print(f'Output to     \t{usr.replace(home+'/','')}\n')
+   print(f'\nReading from\t{usr_ref.replace(home+"/","")}')
+   print(f'Output to     \t{usr.replace(home+"/","")}\n')
    with open(usr_ref, 'r') as f:
       lines = f.readlines()
       with open(usr, 'w') as u:
          for line in lines:
             if 'real(dp), parameter :: womersley' in line:
-               line = f'      real(dp), parameter :: womersley   = {data['Wo'].iloc[0]:.1f}_dp\n'
+               line = f'      real(dp), parameter :: womersley   = {data["Wo"].iloc[0]:.1f}_dp\n'
                print(line.strip())
             elif 'real(dp), parameter :: dp0ds' in line:
-               line = f'      real(dp), parameter :: dp0ds       = {data['Re(fsamp_0)'].iloc[0]:14.12e}_dp\n'
+               line = f'      real(dp), parameter :: dp0ds       = {data["Re(fsamp_0)"].iloc[0]:14.12e}_dp\n'
                print(line.strip())
             elif 'real(dp), parameter :: dp1dsr' in line:
-               line = f'      real(dp), parameter :: dp1dsr      = {data['Re(fsamp_1)'].iloc[0]:14.12e}_dp\n'
+               line = f'      real(dp), parameter :: dp1dsr      = {data["Re(fsamp_1)"].iloc[0]:14.12e}_dp\n'
                print(line.strip())
             elif 'real(dp), parameter :: dp1dsi' in line:
-               line = f'      real(dp), parameter :: dp1dsi      = {data['Im(fsamp_1)'].iloc[0]:14.12e}_dp\n'
+               line = f'      real(dp), parameter :: dp1dsi      = {data["Im(fsamp_1)"].iloc[0]:14.12e}_dp\n'
                print(line.strip())
             elif 'real(dp), parameter :: tol' in line:
                line = f'      real(dp), parameter :: tol         = {tol:8.2e}_dp\n'
@@ -110,26 +110,26 @@ def write_usr_01(home, usr, usr_ref, data, tol, Tend):
    return
 
 def write_usr_02(home, usr, usr_ref, data, tol_nwt, tol_mf, tol_mode, max_nwt_iter):
-   print(f'\nReading from\t{usr_ref.replace(home+'/','')}')
-   print(f'Output to     \t{usr.replace(home+'/','')}\n')
+   print(f'\nReading from\t{usr_ref.replace(home+"/","")}')
+   print(f'Output to     \t{usr.replace(home+"/","")}\n')
    with open(usr_ref, 'r') as f:
       lines = f.readlines()
       with open(usr, 'w') as u:
          for line in lines:
             if 'real(dp), parameter :: womersley' in line:
-               line = f'      real(dp), parameter :: womersley    = {data['Wo'].iloc[0]:.1f}_dp\n'
+               line = f'      real(dp), parameter :: womersley    = {data["Wo"].iloc[0]:.1f}_dp\n'
                print(line.strip())
             elif 'real(dp), parameter :: dp0ds' in line:
-               line = f'      real(dp), parameter :: dp0ds        = {data['Re(fsamp_0)'].iloc[0]:14.12e}_dp\n'
+               line = f'      real(dp), parameter :: dp0ds        = {data["Re(fsamp_0)"].iloc[0]:14.12e}_dp\n'
                print(line.strip())
             elif 'real(dp), parameter :: dp1dsr' in line:
-               line = f'      real(dp), parameter :: dp1dsr       = {data['Re(fsamp_1)'].iloc[0]:14.12e}_dp\n'
+               line = f'      real(dp), parameter :: dp1dsr       = {data["Re(fsamp_1)"].iloc[0]:14.12e}_dp\n'
                print(line.strip())
             elif 'real(dp), parameter :: dp1dsi' in line:
-               line = f'      real(dp), parameter :: dp1dsi       = {data['Im(fsamp_1)'].iloc[0]:14.12e}_dp\n'
+               line = f'      real(dp), parameter :: dp1dsi       = {data["Im(fsamp_1)"].iloc[0]:14.12e}_dp\n'
                print(line.strip())
             elif 'real(dp), dimension(2), parameter :: mflow_target' in line:
-               line = f'      real(dp), dimension(2), parameter :: mflow_target = [ 1.0_dp, {data['Q'].iloc[0]:5.3f}_dp ]\n'
+               line = f'      real(dp), dimension(2), parameter :: mflow_target = [ 1.0_dp, {data["Q"].iloc[0]:5.3f}_dp ]\n'
                print(line.strip())
             elif 'real(dp) ::            tol_nwt' in line:
                line = f'      real(dp) ::            tol_nwt      = {tol_nwt:8.2e}_dp\n'
@@ -157,6 +157,7 @@ if __name__ == '__main__':
    parser.add_argument('--update', action='store_true', help='Update instead of create.')
    # Choose if the data should be plotted for the relevant Wo
    parser.add_argument('--plot', action='store_true', help='Update instead of create.')
+   parser.add_argument('--yes', action='store_true', help='Skip confirmation')
    
    # Parse arguments
    args = parser.parse_args()
@@ -324,9 +325,10 @@ if __name__ == '__main__':
       rfile = os.path.join(cpldir,usr_ref)
       write_usr_02(home, ofile, rfile, df, tol_nwt, tol_mf, tol_mode, max_nwt_iter)
 
-   user_input = input(f"\nConfirm? (y/n) ")
-   if user_input.lower() not in ['', 'y', 'yes']:
-      sys.exit()
+   if not args.yes:
+      user_input = input(f'\nConfirm? (y/n) ')
+      if user_input.lower() not in ['', 'y', 'yes']:
+         sys.exit()
 
    compile_nek(cpldir)
 

@@ -63,9 +63,9 @@ def plot_2d_fld(ax, x, y, fld, istep=0, draw_elements=False, draw_mesh=False):
         if draw_elements:
             plot_element(ax, xi, yi, only_edges)
     ax.set_aspect('equal', 'box')
-    fig = plt.gcf()
-    c.set_clim(vmin, vmax)
-    cbar = fig.colorbar(c, ax=ax)
+    #fig = plt.gcf()
+    #c.set_clim(vmin, vmax)
+    #cbar = fig.colorbar(c, ax=ax)
 
 def animate_2d_fld(ax, data, step=80, if_half=False):
 

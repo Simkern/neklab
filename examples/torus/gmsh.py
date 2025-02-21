@@ -10,16 +10,16 @@ from manipulate_2d_data import symmetrize_fld
 
 geom_params = {
     'R': 1.0,
-    'rt': 0.5,
+    'rt': 0.7,
     'rb': 0.7,
-    'RBt': 0.92,
-    'RBb': 0.94,
-    'tht': np.pi/6.0,
-    'thb': np.pi/3.0,
-    'lambda1t': 0.75,
-    'lambda1b': 0.6,
-    'lambda2': 0.5,
-    'dyc': 0.04
+    'RBt': 0.95,
+    'RBb': 0.95,
+    'tht': np.pi/4.0,
+    'thb': np.pi/4.0,
+    'lambda1t': 0.8,
+    'lambda1b': 0.8,
+    'lambda2': 0.8,
+    'dyc': 0.00
 }
 
 mesh_params = {
@@ -28,8 +28,8 @@ mesh_params = {
     'Nch': 11,
     'NB': 1,
     'NM': 5,
-    'compressRatio_B': 0.6,
-    'compressRatio_M': 0.95,
+    'compressRatio_B': 0.9,
+    'compressRatio_M': 0.87,
     'Nz': 180
 }
 
@@ -80,30 +80,41 @@ if __name__ == "__main__":
             plt.show()
 
             user_input = input(f"Do you want to generate the GMSH script'? (y/n): ")
+            is_generated_f, is_generated_h = False, False
             if user_input.lower() in ['', 'y', 'yes']:
-                generate_mesh(geom_params, mesh_params, fldr_h, basename2, is_half=True, confirm=True)
-                generate_mesh(geom_params, mesh_params, fldr,   basename2, is_half=False, confirm=True)
+                is_generated_f = generate_mesh(geom_params, mesh_params, fldr_h, basename2, is_half=True, confirm=True)
+                is_generated_h = generate_mesh(geom_params, mesh_params, fldr,   basename2, is_half=False, confirm=True)
                 with open(os.path.join(param_fldr,basename2+'.json'), 'w') as file:
                     json.dump(params, file, indent=4)
+            if (is_generated_f, is_generated_h).any():
 
-            test_mesh_input = input(f"Do you want to test the mesh by running the necessary operations? (yes/no) [y]: ")
-            if test_mesh_input.lower() in ['', 'y', 'yes']:
-                prepare_test(mesh_params, fldr_h, basename3, is_half=True)
-                prepare_test(mesh_params, fldr,   basename3, is_half=False)
+                testf = input("Generate mesh and test for full cross-section? [y]: ")
+                if (testf.lower() in ['', 'y', 'yes'] and is_generated_f):
+                    prepare_test(mesh_params, fldr,   basename3, is_half=False)
+                    test_mesh(fldr)
+                else:
+                    print('Full mesh not tested.')
+                
+                testh = input("Generate mesh and test for half cross-section? [y]: ")
+                if (testh.lower() in ['', 'y', 'yes'] and is_generated_f):
+                    prepare_test(mesh_params, fldr_h, basename3, is_half=True)
+                    test_mesh(fldr_h)
+                else:
+                    print('Half mesh not tested.')
 
-            nekbmpi_input = input(f"Do you want to run the mesh tests? (yes/no) [y]: ")
-            if nekbmpi_input.lower() in ['', 'y', 'yes']:
-                test_mesh(fldr_h)
-                test_mesh(fldr)
         else:
             print('\nGenerate mesh and test for full cross-section:\n')
-            generate_mesh(geom_params, mesh_params, fldr,   basename2, is_half=False, confirm=False)
-            prepare_test(mesh_params, fldr,   basename3, is_half=False)
-            test_mesh(fldr)
+            if generate_mesh(geom_params, mesh_params, fldr,   basename2, is_half=False, confirm=False):
+                prepare_test(mesh_params, fldr,   basename3, is_half=False)
+                test_mesh(fldr)
+            else:
+                print('Full mesh not generated or tested.')
             print('\nGenerate mesh and test for half cross-section:\n')
-            generate_mesh(geom_params, mesh_params, fldr_h, basename2, is_half=True, confirm=False)
-            prepare_test(mesh_params, fldr_h, basename3, is_half=True)
-            test_mesh(fldr_h)
+            if generate_mesh(geom_params, mesh_params, fldr_h, basename2, is_half=True, confirm=False):
+                prepare_test(mesh_params, fldr_h, basename3, is_half=True)
+                test_mesh(fldr_h)
+            else:
+                print('Half mesh not generated or tested.')
 
     pattern = 'c2dtorus'
     runfldr   = os.path.join(fldr,   'mesh_test')
@@ -115,13 +126,13 @@ if __name__ == "__main__":
         #fig, ax2 = plt.subplots(1, 2, figsize=(20,8))
         ax[0].set_title('Full mesh')
         data, meta, nsteps = read_fields(pattern, cwd=runfldr)
-        plot_2d_fld(ax[0], data.x, data.y, data.vx)
+        plot_2d_fld(ax[0], data.x, data.y, data.vx, draw_elements=True)
         #vxfs, vxfa = symmetrize_fld(x, y, vx)
         #plot_2d_fld(ax2[0], x, y, vxfs)
         #plot_2d_fld(ax2[1], x, y, vxfa)
         ax[1].set_title('Half mesh')
         data, meta, nsteps = read_fields(pattern, cwd=runfldr_h)
-        plot_2d_fld(ax[1], data.x, data.y, data.vx)
+        plot_2d_fld(ax[1], data.x, data.y, data.vx, draw_elements=True)
         
         plt.show()
     else:

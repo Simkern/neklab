@@ -33,14 +33,16 @@ def generate_mesh(geom_params, mesh_params, fldr, basename, is_half, confirm=Fal
     mkscript = 'mkmsh.sh'
     geoname = basename+'.geo'
     filename = os.path.join(fldr,geoname)
+    is_generated = False
 
     if os.path.exists(filename):
         overwrite_input = input(f"The file '{filename}' already exists. Do you want to overwrite it? (yes/no) [y]: ")
         if overwrite_input.lower() not in ['', 'y', 'yes']:
             print("\tFile will not be overwritten. Aborting script generation.")
-            sys.exit(1)
+            return is_generated
 
     generate_gmsh_script(geom_params, mesh_params, half=is_half, meshDim=2, filename=filename)
+    is_generated = True
 
     if confirm:
         # Prompt to run GMSH
@@ -90,6 +92,8 @@ def generate_mesh(geom_params, mesh_params, fldr, basename, is_half, confirm=Fal
             except subprocess.CalledProcessError as e:
                 print(f"Error running {mkscript}: {e}")
                 sys.exit(1)
+
+    return is_generated
 
 def generate_gmsh_script(geom, mesh, half=False, meshDim=2, filename="pipe_mesh.geo"):
     # Extract data
@@ -300,7 +304,7 @@ Dyxb=Hypot(dyb + lambda1b*R, dxb) - lambda1b*R;"""
     transfinite_lines = [
         header,
         create_transfinite_line([ 7, 4, 1, 3, 6, 9], 'Nc2'),
-        create_transfinite_line([-18, 2, 5, 8],   'Ncv', progression='compressRatio_M'),
+        create_transfinite_line([-18, 2, 5, 8],   'Ncv'), #, progression='compressRatio_M'),
         create_transfinite_line([10, 11, 12, 13], 'NM', progression='compressRatio_M'),
         create_transfinite_line([14, 15, 16, 17], 'NB', progression='compressRatio_B')
         ]
@@ -310,7 +314,7 @@ Dyxb=Hypot(dyb + lambda1b*R, dxb) - lambda1b*R;"""
             f"""
 //*left side""",
             create_transfinite_line([ 27, 24, 21, 19, 22, 25 ], 'Nc2'),
-            create_transfinite_line([-20, -23, -26], 'Ncv', progression='compressRatio_M'),
+            create_transfinite_line([-20, -23, -26], 'Ncv'), #, progression='compressRatio_M'),
             create_transfinite_line([ 28, 29 ], 'NM', progression='compressRatio_M'),
             create_transfinite_line([ 30, 31 ], 'NB', progression='compressRatio_B')
         ]

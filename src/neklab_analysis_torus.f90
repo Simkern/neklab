@@ -447,7 +447,7 @@
       ! save toolbox status
             get_2d_old  = pipe%is_save_2d();  call pipe%set_save_base(get_2d)
             get_fft_old = pipe%is_save_fft(); call pipe%set_save_fft(get_fft)
-            newton_old  = pipe%is_newton():   call pipe%set_newton(.false.)  ! in case we save 2d fields
+            newton_old  = pipe%is_newton();   call pipe%set_newton(.false.)  ! in case we save 2d fields
             floquet_old = pipe%is_floquet();  call pipe%set_floquet(.false.) ! in case we save 2d fields
       ! set period
             pd = pipe%get_period()

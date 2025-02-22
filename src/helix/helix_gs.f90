@@ -159,6 +159,7 @@
          end procedure get_nsteps
 
          module procedure get_dt_minmax
+            dt_minmax = 0.0_dp
             if (self%min_dt == 100.0_dp) then
                call nek_log_message('min_dt not computed.', this_module, 'get_dt_minmax')
             end if

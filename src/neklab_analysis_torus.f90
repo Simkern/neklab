@@ -166,7 +166,7 @@
             call nek_log_message('Newton configuration:', this_module, this_procedure)
             write(msg,'(3X,A,1X,E16.8)')     padr('target tol:',     18), tol
             call nek_log_message(msg, this_module, this_procedure)
-            write(msg,'(3X,A,A)') padr('tol. scheduling:',18), padr(merge('constant', 'dynamic ', tol_mode_==1), 16)
+            write(msg,'(3X,A,A)') padr('tol. scheduling:',18), padl(merge('constant', 'dynamic ', tol_mode_==1), 16)
             call nek_log_message(msg, this_module, this_procedure)
             write(msg,'(3X,A,*(1X,F16.12))') padr('forcing |df|:',   18), fpert
             call nek_log_message(msg, this_module, this_procedure)
@@ -190,13 +190,10 @@
 		! determine an approximation of the integration error for the mass flux
             call pipe%get_dt_minmax(dt_minmax)
             tol_mf_inexact = (sum(dt_minmax)*0.5)**2/100.0
-		write(msg,'(A,1X,E16.8)') 'Approximate mass flow computation error: ', tol_mf_inexact
+		      write(msg,'(A,1X,E16.8)') 'Approximate mass flow computation error: ', tol_mf_inexact
             call nek_log_message(msg, this_module, this_procedure)
-            if (tol_mf_inexact > tol_mf) then
-               write(msg,'(A,1X,E16.8)') 'Reset tolerance for mass flow to tol= ', tol_mf_inexact
-               call nek_log_message(msg, this_module, this_procedure)
-               tol_mf = tol_mf_inexact
-            end if
+            if (tol_mf_inexact > tol_mf) call nek_log_warning('Requested mass flow tol is below estimated error.', 
+     $            this_module, this_procedure)
 
       ! stamp logs
             call pipe%parameter_summary()
@@ -265,8 +262,8 @@
 
       ! get difference and compute gradient
                   dmf = mflow_new(:nmf) - mflow_old(:nmf)
-			         write(msg,'(A,A,A,*(1X,F16.10))') step_id, coef_id, padl('dmflow:',pad), dmf
-			         call nek_log_message(msg, this_module, this_procedure)
+			            write(msg,'(A,A,A,*(1X,F16.10))') step_id, coef_id, padl('dmflow:',pad), dmf
+			            call nek_log_message(msg, this_module, this_procedure)
                   do j = 1, nmf
                      jac(i,j) = dmf(j)/fpert(i)
                   end do

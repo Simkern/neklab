@@ -1,7 +1,6 @@
       module neklab_vectors
          use stdlib_optval, only: optval
          use LightKrylov, only: dp
-         use LightKrylov_Logger
          use LightKrylov, only: abstract_vector_rdp, abstract_vector_cdp
       
          implicit none

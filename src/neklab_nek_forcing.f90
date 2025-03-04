@@ -1,7 +1,8 @@
       module neklab_nek_forcing
          use LightKrylov, only: dp
          use LightKrylov_Logger
-         use neklab_nek_setup
+         use neklab_nek_setup, only: nek_log_message, nek_log_debug
+
          implicit none
          include "SIZE"
          include "TOTAL"

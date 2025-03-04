@@ -1,11 +1,9 @@
       module neklab_analysis
          use stdlib_stats_distribution_normal, only: normal => rvs_normal
-         use stdlib_strings, only: padl
          use stdlib_optval, only: optval
-         use stdlib_linalg, only: diag, eye, det, inv
          use stdlib_logger, only: information_level, warning_level, debug_level, error_level, all_level, success
-         use LightKrylov, only: atol_dp, dp, eigs, svds, save_eigenspectrum
-         use LightKrylov, only: kexpm, gmres_rdp
+         use LightKrylov, only: dp, eigs, svds, save_eigenspectrum
+         use LightKrylov, only: gmres_rdp
          use LightKrylov, only: initialize_krylov_subspace, orthonormalize_basis, zero_basis, rand_basis
          use LightKrylov, only: linear_combination, innerprod
          use LightKrylov, only: newton, newton_dp_opts
@@ -90,7 +88,7 @@
       ! Export eigenfunctions to disk.
             call outpost_dnek(eigvecs(:nev), file_prefix)
 
-		      call logger%log_message('Exiting eigenvalue computation.', this_module, this_procedure)
+		call logger%log_message('Exiting eigenvalue computation.', this_module, this_procedure)
 
       ! Finalize exptA timings
             call exptA%finalize_timer()

@@ -191,11 +191,12 @@ def measure_symmetry_error(re2name, verb=False):
                sys.exit()
 
    print(f'Maximum error: {errmax:16.12e}')
+   return errmax
 
 if __name__ == "__main__":
 
    re2name = 'geom/test2D.re2'
-   measure_symmetry_error(re2name)
+   errmax = measure_symmetry_error(re2name)
 
    dir = 'steady/newton'
    ddirs = sorted([ d for d in glob.glob(os.path.join(dir,'v*')) if os.path.isdir(d) ])
@@ -206,7 +207,7 @@ if __name__ == "__main__":
       if 'full' in d:
          re2name = os.path.join(d, basename)
          print(f'\n{d}: ', end='')
-         measure_symmetry_error(re2name)
+         errmax = measure_symmetry_error(re2name)
 
    fig, axs = plt.subplots(3,2)
    datav = {}

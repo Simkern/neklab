@@ -1,12 +1,14 @@
 import sys, argparse, os, json
 import numpy as np
 import matplotlib.pyplot as plt
+import pymech as pm
 from gmsh_writer import generate_mesh
 from gmsh_tester import prepare_test, test_mesh
 from gmsh_plotter import plot_gmsh
 from read_2d_data import read_fields
 from plot_2d_data import plot_2d_fld
 from manipulate_2d_data import symmetrize_fld
+from check_mesh import measure_symmetry_error, repair_extruded_mesh, enforce_symmetry_2D
 
 geom_params = {
     'R': 1.0,
@@ -86,21 +88,25 @@ if __name__ == "__main__":
                 is_generated_h = generate_mesh(geom_params, mesh_params, fldr,   basename2, is_half=False, confirm=True)
                 with open(os.path.join(param_fldr,basename2+'.json'), 'w') as file:
                     json.dump(params, file, indent=4)
-            if (is_generated_f, is_generated_h).any():
-
-                testf = input("Generate mesh and test for full cross-section? [y]: ")
-                if (testf.lower() in ['', 'y', 'yes'] and is_generated_f):
+            if is_generated_f:
+                testf = input("Test for full cross-section? [y]: ")
+                if testf.lower() in ['', 'y', 'yes']:
                     prepare_test(mesh_params, fldr,   basename3, is_half=False)
                     test_mesh(fldr)
                 else:
                     print('Full mesh not tested.')
-                
-                testh = input("Generate mesh and test for half cross-section? [y]: ")
-                if (testh.lower() in ['', 'y', 'yes'] and is_generated_f):
+            else:
+                print('Full mesh not generated.')
+            
+            if is_generated_h:
+                testh = input("Test for half cross-section? [y]: ")
+                if testh.lower() in ['', 'y', 'yes']:
                     prepare_test(mesh_params, fldr_h, basename3, is_half=True)
                     test_mesh(fldr_h)
                 else:
                     print('Half mesh not tested.')
+            else:
+                print('Half mesh not generated.')
 
         else:
             print('\nGenerate mesh and test for full cross-section:\n')
@@ -120,6 +126,51 @@ if __name__ == "__main__":
     runfldr   = os.path.join(fldr,   'mesh_test')
     runfldr_h = os.path.join(fldr_h, 'mesh_test')
     fname = pattern+'001.fld'
+    print('\nCheck mesh symmetry error:')
+    merr = {}
+    m2Dhfile = os.path.join(fldr_h,basename2+'.re2')
+    m3Dhfile = os.path.join(fldr_h,basename3+'.re2')
+    m2Dffile = os.path.join(fldr,basename2+'.re2')
+    m3Dffile = os.path.join(fldr,basename3+'.re2')
+    meshfiles = [ m2Dhfile, m3Dhfile, m2Dffile, m3Dffile ]
+    if os.path.isfile(m2Dffile):
+        print('\tFull mesh (2D): ', end='')
+        merr['2Df'] = measure_symmetry_error(m2Dffile)
+    if os.path.isfile(m3Dffile):
+        print('\tFull mesh (3D): ', end='')
+        merr['3Df'] = measure_symmetry_error(m3Dffile)
+    check = { key : err > 1e-10 for key, err in merr.items() }
+    keys = merr.keys()
+    if any([ value for _, value in check.items() ]):
+        user_input = input(f"Repair and update meshes? (y/n): ")
+        if user_input.lower() in ['', 'y', 'yes']:
+            print('\nRead meshes ... ', end='')
+            m2Dh = pm.neksuite.readre2(m2Dhfile)
+            m3Dh = pm.neksuite.readre2(m3Dhfile)
+            m2Df = pm.neksuite.readre2(m2Dffile)
+            m3Df = pm.neksuite.readre2(m3Dffile)
+            meshes = [ m2Dh, m3Dh, m2Df, m3Df ]
+            print('done.')
+
+            print('\nRepair extruded mesh for the half pipe:')
+            m3Dh = repair_extruded_mesh(m2Dh, m3Dh, plot=True)
+   
+            if '2Df' in keys and check['2Df']:
+                print('\nEnforce symmetry on the 2D full pipe mesh:')
+                m2Df = enforce_symmetry_2D(m2Dh, m2Df, plot=True)
+
+            if '2Df' in keys and '3Df' in keys and check['3Df']:
+                print('\nRepair extruded mesh for the full pipe after symmetry is enforced:')
+                m3Df = repair_extruded_mesh(m2Df, m3Df, plot=True)
+
+            user_input = input(f"\nOverwrite meshes? (y/n): ")
+            if user_input.lower() in ['', 'y', 'yes']:
+                for mesh, file in zip(meshes, meshfiles):
+                    print(f'\tWrite {file} ... ', end='')
+                    pm.neksuite.writere2(file, mesh)
+                    print('done.')
+   
+    sys.exit()
     if os.path.exists(os.path.join(runfldr,fname)) and os.path.exists(os.path.join(runfldr_h,fname)):
         # Create the figure and axis
         fig, ax = plt.subplots(1, 2, figsize=(20,8))

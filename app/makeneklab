@@ -61,6 +61,9 @@ fi
 #-------------------------------------------------------------------------------
 # Linking with LAPACK and BLAS
 #-------------------------------------------------------------------------------
+
+export PPLIST="VENDOR_BLAS"
+
 # Lapack is a library of linear algebra routines.
 # Blas (Basic Linear Algebra Subprograms) is used by Lapack.
 
@@ -107,7 +110,7 @@ echo "include $NEKLAB_SOURCE_ROOT/src/makefile_neklab" > makefile_usr.inc
 # User-specified object files
 USR="neklab_vectors.o"
 USR+=" real_vectors.o"
-USR+=" real_extended_vectors_period.o"
+USR+=" real_extended_vectors.o"
 USR+=" complex_vectors.o"
 USR+=" neklab_utils.o"
 USR+=" neklab_nek_setup.o"
@@ -131,6 +134,7 @@ USR+=" neklab_otd.o"
 USR+=" neklab_analysis.o"
 USR+=" neklab_analysis_torus.o"
 USR+=" neklab.o"
+export USR
 
 # Output summary of settings
 echo ""

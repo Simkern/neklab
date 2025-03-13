@@ -145,8 +145,7 @@ def read_binary_file(filename, only_mesh = False, debug = False):
            emode = '<'
         elif (etagB == 6.54321):
            emode = '>'
-        print(f'  read ', end='')
-        print(f'metadata ', end='')
+        print('  read metadata ', end='')
         lx1   = read_int(f, emode, 1)[0]
         ly1   = read_int(f, emode, 1)[0]
         nelf  = read_int(f, emode, 1)[0]
@@ -155,19 +154,19 @@ def read_binary_file(filename, only_mesh = False, debug = False):
         lbuf  = read_int(f, emode, 1)[0]
         meta = meta2d(version, if_half, wdsize, emode, lx1, ly1, nelf, time, nsave, lbuf)
 
-        print(f'elmap ', end='')
+        print('elmap ', end='')
         elmap = read_int(f,emode,nelf)
-        print(f'dt')
+        print('dt')
         dt2d = read_flt(f,emode,wdsize,nsave)
         idx = np.argsort(elmap)
         
         nxy = lx1 * ly1
-        print(f'  read x ', end='')
+        print('  read x ', end='')
         x = np.zeros((lx1,ly1,nelf))
         for i in idx:
             xel = read_flt(f,emode,wdsize,nxy)
             x[:,:,i] = xel.reshape((lx1,ly1), order='F')
-        print(f'y')
+        print('y')
         y = np.zeros((lx1,ly1,nelf))
         for i in idx:
             yel = read_flt(f,emode,wdsize,nxy)
@@ -178,11 +177,11 @@ def read_binary_file(filename, only_mesh = False, debug = False):
             print(f'  read vxyz for {nsave:d} snapshot(s).')
             if_sol = True
             if debug:
-                print(f'  Read fld:')
+                print('  Read fld:')
             for ibuf in range(nsave):
                 if debug:
                     if ibuf % 20 == 0:
-                        print(f'\n  ', end='')
+                        print('\n  ', end='')
                     print(f' {ibuf+1:3d}', end='')
                 for i in idx:
                     eldata = read_flt(f,emode,wdsize,nxy)
@@ -194,7 +193,7 @@ def read_binary_file(filename, only_mesh = False, debug = False):
                     eldata = read_flt(f,emode,wdsize,nxy)
                     vz[:,:,i,ibuf] = eldata.reshape((lx1,ly1), order='F')
             if debug:
-                print(f'')
+                print('')
         data = data2d(x, y, vx, vy, vz, dt2d, elmap, if_sol)
         print('')
 

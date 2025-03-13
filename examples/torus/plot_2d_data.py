@@ -46,9 +46,10 @@ def plot_2d_orientation(ax, x, y, offset=2, draw_elnum=True):
     ax.scatter(x[o,o,:],y[o,o,:],s=30,c='red',marker='o')
     ax.set_aspect('equal', 'box')
 
-def plot_2d_fld(ax, x, y, fld, istep=0, draw_elements=False, draw_mesh=False):
+def plot_2d_fld(ax, x, y, fld, istep=0, draw_elements=False, draw_mesh=False, if_half=False):
 
     nelf = x.shape[-1]
+    only_edges = False
     if not draw_mesh:
         only_edges=True
 
@@ -62,6 +63,10 @@ def plot_2d_fld(ax, x, y, fld, istep=0, draw_elements=False, draw_mesh=False):
         c = ax.contourf(xi, yi, vxi, vmin=vmin, vmax=vmax)
         if draw_elements:
             plot_element(ax, xi, yi, only_edges)
+        if if_half:
+            c = ax.contourf(-xi, yi, vxi, vmin=vmin, vmax=vmax)
+            if draw_elements:
+                plot_element(ax, -xi, yi, only_edges)
     ax.set_aspect('equal', 'box')
     #fig = plt.gcf()
     #c.set_clim(vmin, vmax)
@@ -111,7 +116,8 @@ def play_file(pattern, cwd='.'):
     animate_2d_fld(ax, data, if_half = meta.if_half)
 
 if __name__ == '__main__':
-    #play_file('n2dtorus')
+    play_file('prod/run/Wo_035.0/n2dtorus')
+    #play_file('data/n2dtorus')
     #play_file('prod/run/Wo_040.0/Q_0.180/n2dtorus')
     #play_file('prod/run/Wo_025.0/Q_0.350/n2dtorus')
-    play_file('prod/run/Wo_035.0/Q_0.280/n2dtorus')
+    #play_file('prod/run/Wo_035.0/Q_0.280/n2dtorus')

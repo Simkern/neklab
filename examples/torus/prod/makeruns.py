@@ -50,7 +50,7 @@ def link_mesh(home, geom_fldr, to_fldr, meshname):
          else:
             print(f'Symbolic link for {sfile} already exists in {to_fldr.replace(home+"/","")}. Skip.')
       else:
-         print(f'Error: '{sfile}' not found in {geom_fldr.replace(home+"/","")}. Skipping link creation.')
+         print(f'Error: {sfile} not found in {geom_fldr.replace(home+"/","")}. Skipping link creation.')
 
 def check_compilation(logfile):
     success_msg = "#############################################################\n#                  Compilation successful!                  #\n#############################################################"

@@ -70,7 +70,7 @@ def generate_mesh(geom_params, mesh_params, fldr, basename, is_half, confirm=Fal
             # Run GMSH with the generated script
             with open("out_gmsh.txt", "w") as log_file:
                 # Run the command and pipe stdout and stderr to the logfile
-                subprocess.run(['gmsh', filename, '-2'], stdout=log_file, stderr=log_file, check=True)
+                subprocess.run(['gmsh', filename, '-2 order 2'], stdout=log_file, stderr=log_file, check=True)
             print(f"\tGMSH ran successfully with the script '{filename}'.")
         except subprocess.CalledProcessError as e:
             print(f"Error running GMSH: {e}")

@@ -41,7 +41,7 @@ def print_msg(typestr, x1, xt, err):
     print(f'\t  ',' '.join([ f'{d:8.4f}' for d in x1[1,:] ]),' --> ',' '.join([ f'{d:8.4f}' for d in xt[1,:] ]))
     print(f'error after {typestr}: {err}')
 
-def get_ord(x0,y0,x1,y1,tol=1e-12,debug=False):
+def get_ord(x0,y0,x1,y1,tol=1e-5,debug=False):
     # we assume that the input data contain the flipped data reflecting on which side of the mesh the elements are located
     s0 = x0+y0
     err = abs(s0-(x1+y1)).max()
@@ -90,11 +90,52 @@ def get_ord(x0,y0,x1,y1,tol=1e-12,debug=False):
     if err > tol:
         print(f'The elements could not be mapped!')
         print('Target:')
-        print(f'\tx:',' '.join([ f'{d:8.4f}' for d in x0[0,:] ]),' y:',' '.join([ f'{d:8.4f}' for d in y0[0,:] ]))
-        print(f'\t  ',' '.join([ f'{d:8.4f}' for d in x0[1,:] ]),'   ',' '.join([ f'{d:8.4f}' for d in y0[1,:] ]))
+        print(f'\tx:',' '.join([ f'{d:12.8f}' for d in x0[0,:] ]),' y:',' '.join([ f'{d:12.8f}' for d in y0[0,:] ]))
+        print(f'\t  ',' '.join([ f'{d:12.8f}' for d in x0[1,:] ]),'   ',' '.join([ f'{d:12.8f}' for d in y0[1,:] ]))
         print('Origin:')
-        print(f'\tx:',' '.join([ f'{d:8.4f}' for d in x1[0,:] ]),' y:',' '.join([ f'{d:8.4f}' for d in y1[0,:] ]))
-        print(f'\t  ',' '.join([ f'{d:8.4f}' for d in x1[1,:] ]),'   ',' '.join([ f'{d:8.4f}' for d in y1[1,:] ]))
+        print(f'\tx:',' '.join([ f'{d:12.8f}' for d in x1[0,:] ]),' y:',' '.join([ f'{d:12.8f}' for d in y1[0,:] ]))
+        print(f'\t  ',' '.join([ f'{d:12.8f}' for d in x1[1,:] ]),'   ',' '.join([ f'{d:12.8f}' for d in y1[1,:] ]))
+        print('Attempts:')
+        xtc = fliplr(x1); ytc = fliplr(y1)
+        err = s0-(xtc+ytc)
+        print('LR:')
+        print(f'\tx:',' '.join([ f'{d:12.8f}' for d in xtc[0,:] ]),' y:',' '.join([ f'{d:12.8f}' for d in ytc[0,:] ]))
+        print(f'\t  ',' '.join([ f'{d:12.8f}' for d in xtc[1,:] ]),'   ',' '.join([ f'{d:12.8f}' for d in ytc[1,:] ]))
+        print(f'\terr:',' '.join([ f'{d:12.8e}' for d in err[0,:] ]))
+        print(f'\t    ',' '.join([ f'{d:12.8e}' for d in err[1,:] ]))
+        print(f'\tError: {abs(err).max():14.12e}')
+        xtc = flipud(x1); ytc = flipud(y1)
+        err = s0-(xtc+ytc)
+        print('UD:')
+        print(f'\tx:',' '.join([ f'{d:12.8f}' for d in xtc[0,:] ]),' y:',' '.join([ f'{d:12.8f}' for d in ytc[0,:] ]))
+        print(f'\t  ',' '.join([ f'{d:12.8f}' for d in xtc[1,:] ]),'   ',' '.join([ f'{d:12.8f}' for d in ytc[1,:] ]))
+        print(f'\terr:',' '.join([ f'{d:12.8e}' for d in err[0,:] ]))
+        print(f'\t    ',' '.join([ f'{d:12.8e}' for d in err[1,:] ]))
+        print(f'\tError: {abs(err).max():14.12e}')
+        xtc = flipudlr(x1); ytc = flipudlr(y1)
+        err = s0-(xtc+ytc)
+        print('UDLR:')
+        print(f'\tx:',' '.join([ f'{d:12.8f}' for d in xtc[0,:] ]),' y:',' '.join([ f'{d:12.8f}' for d in ytc[0,:] ]))
+        print(f'\t  ',' '.join([ f'{d:12.8f}' for d in xtc[1,:] ]),'   ',' '.join([ f'{d:12.8f}' for d in ytc[1,:] ]))
+        print(f'\terr:',' '.join([ f'{d:12.8e}' for d in err[0,:] ]))
+        print(f'\t    ',' '.join([ f'{d:12.8e}' for d in err[1,:] ]))
+        print(f'\tError: {abs(err).max():14.12e}')
+        xtc = fliptr(x1); ytc = fliptr(y1)
+        err = s0-(xtc+ytc)
+        print('TR:')
+        print(f'\tx:',' '.join([ f'{d:12.8f}' for d in xtc[0,:] ]),' y:',' '.join([ f'{d:12.8f}' for d in ytc[0,:] ]))
+        print(f'\t  ',' '.join([ f'{d:12.8f}' for d in xtc[1,:] ]),'   ',' '.join([ f'{d:12.8f}' for d in ytc[1,:] ]))
+        print(f'\terr:',' '.join([ f'{d:12.8e}' for d in err[0,:] ]))
+        print(f'\t    ',' '.join([ f'{d:12.8e}' for d in err[1,:] ]))
+        print(f'\tError: {abs(err).max():14.12e}')
+        xtc = flipat(x1); ytc = flipat(y1)
+        err = s0-(xtc+ytc)
+        print('ATR:')
+        print(f'\tx:',' '.join([ f'{d:12.8f}' for d in xtc[0,:] ]),' y:',' '.join([ f'{d:12.8f}' for d in ytc[0,:] ]))
+        print(f'\t  ',' '.join([ f'{d:12.8f}' for d in xtc[1,:] ]),'   ',' '.join([ f'{d:12.8f}' for d in ytc[1,:] ]))
+        print(f'\terr:',' '.join([ f'{d:12.8e}' for d in err[0,:] ]))
+        print(f'\t    ',' '.join([ f'{d:12.8e}' for d in err[1,:] ]))
+        print(f'\tError: {abs(err).max():14.12e}')
         sys.exit()
     return ord
 
@@ -137,7 +178,7 @@ def get_corners(x,y):
         sys.exit()
     return xc, yc
 
-def symmetrize_fld(dataf, fld, tol=1e-6, debug=False):
+def symmetrize_fld(dataf, fld, tol=1e-5, debug=False):
     lx1, ly1, nelf = dataf.x.shape
 
     xs, ys = np.empty_like(dataf.x), np.empty_like(dataf.y)
@@ -261,7 +302,7 @@ def link_meshes(x0h, y0h, x0f, y0f, pattern=None):
 
     return map_h2f, map_f2h
 
-def h2d_to_f2d(h2d_pattern, f2d_file_ref, hfldr='.', outfldr='.', outpattern=None):
+def h2d_to_f2d(h2d_pattern, f2d_file_ref, hfldr='.', outfldr='.', outpattern=None, ord_tol=1e-8):
 
     datah, metah, nsteps  = read_fields(h2d_pattern, cwd=hfldr)
     dataf, metaf          = read_binary_file(f2d_file_ref, only_mesh=True)
@@ -284,7 +325,7 @@ def h2d_to_f2d(h2d_pattern, f2d_file_ref, hfldr='.', outfldr='.', outpattern=Non
             flip = sv[id] # flip the x-axis if the element is on the right side
             x1, y1 = flip*xfc[:,:,j], yfc[:,:,j]
             # get orientation
-            order = get_ord(x0, y0, x1, y1, tol=1e-12)
+            order = get_ord(x0, y0, x1, y1, tol=ord_tol)
             # apply
             vx[:,:,j,:] = flip_data(datah.vx[:,:,i,:], order)
             vy[:,:,j,:] = flip_data(datah.vy[:,:,i,:], order)

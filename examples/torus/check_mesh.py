@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import pymech as pm
 
 from read_2d_data import read_binary_file
+from write_2d_data import write_binary_file
 from plot_2d_data import plot_2d_fld
 from manipulate_2d_data import symmetrize_fld, get_ord, flip_data
 
@@ -195,11 +196,12 @@ def measure_symmetry_error(re2name, verb=False):
 
 if __name__ == "__main__":
 
-   re2name = 'geom/test2D.re2'
-   errmax = measure_symmetry_error(re2name)
+   #re2name = 'geom/test2D.re2'
+   #errmax = measure_symmetry_error(re2name)
 
    dir = 'steady/newton'
-   ddirs = sorted([ d for d in glob.glob(os.path.join(dir,'v*')) if os.path.isdir(d) ])
+   ddirs = sorted([ d for d in glob.glob(os.path.join(dir,'v*')) if os.path.isdir(d) and os.path.isfile(os.path.join(d, 'c2dtorus001.fld'))])
+   outdir = 'c2d_steady'
 
    # symmetry error
    basename = 'torus.re2'
@@ -237,6 +239,7 @@ if __name__ == "__main__":
       ax = axs[irow,icol]
       dict = {
          'data': data,
+         'meta': meta,
          'PO': PO,
          'full': full
       }
@@ -248,15 +251,27 @@ if __name__ == "__main__":
       dict = datav[d]
       if dict['full']:
          data = dict['data']
-         mesh = d.split('_')[0]
-         fld_s, fld_a = symmetrize_fld(data, data.vx)
+         meta = dict['meta']
+         mesh = d.split('_')[0].strip(dir)
+         vx_s, vx_a = symmetrize_fld(data, data.vx)
+         vy_s, vy_a = symmetrize_fld(data, data.vy)
+         vz_s, vz_a = symmetrize_fld(data, data.vz)
+         data.vx = vx_s
+         data.vy = vy_s
+         data.vz = vz_s
          fig, ax = plt.subplots(2, 1)
-         plot_2d_fld(ax[0], data.x, data.y, fld_s, draw_elements=True, draw_mesh=True)
-         ax[0].set_title(f'Symmetric part: min/max = {fld_s.min():10.2e}/{fld_s.max():10.2e}')
-         plot_2d_fld(ax[1], data.x, data.y, fld_a, draw_elements=True, draw_mesh=True)
-         ax[1].set_title(f'Antisymmetric part: min/max = {fld_a.min():10.2e}/{fld_a.max():10.2e}')
+         plot_2d_fld(ax[0], data.x, data.y, vx_s, draw_elements=True, draw_mesh=False)
+         ax[0].set_title(f'Symmetric part: min/max = {vx_s.min():10.2e}/{vx_s.max():10.2e}')
+         plot_2d_fld(ax[1], data.x, data.y, vx_a, draw_elements=True, draw_mesh=False)
+         ax[1].set_title(f'Antisymmetric part: min/max = {vx_a.min():10.2e}/{vx_a.max():10.2e}')
          fig.suptitle(f'Mesh {mesh}: PO {dict['PO']}')
+         # save symm files
+         fname = os.path.join(outdir, 'c2dtorus_'+mesh+f'_f_P{dict['PO']:02d}_sym.fld')
+         if not os.path.isfile(fname):
+            write_binary_file(fname, data, meta)
    #print(datav)
+   plt.show()
+   sys.exit()
 
    mesh2Dh_re2file = os.path.join('geomh','torus_v2_2D.re2')
    print(f'Read {mesh2Dh_re2file}')

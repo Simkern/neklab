@@ -388,11 +388,11 @@
                do iz = 1, lz1
                do iy = 1, ly1
                do ix = 1, lx1
-                  s  = self%as(ix,iy,iy,ie)
-                  a  = self%alpha(ix,iy,iy,ie)
-                  ux = u(ix,iy,iy,ie)
-                  uy = v(ix,iy,iy,ie)
-                  uz = w(ix,iy,iy,ie)
+                  s  = self%as(ix,iy,iz,ie)
+                  a  = self%alpha(ix,iy,iz,ie)
+                  ux = u(ix,iy,iz,ie)
+                  uy = v(ix,iy,iz,ie)
+                  uz = w(ix,iy,iz,ie)
                   utmp            = sin(s)*ux + cos(s)*uy
                   vtmp            = sin(phi) * (-cos(s)*ux - sin(s)*uy) + cos(phi)*uz
                   us(ix,iy,iz,ie) = cos(phi) * ( cos(s)*ux - sin(s)*uy) + sin(phi)*uz
@@ -407,12 +407,12 @@
                do iz = 1, lz1
                do iy = 1, ly1
                do ix = 1, lx1
-                  s  = self%as(ix,iy,iy,ie)
-                  a  = self%alpha(ix,iy,iy,ie)
-                  ux = u(ix,iy,iy,ie)
-                  uy = v(ix,iy,iy,ie)
+                  s  = self%as(ix,iy,iz,ie)
+                  a  = self%alpha(ix,iy,iz,ie)
+                  ux = u(ix,iy,iz,ie)
+                  uy = v(ix,iy,iz,ie)
                   utmp = sin(s)*ux + cos(s)*uy
-                  vtmp = w(ix,iy,iy,ie)
+                  vtmp = w(ix,iy,iz,ie)
                   us(ix,iy,iz,ie) = cos(s)*ux - sin(s)*uy
                   ur(ix,iy,iz,ie) = cos(a) * utmp + sin(a) * vtmp
                   ut(ix,iy,iz,ie) = sin(a) * utmp - cos(a) * vtmp
@@ -425,10 +425,10 @@
                do iz = 1, lz1
                do iy = 1, ly1
                do ix = 1, lx1
-                  a = self%alpha(ix,iy,iy,ie)
-                  utmp = v(ix,iy,iy,ie)
-                  vtmp = w(ix,iy,iy,ie)
-                  us(ix,iy,iz,ie) = u(ix,iy,iy,ie)
+                  a = self%alpha(ix,iy,iz,ie)
+                  utmp = v(ix,iy,iz,ie)
+                  vtmp = w(ix,iy,iz,ie)
+                  us(ix,iy,iz,ie) = u(ix,iy,iz,ie)
                   ur(ix,iy,iz,ie) = cos(a) * utmp + sin(a) * vtmp
                   ut(ix,iy,iz,ie) = sin(a) * utmp - cos(a) * vtmp
                end do
@@ -469,5 +469,13 @@
             ubar = num/den  ! "1/r"-weighted volumetric average of streamwise velocity
             call lk_timer%stop('neklab_helix_compute_ubar')
          end procedure compute_ubar
+
+         module procedure gfldr_torus
+            call gfldr(rstfname)
+            lastep = 1
+     	      call self%set_save_base(.true.)
+	         call self%save_2d_fields(vx, vy, vz)
+            call pipe%load_baseflow(vx, vy, vz, 'c2dtorus001.fld', 1)
+         end procedure
       
       end submodule helix_utils

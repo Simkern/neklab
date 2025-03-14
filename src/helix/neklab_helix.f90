@@ -127,6 +127,7 @@
             procedure, pass(self), public :: setup_summary
             procedure, pass(self), public :: parameter_summary
             procedure, pass(self), public :: forcing_summary
+            procedure, pass(self), public :: gfldr_torus
             ! helix_IO
             procedure, pass(self), public :: fname_2d
             procedure, pass(self), public :: write_2d
@@ -263,6 +264,11 @@
             module subroutine forcing_summary(self)
                class(helix), intent(in) :: self
             end subroutine forcing_summary
+            
+            module subroutine gfldr_torus(self, rstfname)
+               class(helix), intent(inout) :: self
+               character(len=*), intent(in) :: rstfname
+            end subroutine gfldr_torus
 
             !-----------------------------------------------------
             ! neklab_helix % helix_IO

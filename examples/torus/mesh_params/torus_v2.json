@@ -1,0 +1,25 @@
+{
+    "geom_params": {
+        "R": 1.0,
+        "rt": 0.7,
+        "rb": 0.7,
+        "RBt": 0.95,
+        "RBb": 0.95,
+        "tht": 0.7853981633974483,
+        "thb": 0.7853981633974483,
+        "lambda1t": 0.8,
+        "lambda1b": 0.8,
+        "lambda2": 0.8,
+        "dyc": 0.0
+    },
+    "mesh_params": {
+        "Lz": 1,
+        "Ncv": 11,
+        "Nch": 11,
+        "NB": 1,
+        "NM": 5,
+        "compressRatio_B": 0.9,
+        "compressRatio_M": 0.87,
+        "Nz": 180
+    }
+}

@@ -86,3 +86,9 @@ examples/**/*.f
 **/geom/*
 **/geomh/*
 
+# output folders
+**/steady/*/
+**/pulsed/*/
+**/prod/*csv*
+**/pipe/*
+*.py

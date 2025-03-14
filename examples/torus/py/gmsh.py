@@ -1,3 +1,5 @@
+#!/usr/bin python3
+
 import sys, argparse, os, json
 import numpy as np
 import matplotlib.pyplot as plt
@@ -58,8 +60,9 @@ if __name__ == "__main__":
         print("Usage: p gmsh.py [chk|plt]")
         sys.exit(1)
 
-    fldr   = 'geom'
-    fldr_h = 'geomh'
+    home   = '/home/skern/projects/neklab_torus/examples/torus'
+    fldr   = os.path.join(home,'geom')
+    fldr_h = os.path.join(home,'geomh')
     param_fldr = 'mesh_params'
     basename2 = 'test2D'
     basename3 = 'test3D'

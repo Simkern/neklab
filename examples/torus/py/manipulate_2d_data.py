@@ -339,7 +339,7 @@ def h2d_to_f2d(h2d_pattern, f2d_file_ref, hfldr='.', outfldr='.', outpattern=Non
     metaf.nsave = metah.nsave
     # write file
     if outpattern is None:
-        outpattern = h2d_pattern
+        outpattern = h2d_pattern+'_f'
     
-    write_fields(outpattern+'_f', dataf, metaf, nsteps, cwd=outfldr, force=True)
+    write_fields(outpattern, dataf, metaf, nsteps, cwd=outfldr, force=True)
 

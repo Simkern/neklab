@@ -63,7 +63,7 @@ if __name__ == "__main__":
     home   = '/home/skern/projects/neklab_torus/examples/torus'
     fldr   = os.path.join(home,'geom')
     fldr_h = os.path.join(home,'geomh')
-    param_fldr = 'mesh_params'
+    param_fldr = os.path.join(home,'mesh_params')
     basename2 = 'test2D'
     basename3 = 'test3D'
 

@@ -20,27 +20,27 @@ meshDim=2;  //2 (2D mesh), 3 (3D mesh)
 //***** Geometrical parameters
 // Note: r*<RB*<R
 R=1.0;   //Pipe radius
-rt=0.5;
+rt=0.7;
 rb=0.7;
 ra= (rt + rb)/2.0;
 RBt=0.92;
-RBb=0.94;
-tht=0.5235987755982988;  //theta top
-thb=1.0471975511965976;  //theta bottom
-lambda1t=0.75;   //=R_{arc}/R
-lambda1b=0.6;   //=R_{arc}/R
-lambda2=0.5;     //=R_{arc}/R
-dyc = 0.04;
+RBb=0.92;
+tht=0.7853981633974483;  //theta top
+thb=0.7853981633974483;  //theta bottom
+lambda1t=0.8;   //=R_{arc}/R
+lambda1b=0.8;   //=R_{arc}/R
+lambda2=0.8;     //=R_{arc}/R
+dyc = 0.0;
 Lz=1;   //length in z-dir (axial)
 //***** Grid Paramaters
-Nch=11;  // no. of nodes (=#elem+1) in azimuthal direction    # 12 16
-Ncv=11;  // no. of nodes (=#elem+1) in azimuthal direction    # 12 16
+Nch=7;  // no. of nodes (=#elem+1) in azimuthal direction    # 12 16
+Ncv=7;  // no. of nodes (=#elem+1) in azimuthal direction    # 12 16
 NB=1;   // no. of elemtns adjacent to the wall
-NM=5;   // no. of nodes (=#elem+1) between the near wall layer and central square part # 5 7
-Nc2=6; // NM=8 for old version of mesh in gmsh
+NM=3;   // no. of nodes (=#elem+1) between the near wall layer and central square part # 5 7
+Nc2=4; // NM=8 for old version of mesh in gmsh
 // compression ratios over the radial lines of the mesh
-compressRatio_B=0.6;  //ratio of grid compression toward the wall (<1)
-compressRatio_M=0.95;  //compression ratio in the middle layer
+compressRatio_B=0.85;  //ratio of grid compression toward the wall (<1)
+compressRatio_M=0.87;  //compression ratio in the middle layer
 Nz=180;    //no of elements in z-dire (axial)
 ///////////////////////////////////////////////////
 
@@ -82,21 +82,13 @@ Point(12) = {0.0, -R, 0.0, 1.0};
 //auxiliary points (only help define the geometry)
 // center
 Point(13) = {0, 0, 0, 1.0};
-Point(14) = {0.6161914625146543, -0.08040977798980793, 0, 1.0};
+Point(14) = {0.9210054790200463, 0.0, 0, 1.0};
 Point(15) = {0, -lambda1t*R, 0, 1.0};
-Point(16) = {-0.6161914625146543, -0.08040977798980793, 0, 1.0};
+Point(16) = {-0.9210054790200463, 0.0, 0, 1.0};
 Point(17) = {0, lambda1b*R, 0, 1.0};
 Point(18) = {0, -dyc, 0, 1.0};
-Point(19) = {0.017214092452766394, -0.010184269096062515, 0, 1.0};
-Point(20) = {-0.017214092452766394, -0.010184269096062515, 0, 1.0};
-
-// left side points
-Point(21) = {-dxb, -dyb, 0.0, 1.0};
-Point(22) = {-dxt, dyt, 0.0, 1.0};
-Point(23) = {-dxBb, -dyBb, 0.0, 1.0};
-Point(24) = {-dxBt, dyBt, 0.0, 1.0};
-Point(25) = {-Dxb, -Dyb, 0.0, 1.0};
-Point(26) = {-Dxt,  Dyt, 0.0, 1.0};
+Point(19) = {1.1102230246251565e-16, 0.0, 0, 1.0};
+Point(20) = {-1.1102230246251565e-16, 0.0, 0, 1.0};
 
 //***** define lines and curves
 
@@ -131,34 +123,11 @@ Line(17)={ 8, 12 };
 // central line upward
 Line(18)={ 4, 1 };
 
-// left side circles
-Circle(19)={4, 17, 21};
-Circle(20)={21, 14, 22};
-Circle(21)={22, 15, 1};
-Circle(22)={8, 13, 23};
-Circle(23)={23, 19, 24};
-Circle(24)={24, 18, 5};
-Circle(25)={12, 13, 25};
-Circle(26)={25, 13, 26};
-Circle(27)={26, 13, 9};
-
-// left side lines
-Line(28)={ 21, 23 };
-Line(29)={ 22, 24 };
-Line(30)={ 23, 25 };
-Line(31)={ 24, 26 };
-
 //***** assign number of mesh on the created lines/arcs
 Transfinite Line { 7, 4, 1, 3, 6, 9 } = Nc2;
 Transfinite Line { -18, 2, 5, 8 } = Ncv Using Progression compressRatio_M;
 Transfinite Line { 10, 11, 12, 13 } = NM Using Progression compressRatio_M;
 Transfinite Line { 14, 15, 16, 17 } = NB Using Progression compressRatio_B;
-
-//*left side
-Transfinite Line { 27, 24, 21, 19, 22, 25 } = Nc2;
-Transfinite Line { -20, -23, -26 } = Ncv Using Progression compressRatio_M;
-Transfinite Line { 28, 29 } = NM Using Progression compressRatio_M;
-Transfinite Line { 30, 31 } = NB Using Progression compressRatio_B;
 
 //***** create surfaces
 // Note: use a negative sign if a line is swept in the opposite direction of the original definition
@@ -176,19 +145,10 @@ Line Loop(5)={ 7, -15, -4, 14 };   Plane Surface(5)={ 5 };
 Line Loop(6)={ 8, -16, -5, 15 };   Plane Surface(6)={ 6 };
 Line Loop(7)={ 9, -17, -6, 16 };   Plane Surface(7)={ 7 };
 
-
-// left side
-Line Loop(8)={ -18, 19, 20, 21 };   Plane Surface(8)={ 8 };
-Line Loop(9)={ 13, 22, -28, -19 };   Plane Surface(9)={ 9 };
-Line Loop(10)={ 28, 23, -29, -20 };   Plane Surface(10)={ 10 };
-Line Loop(11)={ 29, 24, -10, -21 };   Plane Surface(11)={ 11 };
-Line Loop(12)={ 17, 25, -30, -22 };   Plane Surface(12)={ 12 };
-Line Loop(13)={ 30, 26, -31, -23 };   Plane Surface(13)={ 13 };
-Line Loop(14)={ 31, 27, -14, -24 };   Plane Surface(14)={ 14 };
-
 If (meshDim==2)
-   Physical Line("wall")={7, 8, 9, 25, 26, 27};
-   Physical Surface(1)={1:14};
+   Physical Line("wall")={7, 8, 9};
+   Physical Line("sym")={14, 10, 18, 13, 17};
+   Physical Surface(1)={1:7};
 EndIf
 Recombine Surface "*";
 Transfinite Surface "*";

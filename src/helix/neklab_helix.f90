@@ -696,9 +696,12 @@ Compute the          use neklab_vectors
 
             module subroutine set_dpds(self, dpds, reset)
                !! Update the streamwise pressure gradient
+               !! NOTE: the input dpds is added to self%dpds unless reset == .true.
                class(helix), intent(inout) :: self
                real(dp), dimension(lf), intent(in) :: dpds
+               !! Pressure gradient components to be added to self%dpds
                logical, optional, intent(in) :: reset
+               !! Add the input pressure gradient or reset/replace pressure gradient (default=.false.)
             end subroutine set_dpds
 
             module subroutine set_nsteps(self, ns)

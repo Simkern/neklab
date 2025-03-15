@@ -318,6 +318,7 @@
          end procedure set_baseflow
 
          module procedure load_baseflow
+            ! this routine will overwrite self%v[xyz]2d
             character(len=*), parameter :: this_procedure = 'load_baseflow'
             integer :: ifld_, nchar
             character(len=132) :: filename

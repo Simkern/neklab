@@ -4,12 +4,12 @@
       contains
 
          module procedure fname_2d
-            ! internal
             character(len=*), parameter :: fmt = '(A,A,I3.3,A)'
             write(fname,fmt) iname, '2dtorus', iout, '.fld'
          end procedure fname_2d
 
          module procedure write_2d
+            ! only nid 0 will write
             character(len=*), parameter :: this_procedure = 'write_2d'
             integer, allocatable :: n2d_gown(:)
             integer, allocatable :: n2d_elmap(:)
@@ -349,6 +349,7 @@
          ! Helper functions
 
          subroutine gather_and_write_slice(slicedata, n2d_gown)
+            !! MPI communication to bring all the data to nid 0 to write to file
             real(dp), intent(in) :: slicedata(:,:,:)
             integer, intent(in) :: n2d_gown(:)
             ! internal

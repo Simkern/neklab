@@ -40,32 +40,58 @@
       
          module procedure nek_drand
          logical :: normalize
-         integer :: i, ix, iy, iz, iel, ieg
+         integer :: ix, iy, iz, iel, ieg, ijke
+         integer :: iface, kx1, kx2, ky1, ky2, kz1, kz2
          real(kind=dp) :: xl(ldim), fcoeff(3), alpha
          normalize = optval(ifnorm, .false.)
       
          ifield = 1 ! for bcdirvc
 
-         i = 0
          do iel = 1, nelv
-         do iz = 1, lx1
+         do iz = 1, lz1
          do iy = 1, ly1
-         do ix = 1, lz1
-            i = i + 1
+         do ix = 1, lx1
+            ieg = lglel(iel)
             xl(1) = xm1(ix, iy, iz, iel)
             xl(2) = ym1(ix, iy, iz, iel)
             if (if3d) xl(3) = zm1(ix, iy, iz, iel)
-            ieg = lglel(iel)
-      
+            ijke = ix + lx1*((iy-1) + ly1*((iz-1) + lz1*(iel-1)))
+            
             call random_number(fcoeff); fcoeff = fcoeff*1.0e4_dp
-            self%vx(i) = self%vx(i) + mth_rand(ix, iy, iz, ieg, xl, fcoeff)
-      
+            self%vx(ijke) = self%vx(ijke) + mth_rand(ix, iy, iz, ieg, xl, fcoeff)
+            
             call random_number(fcoeff); fcoeff = fcoeff*1.0e4_dp
-            self%vy(i) = self%vy(i) + mth_rand(ix, iy, iz, ieg, xl, fcoeff)
+            self%vy(ijke) = self%vy(ijke) + mth_rand(ix, iy, iz, ieg, xl, fcoeff)
+            
+            if (if3d) then
+               call random_number(fcoeff); fcoeff = fcoeff*1.0e4_dp
+               self%vz(ijke) = self%vz(ijke) + mth_rand(ix, iy, iz, ieg, xl, fcoeff)
+            end if
          end do
          end do
          end do
          end do
+
+         ! zero out noise on the cyclic boundary to avoid spurious modes
+         if (ifcyclic) then
+            do iel = 1, nelv
+               do iface = 1, 2*ndim
+                  if (cbc(iface,iel,1) .eq. 'P  ') then
+                     call facind(kx1, kx2, ky1, ky2, kz1, kz2, lx1, ly1, lz1, iface)
+                     do iz = kz1, kz2
+                     do iy = ky1, ky2
+                     do ix = kx1, kx2
+                        ijke = ix + lx1*((iy-1) + ly1*((iz-1) + lz1*(iel-1)))
+                        self%vx(ijke) = 0.0_dp
+                        self%vy(ijke) = 0.0_dp
+                        if (if3d) self%vz(ijke) = 0.0_dp
+                     end do
+                     end do
+                     end do
+                  end if
+               end do
+            end do
+         end if
       
       ! Face averaging.
          call opdssum(self%vx, self%vy, self%vz)

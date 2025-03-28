@@ -3,87 +3,6 @@
       
       contains
 
-         module procedure setup_summary
-            character(len=128) :: msg
-            if (self%is_initialized) then
-               call nek_log_message('##  HELIX SETUP ##', module=this_module)
-               call nek_log_message('Geometry:', module=this_module)
-               write (msg, '(A,F15.8)') padl('length:', 20), pipe%length
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,F15.8)') padl('diameter:', 20), pipe%diameter
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,F15.8)') padl('radius:', 20), pipe%radius
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,F15.8)') padl('pitch_s:', 20), pipe%pitch_s
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,F15.8)') padl('delta:', 20), pipe%delta
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,F15.8)') padl('curv_radius:', 20), pipe%curv_radius
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               call nek_log_message('Angles:', module=this_module)
-               write (msg, '(A,F15.8)') padl('rise angle:', 20), pipe%phi
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,F15.8)') padl('sweep angle:', 20), pipe%sweep
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               call nek_log_message('Mesh:', module=this_module)
-               write (msg, '(A,I8)') padl('slices:', 20), pipe%nslices
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,I8)') padl('nel/slice:', 20), pipe%nelf
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,L8)') padl('symmetry:', 20), pipe%is_sym()
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,L8)') padl('toroidal mesh', 20), pipe%is_torus()
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               write (msg, '(A,L8)') padl('helical mesh', 20), pipe%is_helix()
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-            else
-               call nek_log_warning('helix instance not initialized', module=this_module, fmt='(A)')
-            end if
-         end procedure setup_summary
-         
-         module procedure parameter_summary
-            character(len=128) :: msg
-            if (self%is_initialized) then
-               call nek_log_message('##  HELIX PARAMETERS ##', module=this_module)
-               call nek_log_message('Flow:', module=this_module)
-               write (msg, '(A,L8)') padl('steady:', 20), self%if_steady
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               if (.not.self%is_steady()) then
-                  write (msg, '(A,F15.8)') padl('Wo:', 20), self%womersley
-                  call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-                  write (msg, '(A,F15.8)') padl('omega:', 20), self%omega
-                  call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-                  write (msg, '(A,F15.8)') padl('T:', 20), self%pulse_T
-                  call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               end if
-               call nek_log_message('Forcing:', module=this_module)
-               call self%forcing_summary()
-            else
-               call nek_log_warning('helix instance not initialized', module=this_module, fmt='(A)')
-            end if
-         end procedure parameter_summary
-
-         module procedure forcing_summary
-            integer :: i
-            real(dp) :: dpds_norm, dpds_angle_rad
-            character(len=128) :: msg, fmt
-            if (self%is_initialized) then
-               write (msg, '(4(A,F16.12))') padl('dpds_00:', 20), self%dpds(1), ' ', 0.0_dp,
-     $               ' | ', self%dpds(1), ' | ', 0.0_dp 
-               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               do i = 2, self%nf, 2
-                  write(fmt,'("dpds_",I2.2,":")') i/2
-                  dpds_norm      = sqrt(self%dpds(i)**2 + self%dpds(i+1)**2)
-                  dpds_angle_rad = atan2(self%dpds(i+1),self%dpds(i))
-                  write (msg, '(4(A,F16.12))') padl(trim(fmt), 20), self%dpds(i), ' ', self%dpds(i+1), 
-     $               ' | ', dpds_norm, ' | ', dpds_angle_rad
-                  call nek_log_message(msg, module=this_module, fmt='(5X,A)')
-               end do
-            else
-               call nek_log_warning('helix instance not initialized', module=this_module, fmt='(A)')
-            end if
-         end procedure forcing_summary
-
          module procedure init_geom
             character(len=*), parameter :: this_procedure = 'init_geom'
             real(dp) :: minv, maxv, torus_r, s_angle
@@ -351,34 +270,6 @@
 
          end procedure compute_bf_forcing
 
-         module procedure shift_mflow_phase
-            character(len=*), parameter :: this_procedure = 'shift_mflow_phase'
-            integer :: i
-            real(dp) :: dpdsr, dpdsi, alpha, dalpha, dt_phase, prop
-            real(dp) :: dpds(lf)
-            character(len=128) :: msg
-            ! extract current forcing components
-            if (.not.self%is_steady()) then
-               call self%get_dpds(dpds)
-               i = 2*(icomp-1)
-               dpdsr = self%dpds(i)
-               dpdsi = self%dpds(i+1)
-               ! get current mflow phase angle
-               dalpha = self%mflow_phase(icomp) - target_mflow_phase
-               dt_phase = dalpha/pipe%get_omega()
-               prop = dt_phase/pipe%get_period()*100
-               write(msg,'(A,I0)') 'adjusting forcing component: ', icomp
-               call nek_log_message(msg, this_module, this_procedure)
-               write(msg,'(3X,A,F16.8)') 'dalpha  = ', dalpha
-               call nek_log_message(msg, this_module, this_procedure)
-               write(msg,'(3X,A,F16.8,A,F10.5,A)') 'dt_phase= ', dt_phase , '  (', prop, ' % T)'
-               call nek_log_message(msg, this_module, this_procedure)
-               ! update forcing (rotation) to remove shift
-               self%dpds(i  ) = dpdsr*cos(dalpha) - dpdsi*sin(dalpha)
-               self%dpds(i+1) = dpdsr*sin(dalpha) + dpdsi*cos(dalpha)
-            end if
-         end procedure shift_mflow_phase
-
          module procedure compute_usrt
             integer :: ix, iy, iz, ie
             real(dp) :: phi, a, s, ux, uy, uz, utmp, vtmp
@@ -437,7 +328,7 @@
                end do
             end if
          end procedure compute_usrt
-            
+   
          module procedure compute_ubar
             integer :: ix, iy, iz, ie
             real(dp) :: num, den, us, us_r, ux, uy, uz, phi, s, a, fs
@@ -469,6 +360,34 @@
             ubar = num/den  ! "1/r"-weighted volumetric average of streamwise velocity
             call lk_timer%stop('neklab_helix_compute_ubar')
          end procedure compute_ubar
+            
+         module procedure shift_mflow_phase
+            character(len=*), parameter :: this_procedure = 'shift_mflow_phase'
+            integer :: i
+            real(dp) :: dpdsr, dpdsi, alpha, dalpha, dt_phase, prop
+            real(dp) :: dpds(lf)
+            character(len=128) :: msg
+            ! extract current forcing components
+            if (.not.self%is_steady()) then
+               call self%get_dpds(dpds)
+               i = 2*(icomp-1)
+               dpdsr = self%dpds(i)
+               dpdsi = self%dpds(i+1)
+               ! get current mflow phase angle
+               dalpha = self%mflow_phase(icomp) - target_mflow_phase
+               dt_phase = dalpha/pipe%get_omega()
+               prop = dt_phase/pipe%get_period()*100
+               write(msg,'(A,I0)') 'adjusting forcing component: ', icomp
+               call nek_log_message(msg, this_module, this_procedure)
+               write(msg,'(3X,A,F16.8)') 'dalpha  = ', dalpha
+               call nek_log_message(msg, this_module, this_procedure)
+               write(msg,'(3X,A,F16.8,A,F10.5,A)') 'dt_phase= ', dt_phase , '  (', prop, ' % T)'
+               call nek_log_message(msg, this_module, this_procedure)
+               ! update forcing (rotation) to remove shift
+               self%dpds(i  ) = dpdsr*cos(dalpha) - dpdsi*sin(dalpha)
+               self%dpds(i+1) = dpdsr*sin(dalpha) + dpdsi*cos(dalpha)
+            end if
+         end procedure shift_mflow_phase
 
          module procedure gfldr_torus
             call gfldr(rstfname)
@@ -477,5 +396,86 @@
 	         call self%save_2d_fields(vx, vy, vz)
             call pipe%load_baseflow(vx, vy, vz, 'c2dtorus001.fld', 1)
          end procedure
+
+         module procedure setup_summary
+            character(len=128) :: msg
+            if (self%is_initialized) then
+               call nek_log_message('##  HELIX SETUP ##', module=this_module)
+               call nek_log_message('Geometry:', module=this_module)
+               write (msg, '(A,F15.8)') padl('length:', 20), pipe%length
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,F15.8)') padl('diameter:', 20), pipe%diameter
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,F15.8)') padl('radius:', 20), pipe%radius
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,F15.8)') padl('pitch_s:', 20), pipe%pitch_s
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,F15.8)') padl('delta:', 20), pipe%delta
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,F15.8)') padl('curv_radius:', 20), pipe%curv_radius
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               call nek_log_message('Angles:', module=this_module)
+               write (msg, '(A,F15.8)') padl('rise angle:', 20), pipe%phi
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,F15.8)') padl('sweep angle:', 20), pipe%sweep
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               call nek_log_message('Mesh:', module=this_module)
+               write (msg, '(A,I8)') padl('slices:', 20), pipe%nslices
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,I8)') padl('nel/slice:', 20), pipe%nelf
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,L8)') padl('symmetry:', 20), pipe%is_sym()
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,L8)') padl('toroidal mesh', 20), pipe%is_torus()
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               write (msg, '(A,L8)') padl('helical mesh', 20), pipe%is_helix()
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+            else
+               call nek_log_warning('helix instance not initialized', module=this_module, fmt='(A)')
+            end if
+         end procedure setup_summary
+         
+         module procedure parameter_summary
+            character(len=128) :: msg
+            if (self%is_initialized) then
+               call nek_log_message('##  HELIX PARAMETERS ##', module=this_module)
+               call nek_log_message('Flow:', module=this_module)
+               write (msg, '(A,L8)') padl('steady:', 20), self%if_steady
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               if (.not.self%is_steady()) then
+                  write (msg, '(A,F15.8)') padl('Wo:', 20), self%womersley
+                  call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+                  write (msg, '(A,F15.8)') padl('omega:', 20), self%omega
+                  call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+                  write (msg, '(A,F15.8)') padl('T:', 20), self%pulse_T
+                  call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               end if
+               call nek_log_message('Forcing:', module=this_module)
+               call self%forcing_summary()
+            else
+               call nek_log_warning('helix instance not initialized', module=this_module, fmt='(A)')
+            end if
+         end procedure parameter_summary
+
+         module procedure forcing_summary
+            integer :: i
+            real(dp) :: dpds_norm, dpds_angle_rad
+            character(len=128) :: msg, fmt
+            if (self%is_initialized) then
+               write (msg, '(4(A,F16.12))') padl('dpds_00:', 20), self%dpds(1), ' ', 0.0_dp,
+     $               ' | ', self%dpds(1), ' | ', 0.0_dp 
+               call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               do i = 2, self%nf, 2
+                  write(fmt,'("dpds_",I2.2,":")') i/2
+                  dpds_norm      = sqrt(self%dpds(i)**2 + self%dpds(i+1)**2)
+                  dpds_angle_rad = atan2(self%dpds(i+1),self%dpds(i))
+                  write (msg, '(4(A,F16.12))') padl(trim(fmt), 20), self%dpds(i), ' ', self%dpds(i+1), 
+     $               ' | ', dpds_norm, ' | ', dpds_angle_rad
+                  call nek_log_message(msg, module=this_module, fmt='(5X,A)')
+               end do
+            else
+               call nek_log_warning('helix instance not initialized', module=this_module, fmt='(A)')
+            end if
+         end procedure forcing_summary
       
       end submodule helix_utils

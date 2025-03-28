@@ -38,7 +38,7 @@
 
          subroutine linear_stability_analysis_periodic_orbit(floquet_operator, kdim, nev, adjoint, X0)
             type(floquet_linop), intent(inout) :: floquet_operator
-      !! Floquet perator whose stability properties are to be investigated.
+      !! Floquet operator whose stability properties are to be investigated.
             integer, intent(in) :: kdim
       !! Maximum dimension of the Krylov subspace.
             integer, intent(in) :: nev
@@ -205,7 +205,7 @@
             write(msg,fmt) 'mf_error  = ', mf_err, ' | sum= ', sum(abs(mf_err))
             call nek_log_information(msg, this_module, this_procedure)
       !
-      ! Main Newton iteration to converge the mass flow rate for each Fourier component
+      ! Main Newton iteration to converge the mass flow rate for all considered Fourier components
       !
             call nek_log_message('Begin mass flow Newton iteration', this_module, this_procedure)
             df_loop: do inwt = 1, maxiter_newton_
@@ -220,14 +220,14 @@
                   write(coef_id,'("Fourier coef. ",I2,": ")') i
                   write(msg,'(A,A,I0,A)') step_id, 'compute mflow gradient for Fourier coefficient ', i, ' ...'
                   call nek_log_information(msg, this_module, this_procedure)
-      ! iterate in case the forcing is too low the first time around
                   is_fp = .true.
                   icnt = 0
                   do while (is_fp)
+      ! iterate in case the forcing perturbation is too low
                      if (icnt > 0) call nek_log_message('Repeat finite difference step.',this_module, 'mflow_newton')
       ! Set flow parameters
                      dpds_tmp = 0.0_dp
-                     fpert(i) = -sign(fpert(i), mf_err(i)) ! take the step in the direction of the root
+                     fpert(i) = -sign(fpert(i), mf_err(i)) ! take the step in the direction of the root for better accuracy
                      if (i == 1) then
                         dpds_tmp(1) = fpert(1)
                      else
@@ -260,10 +260,10 @@
                   end do
                   call pipe%get_mflow_fft(mflow_new, if_amplitude=.true.)
 
-      ! get difference and compute gradient
+      ! get difference, compute gradient for current component and update mass flow Jacobian
                   dmf = mflow_new(:nmf) - mflow_old(:nmf)
-			            write(msg,'(A,A,A,*(1X,F16.10))') step_id, coef_id, padl('dmflow:',pad), dmf
-			            call nek_log_message(msg, this_module, this_procedure)
+			write(msg,'(A,A,A,*(1X,F16.10))') step_id, coef_id, padl('dmflow:',pad), dmf
+			call nek_log_message(msg, this_module, this_procedure)
                   do j = 1, nmf
                      jac(i,j) = dmf(j)/fpert(i)
                   end do
@@ -369,7 +369,7 @@
             call nek_log_message(msg, this_module, this_procedure)
             write(msg,'(A,*(1X,F16.8))') 'phase target:', 0.0_dp*phase(:nmf) 
             call nek_log_message(msg, this_module, this_procedure)
-            ! save old logical flags
+      ! save old logical flags
             save_base_old = pipe%is_save_2d(); call pipe%set_save_base(.false.)
             save_fft_old = pipe%is_save_fft(); call pipe%set_save_fft(.false.)
             do i = 2, nmf            ! the first component is purely real, phase is zero by construction
@@ -405,7 +405,7 @@
             end do
             call nek_log_message('Updated forcing:', this_module, this_procedure)
             call pipe%forcing_summary()
-            ! reset logical flags
+      ! reset logical flags
             call pipe%set_save_base(save_base_old)
             call pipe%set_save_fft(save_fft_old)
          end subroutine shift_mflow_phase_torus

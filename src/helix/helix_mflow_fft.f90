@@ -3,6 +3,15 @@
       
       contains
 
+         module procedure reset_mflow_fft
+            self%ubar_lag = self%compute_ubar(vx, vy, vz) ! compute ubar at t = 0
+            ! zero out data arrays
+            self%fftv = 0.0_dp
+            self%fft_time = 0.0_dp               ! reset integration time
+            self%fft_is_extracted = .false.
+            call self%set_save_fft(.true.)
+         end procedure reset_mflow_fft
+
          module procedure compute_mflow_fft
             character(len=*), parameter :: this_procedure = 'compute_mflow_fft'
             integer :: i, j
@@ -78,8 +87,8 @@
             logical :: if_amplitude_
             character(len=1024) :: msg
             character(len=128), parameter :: fmt = '(A,1X,F16.8,1X,A,*(1X,F16.8))'
-            if_amplitude_ = optval(if_amplitude, .true.)
             pd = optval(period, self%pulse_T)
+            if_amplitude_ = optval(if_amplitude, .true.)
             if (pd == 0.0_dp) call nek_stop_error('Period not set or zero.', this_module, this_procedure)
             ! extract the computed FFT data, compute amplitudes and phases
             self%fft_rtime = self%fft_time ! total integration time since last call
@@ -118,15 +127,6 @@
             end if
             self%fft_is_extracted = .true.
          end procedure extract_mflow_fft
-
-         module procedure reset_mflow_fft
-            self%ubar_lag = self%compute_ubar(vx, vy, vz) ! compute ubar at t = 0
-            ! zero out data arrays
-            self%fftv = 0.0_dp
-            self%fft_time = 0.0_dp               ! reset integration time
-            self%fft_is_extracted = .false.
-            call self%set_save_fft(.true.)
-         end procedure reset_mflow_fft
 
          module procedure get_mflow_fft
             character(len=*), parameter :: this_procedure = 'get_mflow_fft'

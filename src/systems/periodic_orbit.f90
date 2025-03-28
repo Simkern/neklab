@@ -72,7 +72,7 @@
       ! Evaluate f'(X(T), T) * dT and add it to the position residual
       ! Here we assume that vx,vy,vz contains the endpoint of the nonlinear trajectory
                call compute_fdot(vec)
-               call vec_out%axpby(1.0_dp, vec, vec_in%T)
+               call vec_out%axpby(vec_in%T, vec, 1.0_dp)
       ! Evaluate f'(X(0), 0).T @ dx and add phase condition
       ! Set the initial point of the nonlinear trajectory
                call abs_ext_vec2nek(vx, vy, vz, pr, t, self%X)
@@ -122,7 +122,7 @@
                call vec_out%sub(vec_in)
       ! Evaluate f'(X(T), T) * dT and add it to the position residual
                call compute_fdot(vec)
-               call vec_out%axpby(1.0_dp, vec, vec_in%T)
+               call vec_out%axpby(vec_in%T, vec, 1.0_dp)
       ! Evaluate f'(X(0), 0).T @ dx and add phase condition
       ! Set the initial point of the orbit
                call abs_ext_vec2nek(vx, vy, vz, pr, t, self%X)

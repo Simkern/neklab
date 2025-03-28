@@ -1,12 +1,19 @@
       module neklab_helix
-      !---------------------------------------
-      !-----     LightKrylov Imports     -----
-      !-------------------Compute the --------------------
-      ! Default real kinCompute the d.
+         use stdlib_strings, only: padl, padr
+         use stdlib_optval, only: optval
+         use stdlib_sorting, only: sort_index
+         use stdlib_logger, only: all_level, debug_level, information_level
+      ! Default real kind.
+         use LightKrylov, only: dp
+         use LightKrylov_Constants, only: imag => one_im_cdp
+         use LightKrylov_Constants
       ! Logging & timing
-         use LightKrylov_LoggerCompute the 
+          use LightKrylov_Logger
+          use LightKrylov_Timing, only: lk_timer => global_lightkrylov_timer
       ! Extensions of the abstract vector types to nek data format.
-Compute the          use neklab_vectors
+          use neklab_vectors
+         use neklab_nek_forcing, only: neklab_forcing, set_neklab_forcing
+         use neklab_nek_setup, only: nek_log_message, nek_log_information, nek_log_warning, nek_log_debug, nek_stop_error
 
          implicit none
          include "SIZE"
@@ -56,7 +63,8 @@ Compute the          use neklab_vectors
             ! Spatial distribution of the forcing in the cross-stream plane due to curvature
             ! mesh inputs
             integer :: nslices            ! number of slices in streamwise direction
-            integer :: nelf               ! number of elements on a facCompute the e (cross-stream plane)
+            integer :: nelf               ! number of elements on a face (cross-stream plane)
+            logical :: if_sym   = .false. ! is the mesh symmetric (only half the pipe)
             logical :: if_torus = .false. ! is the mesh curved (toroidal)
             logical :: if_helix = .false. ! is the mesh helical?
             ! sanity check
@@ -190,7 +198,7 @@ Compute the          use neklab_vectors
 
             module subroutine init_geom(self, if_debug)
                !! Initialize the geometry by morphing the input geometry (straight pipe) 
-               !! into a torus Compute the or a helix with the correct dimensions
+               !! into a torus or a helix with the correct dimensions
                class(helix), intent(inout) :: self
                logical, optional, intent(in) :: if_debug
                !! Debug flag: Will outpost diagnostic fields and exit
@@ -347,7 +355,7 @@ Compute the          use neklab_vectors
             module subroutine init_2d_geom(self, if_debug)
                !! Initialize the 2D geometry data on the cross-stream plane and identify the elements
                !! that are aligned in streamwise direction forming a unique segment.
-               !! Establish local and global sCompute the egment ownership to minimize MPI communication.
+               !! Establish local and global segment ownership to minimize MPI communication.
                class(helix), intent(inout) :: self
                logical, optional, intent(in) :: if_debug
                !! Outpost and print debug information.

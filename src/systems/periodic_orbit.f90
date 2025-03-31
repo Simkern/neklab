@@ -12,13 +12,12 @@
                call ext_vec2nek(vx, vy, vz, pr, t, vec_in)
       ! Set appropriate tolerances and Nek status
                call setup_nonlinear_solver(recompute_dt = .true., 
-     $                                     endtime      = vec_in%T,
-     $                                     cfl_limit    = 0.4_dp,
-     $                                     vtol         = atol*0.1,
-     $                                     ptol         = atol*0.1)
+     &                                     endtime      = vec_in%T,
+     &                                     cfl_limit    = 0.4_dp,
+     &                                     vtol         = atol*0.1,
+     &                                     ptol         = atol*0.1)
                write (msg, '(A,F9.6)') 'Current period estimate, T = ', vec_in%T
-               if (nid == 0) print *, msg
-               call logger%log_message(msg, module=this_module, procedure='nonlinear_map_UPO')
+               call nek_log_message(msg, module=this_module, procedure='nonlinear_map_UPO')
       ! Intgrate the nonlinear equations forward
                time = 0.0_dp
                do istep = 1, nsteps
@@ -30,11 +29,11 @@
       ! Evaluate residual F(X) - X.
                call vec_out%sub(vec_in)
             class default
-               call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_ext_dvector'",
+               call nek_stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_ext_dvector'",
      & this_module, 'nonlinear_map_upo')
             end select
          class default
-            call stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_ext_dvector'",
+            call nek_stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_ext_dvector'",
      & this_module, 'nonlinear_map_upo')
          end select
          end procedure nonlinear_map_UPO
@@ -52,12 +51,12 @@
                call abs_ext_vec2nek(vx, vy, vz, pr, t, self%X)
       ! Ensure correct nek status -> set end time
                call setup_linear_solver(solve_baseflow = .true.,
-     $                                    transpose    = .false.,
-     $                                    recompute_dt = .true.,
-     $                                    endtime      = get_period_abs(self%X),
-     $                                    cfl_limit    = 0.4_dp, 
-     $                                    vtol         = atol*0.5,
-     $                                    ptol         = atol*0.5)
+     &                                  transpose      = .false.,
+     &                                  recompute_dt   = .true.,
+     &                                  endtime        = get_period_abs(self%X),
+     &                                  cfl_limit      = 0.4_dp, 
+     &                                  vtol           = atol*0.5,
+     &                                  ptol           = atol*0.5)
       ! Set the perturbation initial condition
                call ext_vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
       ! Intgrate the coupled equations forward
@@ -81,11 +80,11 @@
                param(22) = atol
                param(21) = atol
             class default
-               call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_ext_dvector'",
+               call nek_stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_ext_dvector'",
      & this_module, 'jac_direct_map')
             end select
          class default
-            call stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_ext_dvector'",
+            call nek_stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_ext_dvector'",
      & this_module, 'jac_direct_map')
          end select
          end procedure jac_direct_map
@@ -103,12 +102,12 @@
                call abs_ext_vec2nek(vx, vy, vz, pr, t, self%X)
       ! Ensure correct nek status -> set end time
                call setup_linear_solver(solve_baseflow = .true.,
-     $                                    transpose    = .true.,
-     $                                    recompute_dt = .true.,
-     $                                    endtime      = get_period_abs(self%X),
-     $                                    cfl_limit    = 0.4_dp, 
-     $                                    vtol         = atol*0.5,
-     $                                    ptol         = atol*0.5)
+     &                                  transpose      = .true.,
+     &                                  recompute_dt   = .true.,
+     &                                  endtime        = get_period_abs(self%X),
+     &                                  cfl_limit      = 0.4_dp, 
+     &                                  vtol           = atol*0.1,
+     &                                  ptol           = atol*0.1)
       ! Set the perturbation initial condition
                call ext_vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
       ! Integrate the equations forward in time.
@@ -131,11 +130,11 @@
                param(22) = atol
                param(21) = atol
             class default
-               call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_ext_dvector'",
+               call nek_stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_ext_dvector'",
      & this_module, 'jac_adjoint_map')
             end select
          class default
-            call stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_ext_dvector'",
+            call nek_stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_ext_dvector'",
      & this_module, 'jac_adjoint_map')
          end select
          end procedure jac_adjoint_map

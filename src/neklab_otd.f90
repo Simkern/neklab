@@ -84,7 +84,7 @@
                select type (vec_out)
                type is (nek_dvector)
                   call apply_L(vec_out%vx, vec_out%vy, vec_out%vz,
-     $   vec_in%vx, vec_in%vy, vec_in%vz, vec_in%pr, trans = .false.)
+     &   vec_in%vx, vec_in%vy, vec_in%vz, vec_in%pr, trans = .false.)
                class default
                   call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'",
      & this_module, 'apply_LNS')
@@ -108,7 +108,7 @@
                select type (vec_out)
                type is (nek_dvector)
                   call apply_L(vec_out%vx, vec_out%vy, vec_out%vz,
-     $   vec_in%vx, vec_in%vy, vec_in%vz, vec_in%pr, trans = .true.)
+     &   vec_in%vx, vec_in%vy, vec_in%vz, vec_in%pr, trans = .true.)
                class default
                   call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'",
      & this_module, 'apply_adjLNS')

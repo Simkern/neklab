@@ -76,7 +76,7 @@
       
       ! Run the eigenvalue analysis.
 		      call eigs(floquet_operator, eigvecs, eigvals, residuals, info, 
-     $                  x0=X0, kdim=kdim, transpose=adjoint_, write_intermediate=.true.)
+     &                  x0=X0, kdim=kdim, transpose=adjoint_, write_intermediate=.true.)
       
       ! Transform eigenspectrum to continuous-time representation.
             eigvals = log(eigvals)/floquet_operator%tau
@@ -98,7 +98,6 @@
             call logger_setup(logfile='lightkrylov_tmr.log', nio=0, log_level=warning_level, log_stdout=.false., log_timestamp=.true.)
             call timer%finalize()
       
-            return
          end subroutine linear_stability_analysis_periodic_orbit
 
          subroutine mflow_newton(sys, bf, mflow_target, tol, tol_mf, tol_mode, maxiter_newton)
@@ -193,7 +192,7 @@
 		      write(msg,'(A,1X,E16.8)') 'Approximate mass flow computation error: ', tol_mf_inexact
             call nek_log_message(msg, this_module, this_procedure)
             if (tol_mf_inexact > tol_mf) call nek_log_warning('Requested mass flow tol is below estimated error.', 
-     $            this_module, this_procedure)
+     &            this_module, this_procedure)
 
       ! stamp logs
             call pipe%parameter_summary()
@@ -254,7 +253,7 @@
                      if (is_fp) then
                         fpert(i) = 10*fpert(i)
                         write(msg,'(A,I0,A,F16.10)') 'Perturbation is too small for component ', i, 
-     $                        ': Reset |df| = ', fpert(i)
+     &                        ': Reset |df| = ', fpert(i)
                         call nek_log_message(msg, this_module, this_procedure)
                      end if
                   end do
@@ -453,9 +452,9 @@
             call vec2nek(vx, vy, vz, pr, t, bf_in)
       ! set nek status
             call setup_nonlinear_solver(recompute_dt = .true.,
-     $                                  endtime      = pd, 
-     $                                  variable_dt  = var_dt,
-     $                                  cfl_limit    = cfl)
+     &                                  endtime      = pd, 
+     &                                  variable_dt  = var_dt,
+     &                                  cfl_limit    = cfl)
             call nek_status(full_summary=.true.)
             call pipe%reset_mflow_fft() ! in case we compute the FFT
       ! compute period

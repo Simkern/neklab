@@ -1,4 +1,4 @@
-      submodule(neklab_vectors) real_extended_vectors_period
+      submodule(neklab_vectors) real_extended_vectors
          implicit none
       contains
       
@@ -99,16 +99,12 @@
          call dsavg(self%vy)
          if (if3d) call dsavg(self%vz)
          call bcdirvc(self%vx, self%vy, self%vz, v1mask, v2mask, v3mask)
-      
+         
+         call random_number(self%T)
+         
          if (normalize) then
             alpha = self%norm()
             call self%scal(1.0_dp/alpha)
-         end if
-      
-         call random_number(self%T)
-      
-         if (optval(ifnorm, .false.)) then
-            alpha = self%norm(); call self%scal(1.0_dp/alpha)
          end if
          end procedure
       
@@ -128,15 +124,15 @@
          integer :: n1, n2
          n1 = nx1*ny1*nz1*nelv
          n2 = nx2*ny2*nz2*nelv
-         call self%scal(alpha)
+         call self%scal(beta)
          select type (vec)
          type is (nek_ext_dvector)
-            call add2s2(self%vx, vec%vx, beta, n1)
-            call add2s2(self%vy, vec%vy, beta, n1)
-            if (if3d) call add2s2(self%vz, vec%vz, beta, n1)
-            call add2s2(self%pr, vec%pr, beta, n2)
-            if (ifto) call add2s2(self%theta(:, 1), vec%theta(:, 1), beta, n1)
-            self%T = alpha*self%T + beta*vec%T
+            call add2s2(self%vx, vec%vx, alpha, n1)
+            call add2s2(self%vy, vec%vy, alpha, n1)
+            if (if3d) call add2s2(self%vz, vec%vz, alpha, n1)
+            call add2s2(self%pr, vec%pr, alpha, n2)
+            if (ifto) call add2s2(self%theta(:, 1), vec%theta(:, 1), alpha, n1)
+            self%T = beta*self%T + alpha*vec%T
          class default
             call stop_error("The intent [IN] argument 'vec' must be of type 'nek_ext_dvector'",
      & this_module, 'nek_ext_daxpby')
@@ -149,9 +145,9 @@
          n = nx1*ny1*nz1*nelv
          select type (vec)
          type is (nek_ext_dvector)
-            alpha =         glsc3(self%vx, self%vx, bm1, n)
-            alpha = alpha + glsc3(self%vy, self%vy, bm1, n)
-            if (if3d) alpha = alpha + glsc3(self%vz, self%vz, bm1, n)
+            alpha =         glsc3(self%vx, vec%vx, bm1, n)
+            alpha = alpha + glsc3(self%vy, vec%vy, bm1, n)
+            if (if3d) alpha = alpha + glsc3(self%vz, vec%vz, bm1, n)
             if (ifto) then
                alpha = alpha + glsc3(self%theta(:, 1), vec%theta(:, 1), bm1, n)
             end if

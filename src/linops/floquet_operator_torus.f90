@@ -51,13 +51,13 @@
                if (.not. self%baseflow_computed) then
                   call pipe%set_save_base(.true.)
                   call setup_linear_solver(solve_baseflow = .true.,
-     $                                     endtime        = self%tau, 
-     $                                     cfl_limit      = 0.4_dp,
-     $                                     variable_dt    = .true.) ! -> solve for baseflow and save to f2dtorus***.fld
+     &                                     endtime        = self%tau, 
+     &                                     cfl_limit      = 0.4_dp,
+     &                                     variable_dt    = .true.) ! -> solve for baseflow and save to f2dtorus***.fld
                else
                   call pipe%set_save_base(.false.)
                   call setup_linear_solver(solve_baseflow = .false., 
-     $                                     variable_dt    = .true.) ! -> load baseflow from 2d files
+     &                                     variable_dt    = .true.) ! -> load baseflow from 2d files
                end if
       ! Set the initial condition for Nek5000's linearized solver.
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
@@ -105,16 +105,16 @@
                if (.not. self%baseflow_computed) then
                   call pipe%set_save_base(.true.)
                   call setup_linear_solver(transpose      = .true.,
-     $                                     solve_baseflow = .true.,
-     $                                     endtime        = self%tau, 
-     $                                     cfl_limit      = 0.4_dp,
-     $                                     variable_dt    = .true.) ! -> solve for baseflow and save to f2dtorus***.fld
+     &                                     solve_baseflow = .true.,
+     &                                     endtime        = self%tau, 
+     &                                     cfl_limit      = 0.4_dp,
+     &                                     variable_dt    = .true.) ! -> solve for baseflow and save to f2dtorus***.fld
                   self%baseflow_computed = .true. ! we only need to do this once
                else
                   call pipe%set_save_base(.false.)
                   call setup_linear_solver(transpose      = .true.,
-     $                                     solve_baseflow = .false., 
-     $                                     variable_dt    = .true.) ! -> load baseflow from 2d files
+     &                                     solve_baseflow = .false., 
+     &                                     variable_dt    = .true.) ! -> load baseflow from 2d files
                end if
       ! Set the initial condition for Nek5000's linearized solver.
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)

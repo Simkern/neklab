@@ -65,10 +65,10 @@
             end subroutine
       
             module subroutine nek_daxpby(alpha, vec, beta, self)
+               class(nek_dvector), intent(inout) :: self
                real(kind=dp), intent(in) :: alpha
                class(abstract_vector_rdp), intent(in) :: vec
                real(kind=dp), intent(in) :: beta
-               class(nek_dvector), intent(inout) :: self
             end subroutine
       
             real(kind=dp) module function nek_ddot(self, vec) result(alpha)
@@ -130,10 +130,10 @@
             end subroutine
       
             module subroutine nek_ext_daxpby(alpha, vec, beta, self)
+               class(nek_ext_dvector), intent(inout) :: self
                real(kind=dp), intent(in) :: alpha
                class(abstract_vector_rdp), intent(in) :: vec
                real(kind=dp), intent(in) :: beta
-               class(nek_ext_dvector), intent(inout) :: self
             end subroutine
       
             real(kind=dp) module function nek_ext_ddot(self, vec) result(alpha)
@@ -192,10 +192,10 @@
             end subroutine
       
             module subroutine nek_zaxpby(alpha, vec, beta, self)
+               class(nek_zvector), intent(inout) :: self
                complex(kind=dp), intent(in) :: alpha
                class(abstract_vector_cdp), intent(in) :: vec
                complex(kind=dp), intent(in) :: beta
-               class(nek_zvector), intent(inout) :: self
             end subroutine
       
             complex(kind=dp) module function nek_zdot(self, vec) result(alpha)
@@ -219,7 +219,6 @@
             mth_rand = 1.0e3_dp*sin(mth_rand)
             mth_rand = 1.0e3_dp*sin(mth_rand)
             mth_rand = cos(mth_rand)
-            return
          end function mth_rand
       
       end module neklab_vectors

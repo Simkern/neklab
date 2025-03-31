@@ -463,14 +463,14 @@
             character(len=128) :: msg, fmt
             if (self%is_initialized) then
                write (msg, '(4(A,F16.12))') padl('dpds_00:', 20), self%dpds(1), ' ', 0.0_dp,
-     $               ' | ', self%dpds(1), ' | ', 0.0_dp 
+     &               ' | ', self%dpds(1), ' | ', 0.0_dp 
                call nek_log_message(msg, module=this_module, fmt='(5X,A)')
                do i = 2, self%nf, 2
                   write(fmt,'("dpds_",I2.2,":")') i/2
                   dpds_norm      = sqrt(self%dpds(i)**2 + self%dpds(i+1)**2)
                   dpds_angle_rad = atan2(self%dpds(i+1),self%dpds(i))
                   write (msg, '(4(A,F16.12))') padl(trim(fmt), 20), self%dpds(i), ' ', self%dpds(i+1), 
-     $               ' | ', dpds_norm, ' | ', dpds_angle_rad
+     &               ' | ', dpds_norm, ' | ', dpds_angle_rad
                   call nek_log_message(msg, module=this_module, fmt='(5X,A)')
                end do
             else

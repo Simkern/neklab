@@ -163,15 +163,17 @@
                         call A%matvec(vec_in, vec_out)
                      end if
                   class default
-                     call stop_error("The intent [INOUT] argument 'A' must be of type 'exptA_linop'", this_module, 'apply_exptA')
+                     call nek_stop_error("The intent [INOUT] argument 'A' must be of type 'exptA_linop'",
+     & this_module, 'apply_exptA')
                   end select
                class default
-                  call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'", this_module, 'apply_exptA')
+                  call nek_stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'",
+     & this_module, 'apply_exptA')
                end select
             class default
-               call stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_dvector'", this_module, 'apply_exptA')
+               call nek_stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_dvector'",
+     & this_module, 'apply_exptA')
             end select
-            return
          end subroutine apply_exptA
       
          subroutine compute_LNS_conv(c_x, c_y, c_z, uxp, uyp, uzp, trans)
@@ -219,7 +221,6 @@
                end if
             end if
             call opadd2(c_x, c_y, c_z, tb1, tb2, tb3) ! add to output
-            return
          end subroutine compute_LNS_conv
       
          subroutine compute_LNS_laplacian(d_x, d_y, d_z, uxp, uyp, uzp)
@@ -237,7 +238,6 @@
             call col2(d_x, vdiff, lv)
             call col2(d_y, vdiff, lv)
             if (if3d) call col2(d_z, vdiff, lv)
-            return
          end subroutine compute_LNS_laplacian
       
          subroutine lap_1D(nabla_u, u)
@@ -274,7 +274,6 @@
                end do
             end if ! if3d
             end do
-            return
          end subroutine lap_1D
       
          subroutine compute_LNS_gradp(gp_x, gp_y, gp_z, pp)
@@ -289,7 +288,6 @@
             call mappr(wrk, pp, ta1, ta2)
       ! compute the gradient on the velocity mesh direclty
             call gradm1(gp_x, gp_y, gp_z, wrk)
-            return
          end subroutine compute_LNS_gradp
       
          subroutine apply_L(Lux, Luy, Luz, ux, uy, uz, pres, trans)
@@ -312,7 +310,6 @@
             call logger%log_debug(' pressure gradient', module=this_module, procedure='compute_L')
             call compute_LNS_gradp(utmpx, utmpy, utmpz, pres)
             call opsub2(Lux, Luy, Luz, utmpx, utmpy, utmpz)
-            return
          end subroutine apply_L
       
          subroutine apply_Lv(Lux, Luy, Luz, ux, uy, uz, trans)
@@ -337,7 +334,6 @@
             call compute_LNS_conv(utmpx, utmpy, utmpz, ux, uy, uz, trans)
       ! subtract from output terms
             call opsub2(Lux, Luy, Luz, utmpx, utmpy, utmpz)
-            return
          end subroutine apply_Lv
       
       end module neklab_linops

@@ -60,7 +60,7 @@
          type is (nek_zvector)
             wrk = vec
       ! Scale vectors before addition.
-            call self%scal(alpha); call wrk%scal(beta)
+            call self%scal(beta); call wrk%scal(alpha)
       ! Vector addition.
             call nek_daxpby(1.0_dp, wrk%re, 1.0_dp, self%re)
             call nek_daxpby(1.0_dp, wrk%im, 1.0_dp, self%im)

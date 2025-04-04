@@ -397,6 +397,21 @@
             call pipe%load_baseflow(vx, vy, vz, 'c2dtorus001.fld', 1)
          end procedure
 
+         module procedure load_fld_torus
+            ! internal
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: xtmp, ytmp, ztmp
+            ! save current mesh (to maintain the chosen domain length)
+            call opcopy(xtmp, ytmp, ztmp, xm1, ym1, zm1)
+            call load_fld(rstfname)
+            lastep = 1
+            call self%set_save_base(.true.)
+	         call self%save_2d_fields(vx, vy, vz)
+            ! put right mesh back
+            call opcopy(xm1, ym1, zm1, xtmp, ytmp, ztmp)
+            ! set baseflow
+            call pipe%load_baseflow(vx, vy, vz, 'c2dtorus001.fld', 1)
+         end procedure
+
          module procedure setup_summary
             character(len=128) :: msg
             if (self%is_initialized) then

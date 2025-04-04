@@ -76,8 +76,8 @@
                   self%baseflow_computed = .true. ! we only need to do this once
                else
                   do istep = 1, pipe%get_nsteps()
-                     call pipe%set_baseflow(vx, vy, vz, istep) ! sets the baseflow field and the appropriate timestep
                      call nek_advance()
+                     call pipe%set_baseflow(vx, vy, vz, istep) ! sets the baseflow field and the appropriate timestep
                   end do
                end if
       ! Extract the final solution to vector.

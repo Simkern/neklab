@@ -125,6 +125,7 @@
             procedure, pass(self), public :: compute_ubar
             procedure, pass(self), public :: shift_mflow_phase
             procedure, pass(self), public :: gfldr_torus
+            procedure, pass(self), public :: load_fld_torus
             procedure, pass(self), public :: setup_summary
             procedure, pass(self), public :: parameter_summary
             procedure, pass(self), public :: forcing_summary
@@ -290,6 +291,16 @@
                !! Restart file on a different toroidal mesh
                !! Note: The restart file must correspond to the same geometry (apart from the streamwise domain length)
             end subroutine gfldr_torus
+
+            module subroutine load_fld_torus(self, rstfname)
+               !! Load the field from the same 2D mesh (possibly at different polynomial order), irrespective of the 
+               !! length of the flow domain set in each case.
+               !! Internally, we extract the 2D data and use it to set the 3D fields.
+               class(helix), intent(inout) :: self
+               character(len=*), intent(in) :: rstfname
+               !! Restart file on a different toroidal mesh
+               !! Note: The restart file must correspond to the same *.re2 mesh
+            end subroutine load_fld_torus
 
             module subroutine setup_summary(self)
                !! Print the geometry and mesh parameters/settings to log

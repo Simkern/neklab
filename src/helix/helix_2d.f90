@@ -328,7 +328,7 @@
             filename(1:nchar) = fname(1:nchar)
             call self%read_2d(filename)
             if (ifld > self%nload) call nek_stop_error('Inconsistent ifld', this_module, this_procedure)
-            call self%set_baseflow(vx, vy, vz, ifld)
+            call self%set_baseflow(basex, basey, basez, ifld)
          end procedure load_baseflow
 
          module procedure compute_2d_usrt

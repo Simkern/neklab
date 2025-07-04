@@ -57,6 +57,7 @@
                else
                   call pipe%set_save_base(.false.)
                   call setup_linear_solver(solve_baseflow = .false., 
+     &                                     endtime        = self%tau, 
      &                                     variable_dt    = .true.) ! -> load baseflow from 2d files
                end if
       ! Set the initial condition for Nek5000's linearized solver.
@@ -68,29 +69,28 @@
                   do while (lastep == 0)
                      istep = istep + 1
                      call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
+                     call pipe%save_2d_fields(vx,vy,vz)
                      call nek_advance()
-                     call pipe%save_2d_fields(vx,vy,vz) ! outposts automatically at lastep == 1
                   end do
+                  call pipe%outpost_2d_fields()
          ! Record the mass flow rate and number of timesteps per period for subsequent linear runs
                   call pipe%set_nsteps(istep)
                   self%baseflow_computed = .true. ! we only need to do this once
                else
                   do istep = 1, pipe%get_nsteps()
-                     call nek_advance()
                      call pipe%set_baseflow(vx, vy, vz, istep) ! sets the baseflow field and the appropriate timestep
+                     call nek_advance()
                   end do
                end if
       ! Extract the final solution to vector.
                call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
 
                self%baseflow_computed = .true. ! we only need to do this once
-               class default
-               call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'",
-     & this_module, 'floquet_matvec')
+            class default
+               call type_error('vec_out','nek_dvector','OUT',this_module,'floquet_matvec')
             end select
          class default
-            call stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_dvector'",
-     & this_module, 'floquet_matvec')
+            call type_error('vec_in','nek_dvector','IN',this_module,'floquet_matvec')
          end select
          end procedure floquet_matvec
       
@@ -113,7 +113,8 @@
                else
                   call pipe%set_save_base(.false.)
                   call setup_linear_solver(transpose      = .true.,
-     &                                     solve_baseflow = .false., 
+     &                                     solve_baseflow = .false.,
+     &                                     endtime        = self%tau,  
      &                                     variable_dt    = .true.) ! -> load baseflow from 2d files
                end if
       ! Set the initial condition for Nek5000's linearized solver.
@@ -125,9 +126,10 @@
                   do while (lastep == 0)
                      istep = istep + 1
                      call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
+                     call pipe%save_2d_fields(vx,vy,vz)
                      call nek_advance()
-                     call pipe%save_2d_fields(vx,vy,vz) ! outposts automatically at lastep == 1
                   end do
+                  call pipe%outpost_2d_fields()
          ! Record the mass flow rate and number of timesteps per period for subsequent linear runs
                   call pipe%set_nsteps(istep)
                   self%baseflow_computed = .true. ! we only need to do this once
@@ -140,12 +142,10 @@
       ! Extract the final solution to vector.
                call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
             class default
-               call stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'",
-     & this_module, 'floquet_rmatvec')
+               call type_error('vec_out','nek_dvector','OUT',this_module,'floquet_rmatvec')
             end select
          class default
-            call stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_dvector'",
-     & this_module, 'floquet_rmatvec')
+            call type_error('vec_in','nek_dvector','IN',this_module,'floquet_rmatvec')
          end select
          end procedure floquet_rmatvec
 

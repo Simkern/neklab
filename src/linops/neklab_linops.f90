@@ -163,16 +163,13 @@
                         call A%matvec(vec_in, vec_out)
                      end if
                   class default
-                     call nek_stop_error("The intent [INOUT] argument 'A' must be of type 'exptA_linop'",
-     & this_module, 'apply_exptA')
+                     call type_error('A','exptA_linop','INOUT',this_module,'apply_exptA')
                   end select
                class default
-                  call nek_stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'",
-     & this_module, 'apply_exptA')
+                  call type_error('vec_out','nek_dvector','OUT',this_module,'apply_exptA')
                end select
             class default
-               call nek_stop_error("The intent [IN] argument 'vec_in' must be of type 'nek_dvector'",
-     & this_module, 'apply_exptA')
+               call type_error('vec_in','nek_dvector','IN',this_module,'apply_exptA')
             end select
          end subroutine apply_exptA
       

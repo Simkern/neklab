@@ -23,10 +23,11 @@
                do while (lastep == 0)
                   istep = istep + 1
                   call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
+                  call pipe%save_2d_fields(vx,vy,vz)
                   call nek_advance()
-                  call pipe%save_2d_fields(vx,vy,vz) ! outposts automatically at lastep == 1
                   call pipe%compute_mflow_fft(var_dt = .true.) ! integrate Fourier coefficients
                end do
+               call pipe%outpost_2d_fields()
       ! Record the mass flow rate and number of timesteps per period for subsequent linear runs
                call pipe%extract_mflow_fft()
                call pipe%set_nsteps(istep)

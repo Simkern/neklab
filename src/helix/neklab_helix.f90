@@ -122,10 +122,10 @@
             procedure, pass(self), public :: forcing_amplitude
             procedure, pass(self), public :: compute_bf_forcing
             procedure, pass(self), public :: compute_usrt
+            procedure, pass(self), public :: compute_uxyz
             procedure, pass(self), public :: compute_ubar
             procedure, pass(self), public :: shift_mflow_phase
             procedure, pass(self), public :: gfldr_torus
-            procedure, pass(self), public :: load_fld_torus
             procedure, pass(self), public :: setup_summary
             procedure, pass(self), public :: parameter_summary
             procedure, pass(self), public :: forcing_summary
@@ -186,6 +186,7 @@
             procedure, pass(self), public :: get_lsegment
             procedure, pass(self), public :: get_gsegment
             procedure, pass(self), public :: get_v2d
+            procedure, pass(self), public :: get_2d_file_info
             procedure, pass(self), public :: set_dpds
             procedure, pass(self), public :: set_nsteps
          end type helix
@@ -259,6 +260,24 @@
                real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: ut
                !! Azimuthal velocity in toroidal coordinates
             end subroutine compute_usrt
+
+            module subroutine compute_uxyz(self, us, ur, ut, u, v, w)
+               !! Switch from toroidal/helical (post-processing) to cartesian (nek5000) coordinates
+               !! for the velocity components
+               class(helix), intent(in) :: self
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: us
+               !! Streamwise velocity in toroidal coordinates
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: ur
+               !! radial velocity in toroidal coordinates
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: ut
+               !! Azimuthal velocity in toroidal coordinates
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: u
+               !! X-velocity in cartesian coordinates
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: v
+               !! Y-velocity in cartesian coordinates
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: w
+               !! Z-velocity in cartesian coordinates
+            end subroutine compute_uxyz
             
             module function compute_ubar(self,u,v,w) result(ubar)
                !! Compute the streamwise mass flow rate in the torus
@@ -291,16 +310,6 @@
                !! Restart file on a different toroidal mesh
                !! Note: The restart file must correspond to the same geometry (apart from the streamwise domain length)
             end subroutine gfldr_torus
-
-            module subroutine load_fld_torus(self, rstfname)
-               !! Load the field from the same 2D mesh (possibly at different polynomial order), irrespective of the 
-               !! length of the flow domain set in each case.
-               !! Internally, we extract the 2D data and use it to set the 3D fields.
-               class(helix), intent(inout) :: self
-               character(len=*), intent(in) :: rstfname
-               !! Restart file on a different toroidal mesh
-               !! Note: The restart file must correspond to the same *.re2 mesh
-            end subroutine load_fld_torus
 
             module subroutine setup_summary(self)
                !! Print the geometry and mesh parameters/settings to log
@@ -710,6 +719,16 @@
                real(dp) :: v2d
                !! output velocity
             end function get_v2d
+
+            module subroutine get_2d_file_info(self, nfiles, nsteps, prefix)
+               class(helix), intent(inout) :: self
+               integer, intent(out) :: nfiles
+               !! Number of files in the current folder
+               integer, intent(out) :: nsteps
+               !! Number of saved timesteps
+               character(len=3), intent(in) :: prefix
+               !! File prefix to search for
+            end subroutine get_2d_file_info
 
             ! Setter functions for private system parameters
 

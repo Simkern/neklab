@@ -210,6 +210,31 @@
             end if
          end procedure get_v2d
 
+         module procedure get_2d_file_info
+            ! internal
+            integer :: nsaver
+            character(len=132) :: fname, msg
+            logical :: existfile
+            nsteps = 0
+            nfiles = 1
+            write(fname,'(A3,"torus",I3.3,".fld")') prefix, nfiles
+            inquire(file=fname, exist=existfile)
+            if (existfile) then
+               do while (existfile)
+                  ! read first file and get nsteps
+                  call self%get_nsteps_from_header(fname, nsaver)
+                  nsteps = nsteps + nsaver
+                  nfiles = nfiles + 1
+                  write(fname,'(A3, "torus",I3.3,".fld")') prefix, nfiles
+                  inquire(file=fname, exist=existfile)
+               end do
+            else
+               msg = "No 2d baseflow files found."
+               call nek_stop_error(msg, this_module, "get_2d_file_info")
+            end if
+            nfiles = nfiles - 1
+         end procedure get_2d_file_info
+
          !! SETTERS
 
          module procedure set_dpds

@@ -328,6 +328,70 @@
                end do
             end if
          end procedure compute_usrt
+
+         module procedure compute_uxyz
+            integer :: ix, iy, iz, ie
+            real(dp) :: phi, a, s, us_loc, ur_loc, ut_loc, utmp, vtmp
+            if (self%is_helix()) then
+               phi = self%phi
+               do ie = 1, nelv
+               do iz = 1, lz1
+               do iy = 1, ly1
+               do ix = 1, lx1
+                  s  = self%as(ix,iy,iz,ie)
+                  a  = self%alpha(ix,iy,iz,ie)
+                  us_loc = us(ix,iy,iz,ie)
+                  ur_loc = ur(ix,iy,iz,ie)
+                  ut_loc = ut(ix,iy,iz,ie)
+                  ! Invert (ur, ut) => (utmp, vtmp)
+                  utmp =  cos(a) * ur_loc + sin(a) * ut_loc
+                  vtmp = -sin(a) * ur_loc + cos(a) * ut_loc
+                  ! Now solve for ux, uy, uz from utmp, vtmp, us
+                  u(ix,iy,iz,ie) =  cos(s) * (cos(phi) * us_loc - sin(phi) * vtmp) + sin(s) * utmp
+                  v(ix,iy,iz,ie) = -sin(s) * (cos(phi) * us_loc - sin(phi) * vtmp) + cos(s) * utmp
+                  w(ix,iy,iz,ie) = sin(phi) * us_loc + cos(phi) * vtmp
+               end do
+               end do
+               end do
+               end do
+            else if (self%is_torus()) then
+               do ie = 1, nelv
+               do iz = 1, lz1
+               do iy = 1, ly1
+               do ix = 1, lx1
+                  s  = self%as(ix,iy,iz,ie)
+                  a  = self%alpha(ix,iy,iz,ie)
+                  us_loc = us(ix,iy,iz,ie)
+                  ur_loc = ur(ix,iy,iz,ie)
+                  ut_loc = ut(ix,iy,iz,ie)
+                  ! Invert (ur, ut) => (utmp, vtmp)
+                  utmp =  cos(a) * ur_loc + sin(a) * ut_loc
+                  vtmp = -sin(a) * ur_loc + cos(a) * ut_loc
+                  ! Invert us and utmp to get ux, uy
+                  u(ix,iy,iz,ie) =  cos(s) * us_loc + sin(s) * utmp
+                  v(ix,iy,iz,ie) = -sin(s) * us_loc + cos(s) * utmp
+                  w(ix,iy,iz,ie) = vtmp
+               end do
+               end do
+               end do
+               end do
+            else
+               do ie = 1, nelv
+               do iz = 1, lz1
+               do iy = 1, ly1
+               do ix = 1, lx1
+                  a = self%alpha(ix,iy,iz,ie)
+                  utmp =  cos(a) * ur(ix,iy,iz,ie) + sin(a) * ut(ix,iy,iz,ie)
+                  vtmp = -sin(a) * ur(ix,iy,iz,ie) + cos(a) * ut(ix,iy,iz,ie)
+                  u(ix,iy,iz,ie) = us(ix,iy,iz,ie)
+                  v(ix,iy,iz,ie) = utmp
+                  w(ix,iy,iz,ie) = vtmp
+               end do
+               end do
+               end do
+               end do
+            end if
+         end procedure compute_uxyz
    
          module procedure compute_ubar
             integer :: ix, iy, iz, ie
@@ -394,21 +458,6 @@
             lastep = 1
      	      call self%set_save_base(.true.)
 	         call self%save_2d_fields(vx, vy, vz)
-            call pipe%load_baseflow(vx, vy, vz, 'c2dtorus001.fld', 1)
-         end procedure
-
-         module procedure load_fld_torus
-            ! internal
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: xtmp, ytmp, ztmp
-            ! save current mesh (to maintain the chosen domain length)
-            call opcopy(xtmp, ytmp, ztmp, xm1, ym1, zm1)
-            call load_fld(rstfname)
-            lastep = 1
-            call self%set_save_base(.true.)
-	         call self%save_2d_fields(vx, vy, vz)
-            ! put right mesh back
-            call opcopy(xm1, ym1, zm1, xtmp, ytmp, ztmp)
-            ! set baseflow
             call pipe%load_baseflow(vx, vy, vz, 'c2dtorus001.fld', 1)
          end procedure
 

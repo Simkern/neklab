@@ -322,12 +322,16 @@
             character(len=*), parameter :: this_procedure = 'load_baseflow'
             integer :: ifld_, nchar
             character(len=132) :: filename
+            character(len=128) :: msg
             ifld_ = optval(ifld, 1)
             call blank(filename, 132)
             nchar = min(len(fname), 132)
             filename(1:nchar) = fname(1:nchar)
             call self%read_2d(filename)
-            if (ifld > self%nload) call nek_stop_error('Inconsistent ifld', this_module, this_procedure)
+            if (ifld > self%nload) then
+               write(msg,'(A,I0,A,I0,A)') 'Inconsistent ifld: ', ifld, ' != ', self%nload, ' self%nlaod.'
+               call nek_stop_error(msg, this_module, this_procedure)
+            end if
             call self%set_baseflow(basex, basey, basez, ifld)
          end procedure load_baseflow
 

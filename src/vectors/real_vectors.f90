@@ -131,8 +131,7 @@
             call add2s2(self%pr, vec%pr, alpha, n2)
             if (ifto) call add2s2(self%theta(:, 1), vec%theta(:, 1), alpha, n1)
          class default
-            call stop_error("The intent [IN] argument 'vec' must be of type 'nek_dvector'",
-     & this_module, 'nek_daxpby')
+            call type_error('vec','nek_dvector','IN',this_module,'nek_daxpby')
          end select
          end procedure
       
@@ -154,8 +153,7 @@
             end do
             end if
          class default
-            call stop_error("The intent [IN] argument 'vec' must be of type 'nek_dvector'",
-     & this_module, 'nek_ddot')
+            call type_error('vec','nek_dvector','IN',this_module,'nek_ddot')
          end select
          end procedure
       

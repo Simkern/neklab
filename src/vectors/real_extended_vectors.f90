@@ -134,8 +134,7 @@
             if (ifto) call add2s2(self%theta(:, 1), vec%theta(:, 1), alpha, n1)
             self%T = beta*self%T + alpha*vec%T
          class default
-            call stop_error("The intent [IN] argument 'vec' must be of type 'nek_ext_dvector'",
-     & this_module, 'nek_ext_daxpby')
+            call type_error('vec','nek_ext_dvector','IN',this_module,'nek_ext_daxpby')
          end select
          end procedure
       
@@ -158,8 +157,7 @@
             end if
             alpha = alpha + self%T*vec%T
          class default
-            call stop_error("The intent [IN] argument 'vec' must be of type 'nek_ext_dvector'",
-     & this_module, 'nek_ext_ddot')
+            call type_error('vec','nek_ext_dvector','IN',this_module,'nek_ext_ddot')
          end select
          end procedure
       

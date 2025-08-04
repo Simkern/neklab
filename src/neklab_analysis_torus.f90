@@ -412,7 +412,7 @@
             call pipe%set_save_fft(save_fft_old)
          end subroutine shift_mflow_phase_torus
 
-         subroutine compute_nonlinear_period_torus(bf_out, bf_in, save_2d, variable_dt, if_fft, if_res, cfl_limit, tstart)
+         subroutine compute_nonlinear_period_torus(bf_out, bf_in, save_2d, variable_dt, recompute_dt, if_fft, if_res, cfl_limit, tstart)
             type(nek_dvector), intent(out) :: bf_out
       !! Output of the nonlinear solver after a period
             type(nek_dvector), intent(in) :: bf_in
@@ -421,6 +421,8 @@
       !! Save 2D fields?
             logical, optional, intent(in) :: variable_dt
       !! Compute with fixed or variable timestep?
+            logical, optional, intent(in) :: recompute_dt
+      !! Recompute timestep
             logical, optional, intent(in) :: if_fft
       !! Compute mflow fft?
             logical, optional, intent(in) :: if_res
@@ -431,7 +433,7 @@
       !! time setting at start
             ! internal
             character(len=*), parameter :: this_procedure = 'nonlinear_period'
-            logical :: get_2d, get_fft, var_dt, get_res
+            logical :: get_2d, get_fft, var_dt, get_res, recompute_dt_
             logical :: get_2d_old, get_fft_old, newton_old, floquet_old
             real(dp) :: pd, ubar, rnorm, cfl
             character(len=128) :: msg
@@ -443,6 +445,7 @@
             get_res = optval(if_res, .false.)
             cfl     = optval(cfl_limit, 0.5_dp)
             time    = optval(tstart, 0.0_dp)
+            recompute_dt_ = optval(recompute_dt, .true.)
       ! save toolbox status
             get_2d_old  = pipe%is_save_2d();  call pipe%set_save_base(get_2d)
             get_fft_old = pipe%is_save_fft(); call pipe%set_save_fft(get_fft)
@@ -454,10 +457,10 @@
       ! set baseflow intial condition
             call vec2nek(vx, vy, vz, pr, t, bf_in)
       ! set nek status
-            call setup_nonlinear_solver(recompute_dt = .true.,
-     &                                  endtime      = pd, 
-     &                                  variable_dt  = var_dt,
-     &                                  cfl_limit    = cfl)
+            call setup_nonlinear_solver(recompute_dt = recompute_dt_,
+     $                                  endtime      = pd, 
+     $                                  variable_dt  = var_dt,
+     $                                  cfl_limit    = cfl)
             call nek_status(full_summary=.true.)
             call pipe%reset_mflow_fft() ! in case we compute the FFT
       ! compute period

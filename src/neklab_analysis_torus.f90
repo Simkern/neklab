@@ -470,8 +470,8 @@
                   istep = istep + 1
                   call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
                   if (get_2d)  call pipe%save_2d_fields(vx,vy,vz) ! outposts automatically at lastep == 1
-                  if (get_fft) call pipe%compute_mflow_fft(period = pd, var_dt = .true.) ! integrate Fourier coefficients
                   call nek_advance()
+                  if (get_fft) call pipe%compute_mflow_fft(period = pd, var_dt = .true.) ! integrate Fourier coefficients
                   ubar = pipe%compute_ubar(vx,vy,vz)
                   write(msg,fmt) time, time/pd, mod(time,pd), 'massflow UBAR: ', ubar
                   call nek_log_information(msg, this_module, this_procedure)
@@ -480,8 +480,8 @@
                do istep = 1, nsteps
                   call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
                   if (get_2d)  call pipe%save_2d_fields(vx,vy,vz) ! outposts automatically at lastep == 1
-                  if (get_fft) call pipe%compute_mflow_fft(period = pd)      ! integrate Fourier coefficients
                   call nek_advance()
+                  if (get_fft) call pipe%compute_mflow_fft(period = pd)      ! integrate Fourier coefficients
                   ubar = pipe%compute_ubar(vx,vy,vz)
                   write(msg,fmt) time, time/pd, mod(time,pd), 'massflow UBAR: ', ubar
                   call nek_log_information(msg, this_module, this_procedure)

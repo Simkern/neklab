@@ -27,7 +27,7 @@
       !! Local number of grid points for the velocity mesh.
          integer, parameter :: lp = lx2*ly2*lz2*lelv
       !! Local number of grid points for the pressure mesh.
-         integer, parameter :: lbuf = 1000
+         integer, parameter, public :: lbuf = 1000
       !! Maximum number of 2d fields to save before outposting
          integer, parameter, public :: lf = 3
       !! Maximum number of forcing components 1 x steady + 2 x (# unsteady)
@@ -172,6 +172,7 @@
             procedure, pass(self), public :: get_nf
             procedure, pass(self), public :: get_fshape
             procedure, pass(self), public :: get_angle_s
+            procedure, pass(self), public :: get_alpha
             procedure, pass(self), public :: get_length
             procedure, pass(self), public :: get_delta
             procedure, pass(self), public :: get_diameter

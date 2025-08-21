@@ -117,6 +117,19 @@
             ! Angle within cross-sectional plane
             self%alpha = atan2(self%zax, pipe_r)
 
+            !do ie = 1, nelv
+            !do iz = 1, lz1
+            !do iy = 1, ly1
+            !do ix = 1, lx1
+            !   x_torus = xm1(ix,iy,iz,ie)
+            !   y_torus = ym1(ix,iy,iz,ie)
+            !   z_torus = zm1(ix,iy,iz,ie)
+            !   self%r(ix,iy,iz,ie) = sqrt((sqrt(x_torus**2+y_torus**2)-self%curv_radius)**2 + z_torus**2)
+            !enddo
+            !enddo
+            !enddo
+            !enddo
+
             itmp = istep
             istep = 0
             call comment() ! set internal variable ifcour for standard timestep logging (--> needs to be called at istep == 0)
@@ -454,11 +467,14 @@
          end procedure shift_mflow_phase
 
          module procedure gfldr_torus
+            ! internal
+            character(len=132) :: fname
+            fname = 'r2dtorus001.fld'
             call gfldr(rstfname)
-            lastep = 1
-     	      call self%set_save_base(.true.)
+            call self%set_save_base(.true.)
 	         call self%save_2d_fields(vx, vy, vz)
-            call pipe%load_baseflow(vx, vy, vz, 'c2dtorus001.fld', 1)
+            call self%write_2d(fname, only_mesh=.false.)
+            call self%load_baseflow(vx, vy, vz, fname, 1)
          end procedure
 
          module procedure setup_summary

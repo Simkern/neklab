@@ -145,6 +145,14 @@
             n = self%nf
          end procedure get_nf
 
+         module procedure get_nelf
+            n = self%nelf
+         end procedure get_nelf
+
+         module procedure get_nslices
+            n = self%nslices
+         end procedure get_nslices
+
          module procedure get_Wo
             Wo = self%womersley
          end procedure get_Wo

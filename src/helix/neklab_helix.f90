@@ -170,6 +170,8 @@
             procedure, pass(self), public :: get_Wo
             procedure, pass(self), public :: get_dpds
             procedure, pass(self), public :: get_nf
+            procedure, pass(self), public :: get_nelf
+            procedure, pass(self), public :: get_nslices
             procedure, pass(self), public :: get_fshape
             procedure, pass(self), public :: get_angle_s
             procedure, pass(self), public :: get_alpha
@@ -616,6 +618,16 @@
                class(helix), intent(in) :: self
                integer :: n
             end function get_nf
+            
+            module pure function get_nelf(self) result(n)
+               class(helix), intent(in) :: self
+               integer :: n
+            end function get_nelf
+            
+            module pure function get_nslices(self) result(n)
+               class(helix), intent(in) :: self
+               integer :: n
+            end function get_nslices
 
             module subroutine get_fshape(self, fshape)
                class(helix), intent(in) :: self

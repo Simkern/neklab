@@ -8,7 +8,7 @@
          use neklab_vectors
          use neklab_utils, only: nek2vec, vec2nek
          use neklab_nek_setup, only: setup_nonlinear_solver, setup_linear_solver
-         use neklab_nek_setup, only: nek_stop_error, nek_log_message
+         use neklab_nek_setup, only: nek_stop_error, nek_log_message, nek_log_debug
          use neklab_helix
          implicit none
          include "SIZE"
@@ -297,16 +297,19 @@
             real(dp), dimension(lv, 1), intent(in) :: uy
             real(dp), dimension(lv, 1), intent(in) :: uz
             real(dp), dimension(lp, 1), intent(in) :: pres
-            logical, optional, intent(in) :: trans
-      !! adjoint?
+            logical, optional, intent(in) :: trans ! adjoint?
       ! internal
             real(dp), dimension(lv) :: utmpx, utmpy, utmpz
+      ! switch to linear mode for correct BCs
+            jp = 1
       ! Apply the linear operator to the velocity components
             call apply_Lv(Lux, Luy, Luz, ux, uy, uz, trans)
       ! and subtract the pressure gradient term
-            call logger%log_debug(' pressure gradient', module=this_module, procedure='compute_L')
+            call nek_log_debug(' pressure gradient', this_module, 'compute_L')
             call compute_LNS_gradp(utmpx, utmpy, utmpz, pres)
             call opsub2(Lux, Luy, Luz, utmpx, utmpy, utmpz)
+      ! return to regular mode
+            jp = 0
          end subroutine apply_L
       
          subroutine apply_Lv(Lux, Luy, Luz, ux, uy, uz, trans)
@@ -317,20 +320,23 @@
             real(dp), dimension(lv, 1), intent(in) :: ux
             real(dp), dimension(lv, 1), intent(in) :: uy
             real(dp), dimension(lv, 1), intent(in) :: uz
-            logical, optional, intent(in) :: trans
-      !! adjoint?
+            logical, optional, intent(in) :: trans ! adjoint?
       ! internal
             real(dp), dimension(lv) :: utmpx, utmpy, utmpz
+      ! switch to linear mode for correct BCs
+            jp = 1
       ! apply BCs
             call bcdirvc(ux, uy, uz, v1mask, v2mask, v3mask)
       ! Diffusion term
-            call logger%log_debug('diffusion term', module=this_module, procedure='compute_Lv')
+            call nek_log_debug('diffusion term', this_module, 'compute_Lv')
             call compute_LNS_laplacian(Lux, Luy, Luz, ux, uy, uz)
-      ! Convective terms
-            call logger%log_debug('convective term', module=this_module, procedure='compute_Lv')
+            ! Convective terms
+            call nek_log_debug('convective term', this_module, 'compute_Lv')
             call compute_LNS_conv(utmpx, utmpy, utmpz, ux, uy, uz, trans)
       ! subtract from output terms
             call opsub2(Lux, Luy, Luz, utmpx, utmpy, utmpz)
+      ! return to regular mode
+            jp = 0
          end subroutine apply_Lv
       
       end module neklab_linops

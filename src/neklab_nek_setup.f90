@@ -36,7 +36,7 @@
       
       contains
       
-         subroutine setup_nek(LNS, transpose, solve_baseflow, recompute_dt, variable_dt, endtime, vtol, ptol, cfl_limit, silent)
+         subroutine setup_nek(LNS, transpose, solve_baseflow, recompute_dt, variable_dt, endtime, vtol, ptol, cfl_limit, solve_temperature, silent)
             logical, intent(in) :: LNS
             logical, optional, intent(in) :: transpose
             logical :: transpose_
@@ -54,6 +54,8 @@
             real(dp) :: ptol_
             real(dp), optional, intent(in) :: cfl_limit
             real(dp) :: cfl_limit_
+            logical, optional, intent(in) :: solve_temperature
+            logical :: solve_temperature_
             logical, optional, intent(in) :: silent
             logical :: silent_
       ! internal
@@ -68,7 +70,8 @@
             full_summary = .false.
       
             transpose_ = optval(transpose, .false.)
-            solve_baseflow_ = optval(solve_baseflow, .false.)
+            solve_baseflow_    = optval(solve_baseflow,    .false.)
+            solve_temperature_ = optval(solve_temperature, .false.)
             endtime_ = optval(endtime, param(10))
             ptol_ = optval(ptol, param(21))
             vtol_ = optval(vtol, param(22))
@@ -130,6 +133,9 @@
                if (ifpert) full_summary = .true.
                ifpert = .false.; call bcast(ifpert, lsize)
                param(31) = 0; npert = 0
+            end if
+            if (solve_temperature_) then
+               ifheat = .true.; call bcast(ifheat, lsize)
             end if
       
       ! Set integration time
@@ -246,19 +252,21 @@
       
          end subroutine setup_nek
       
-         subroutine setup_nonlinear_solver(recompute_dt, variable_dt, endtime, vtol, ptol, cfl_limit, silent)
+         subroutine setup_nonlinear_solver(recompute_dt, variable_dt, endtime, vtol, ptol, cfl_limit, solve_temperature, silent)
             logical, optional, intent(in) :: recompute_dt
             logical, optional, intent(in) :: variable_dt
             real(dp), optional, intent(in) :: endtime
             real(dp), optional, intent(in) :: vtol
             real(dp), optional, intent(in) :: ptol
             real(dp), optional, intent(in) :: cfl_limit
+            logical, optional, intent(in) :: solve_temperature
             logical, optional, intent(in) :: silent
             call setup_nek(LNS=.false., recompute_dt=recompute_dt, variable_dt=variable_dt,
-     &   endtime = endtime, vtol = vtol, ptol = ptol, cfl_limit = cfl_limit, silent = silent)
+     &   endtime = endtime, vtol = vtol, ptol = ptol, cfl_limit = cfl_limit, solve_temperature=solve_temperature,
+     &   silent = silent)
          end subroutine setup_nonlinear_solver
       
-         subroutine setup_linear_solver(transpose, solve_baseflow, recompute_dt, variable_dt, endtime, vtol, ptol, cfl_limit, silent)
+         subroutine setup_linear_solver(transpose, solve_baseflow, recompute_dt, variable_dt, endtime, vtol, ptol, cfl_limit, solve_temperature, silent)
             logical, optional, intent(in) :: transpose
             logical, optional, intent(in) :: solve_baseflow
             logical, optional, intent(in) :: recompute_dt
@@ -267,9 +275,11 @@
             real(dp), optional, intent(in) :: vtol
             real(dp), optional, intent(in) :: ptol
             real(dp), optional, intent(in) :: cfl_limit
+            logical, optional, intent(in) :: solve_temperature
             logical, optional, intent(in) :: silent
             call setup_nek(LNS=.true., transpose=transpose, solve_baseflow=solve_baseflow, recompute_dt=recompute_dt,
-     &   variable_dt=variable_dt, endtime = endtime, vtol = vtol, ptol = ptol, cfl_limit = cfl_limit, silent = silent)
+     &   variable_dt=variable_dt, endtime = endtime, vtol = vtol, ptol = ptol, cfl_limit = cfl_limit, solve_temperature=solve_temperature,
+     &   silent = silent)
          end subroutine setup_linear_solver
       
          subroutine nek_status(full_summary)

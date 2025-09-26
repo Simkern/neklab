@@ -144,8 +144,7 @@
                call nopcopy(vx_, vy_, vz_, pr_, t_, vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
 
             class default
-               call stop_error("The intent [IN] argument 'vec' must be of type 'nek_dvector'",
-     & this_module, 'abstract_vec2nek_std')
+               call type_error('vec','nek_dvector','IN',this_module,'abstract_vec2nek_std')
             end select
          end subroutine abstract_vec2nek_std
       
@@ -163,8 +162,7 @@
                call nopcopy(vx_(:, 1), vy_(:, 1), vz_(:, 1), pr_(:, 1), t_(:, :, 1), vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
 
             class default
-               call stop_error("The intent [IN] argument 'vec' must be of type 'nek_dvector'",
-     & this_module, 'abstract_vec2nek_prt')
+               call type_error('vec','nek_dvector','IN',this_module,'abstract_vec2nek_prt')
             end select
          end subroutine abstract_vec2nek_prt
       
@@ -236,8 +234,7 @@
                call nopcopy(vx_, vy_, vz_, pr_, t_, vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
 
             class default
-               call stop_error("The intent [IN] argument 'vec' must be of type 'nek_ext_dvector'",
-     & this_module, 'abstract_ext_vec2nek_std')
+               call type_error('vec','nek_ext_dvector','IN',this_module,'abstract_ext_vec2nek_std')
             end select
          end subroutine abstract_ext_vec2nek_std
       
@@ -255,8 +252,7 @@
                call nopcopy(vx_(:, 1), vy_(:, 1), vz_(:, 1), pr_(:, 1), t_(:, :, 1), vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
 
             class default
-               call stop_error("The intent [IN] argument 'vec' must be of type 'nek_ext_dvector'",
-     & this_module, 'abstract_ext_vec2nek_prt')
+               call type_error('vec','nek_ext_dvector','IN',this_module,'abstract_ext_vec2nek_prt')
             end select
          end subroutine abstract_ext_vec2nek_prt
       
@@ -268,8 +264,7 @@
                period = vec%T
 
             class default
-               call stop_error("The intent [IN] argument 'vec' must be of type 'nek_ext_dvector'",
-     & this_module, 'get_period_abs')
+               call type_error('vec','nek_ext_dvector','IN',this_module,'get_period_abs')
             end select
          end function get_period_abs
       
@@ -277,7 +272,7 @@
             class(nek_ext_dvector), intent(in) :: vec
             period = vec%T
          end function get_period
-      
+   
          subroutine nopcopy(a1, a2, a3, a4, a5, b1, b2, b3, b4, b5)
             implicit none
             include 'SIZE'
@@ -297,7 +292,7 @@
             end do
             end if
          end subroutine nopcopy
-      
+         
          subroutine outpost_dnek_vector(vec, prefix)
             type(nek_dvector), intent(in) :: vec
             character(len=3), intent(in) :: prefix
@@ -313,8 +308,7 @@
                call outpost(vec%vx, vec%vy, vec%vz, vec%pr, vec%theta, prefix)
 
             class default
-               call stop_error("The intent [IN] argument 'vec' must be of type 'nek_dvector'",
-     & this_module, 'outpost_dnek_abs_vector')
+               call type_error('vec','nek_dvector','IN',this_module,'outpost_dnek_abs_vector')
             end select
          end subroutine outpost_dnek_abs_vector
       

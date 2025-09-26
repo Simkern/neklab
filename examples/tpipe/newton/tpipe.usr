@@ -1,0 +1,133 @@
+c-----------------------------------------------------------------------
+      subroutine uservp (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      udiff =0.0d0
+      utrans=0.0d0
+      end
+c-----------------------------------------------------------------------
+      subroutine userf(ix,iy,iz,ieg)
+      use neklab
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      ffx = 0.0d0
+      ffy = 0.0d0
+      ffz = 0.0d0
+      
+      end
+c-----------------------------------------------------------------------
+      subroutine userq(ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      qvol = 0.0d0
+      source = 0.0d0
+      end
+c-----------------------------------------------------------------------
+      subroutine userchk
+      use stdlib_logger, only: debug_level, information_level
+      use LightKrylov_Logger
+      use neklab
+      implicit none     
+      include "SIZE"
+      include "TOTAL"
+      
+      ! State vectors
+      type(nek_dvector) :: bf
+      ! System for which we seek a fixed point
+      type(nek_system), allocatable :: sys
+      ! Tolerance for the Newton solver
+      real(dp) :: tol
+      
+      if (istep.eq.0) then
+         ! Load initial guess
+         call load_fld('rsttpipe.fld')
+         call nek2vec(bf, vx, vy, vz, pr, t)
+         
+         ! Define system
+         sys = nek_system()
+         sys%jacobian = nek_jacobian()
+         sys%jacobian%X = bf
+			
+         ! Set Newton tolerance.
+         tol = 1.0e-6_dp
+         
+         ! Compute fixed point.
+         call newton_fixed_point_iteration(sys, bf, tol)
+
+         ! Outpost solution.
+         call outpost_dnek(bf, "BF_")
+
+         call nek_end()
+      end if
+      
+      end
+c----------------------------------------------------------------------------------
+      subroutine userbc(i,j,k,iside,eg)
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      integer i,j,k,iside,eg
+      ! x_0 = -10.834705943388380
+      ! x_1 = 10.834705943388380
+      ! U_0 = 1
+      ! U_1 = 0.5
+      ! U = (a * x + b)
+      ! a = (U_1 - U_0)/(x_1 - x_0)
+      !   = -0.023074
+      ! b = (U_0 + U_1)/2
+      !   = 0.75
+      if (JP.eq.0) then ! velocity
+            ux = (0.75d0 - 0.023073999544d0 * X)*(1.0d0 - (Y**2 + Z**2)/0.5d0**2)
+            uy = 0.0d0
+            uz = 0.0d0
+            temp=0.0d0
+         else           ! perturbation
+            ux = 0.0d0
+            uy = 0.0d0
+            uz = 0.0d0
+            temp=0.0d0
+         endif
+      end
+c-----------------------------------------------------------------------
+      subroutine useric(i,j,k,eg)
+      implicit none 
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      integer i,j,k,eg
+        if (JP.eq.0) then ! velocity
+            ux = 1.0d0
+            uy = 0.0d0
+            uz = 0.0d0
+            temp=0.0d0
+         else             ! perturbation
+            ux = 0.0d0
+            uy = 0.0d0
+            uz = 0.0d0
+            temp=0.0d0
+         endif
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      call setbc(1,1,'v  ') ! set bcID 1 to inlet for field 1 (velocity)
+      call setbc(2,1,'v  ') ! set bcID 2 to outlet for field 1 (velocity)
+      call setbc(3,1,'O  ') ! set bcID 3 to wall for field 1 (velocity)
+      call setbc(4,1,'W  ') ! set bcID 4 to wall for field 1 (velocity)
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat2
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat3
+      end
+c-----------------------------------------------------------------------

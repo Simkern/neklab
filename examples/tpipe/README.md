@@ -1,6 +1,9 @@
 # T-pipe example
 
+![Slice of the axial velocity and isocontours of the vertical velocity.](tpipe.png)
+
 Files:
+```
 ├── compile
 │   └── SIZE                                    ! definitions of static arrays dimensions
 ├── geom
@@ -12,6 +15,7 @@ Files:
 │   ├── tpipe.par                               ! Nek5000 parameter file
 │   └── tpipe.usr                               ! Nek5000 setup source file
 └── README.md
+```
 
 To compile the code:
 * ensure that `Nek5000` has been successfully cloned and the `LightKrylov`-specific changes have been executed. This is most easily acheived by running the `Nek5000_setup.sh` script in the neklab root directory (Note: the script must be executable).
@@ -20,4 +24,5 @@ To compile the code:
 
 To run the case:
 * generate the processor map file `tpipe.ma2` using the tool `genmap` distributed together with `Nek5000`.
+* Add the restart file (not included in this repo to reduce the data footprint) `rsttpipe.fld` which will be the initial guess for the Newton iteration.
 * run the code using the parallel executable provided in `Nek5000/bin/`.

@@ -1,0 +1,413 @@
+c-----------------------------------------------------------------------
+      subroutine uservp (ix,iy,iz,ieg)
+
+      implicit none
+
+      include 'SIZE'
+      include 'NEKUSE'          ! UDIFF, UTRANS
+
+      integer ix,iy,iz,ieg
+
+      UDIFF =0.
+      UTRANS=0.
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userf  (ix,iy,iz,ieg)
+
+      implicit none
+      include 'SIZE'
+      include 'SOLN'            ! jp
+      include 'NEKUSE'          ! FFX, FFY, FFZ
+      include 'PARALLEL'        ! GLLEL
+      integer :: ix,iy,iz,ieg
+      integer :: e, ijke
+
+      real, dimension(lx1*ly1*lz1*lelv,lpert) :: frc_x, frc_y
+      common / f2Dh_m / frc_x, frc_y
+
+      e = gllel(ieg)
+      ijke = ix + lx1*((iy - 1) + ly1*((iz - 1) + lz1*(e - 1)))
+      FFX = frc_x(ijke,jp) 
+      FFY = frc_y(ijke,jp)
+      FFZ = 0.0 
+     
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userq  (ix,iy,iz,ieg)
+
+      implicit none
+
+      include 'SIZE'
+      include 'SOLN'            ! jp
+      include 'NEKUSE'          ! QVOL
+      include 'PARALLEL'        ! GLLEL
+      integer :: ix,iy,iz,ieg
+      integer :: e, ijke
+
+      real, dimension(lx1*ly1*lz1*lelv,lpert) :: frc_q
+      common / f2Dh_t / frc_q
+
+      e = gllel(ieg)
+      ijke = ix + lx1*((iy - 1) + ly1*((iz - 1) + lz1*(e - 1)))
+      QVOL = frc_q(ijke,jp) 
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userbc (ix,iy,iz,iside,eg)
+
+      implicit none
+
+      include 'SIZE'
+      include 'NEKUSE'          ! UX, UY, UZ, TEMP, X, Y
+      include 'SOLN'            ! jp
+
+      integer ix,iy,iz,iside,eg
+
+      if (jp.eq.0) then
+c     baseflow
+        if (cbu.eq.'v  ') then
+          UX = 0.0d0
+          UY = 0.0d0
+          UZ = 0.0d0
+	  temp = 0.0d0
+        endif
+      else
+c     perturbations
+        UX = 0.0d0
+        UY = 0.0d0
+        UZ = 0.0d0
+	temp = 0.0d0
+      endif
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine useric (ix,iy,iz,ieg)
+
+      implicit none
+
+      include 'SIZE'
+      include 'INPUT'
+      include 'NEKUSE'          ! UX, UY, UZ, TEMP, Z
+      include 'SOLN'            ! JP
+      include 'PARALLEL'        ! gllel
+
+      integer ix,iy,iz,ieg
+      integer ie, ijke
+
+      real amp, pi, kx(lpert), ky(lpert) 
+
+      real mth_rand
+      real xl(LDIM)
+      real fcoeff(3)
+
+      ie = gllel(ieg)
+
+      pi = 4.0*atan(1.0)
+
+c     velocity
+c     base flow
+      if (jp.eq.0) then
+        UX = (1.0d0 - Y**2)
+        UY = 0.0d0
+        UZ = 0.0d0
+	temp = 0.0d0
+      else
+c     perturbation
+        ijke = ix + lx1*((iy-1) + ly1*((iz-1) + lz1*(ie-1)))
+        UX   = 0.d00
+        UY   = 0.d00
+        UZ   = 0.d00
+        temp = 0.d00
+      endif
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userchk
+
+      use neklab
+      implicit none
+      include "SIZE"
+      include "TOTAL"
+
+      ! State vectors
+      type(nek_dvector) :: bf, prt_r, prt_i
+
+      ! parameters
+      integer, parameter :: nxyz1 = lx1*ly1*lz1
+      integer, parameter :: nxyz2 = lx2*ly2*lz2
+      integer, parameter :: lv    = nxyz1*lelv
+      real(dp), parameter :: beta = 1.0_dp
+
+      ! internal
+      integer :: igeom, ie1, ie2, ie, ntot1, ntot2, intype, ilag
+      real :: d2dz, ddz, dtbd
+      character(len=3) :: prefix
+
+      common /cgeom/ igeom
+
+      real, dimension(lx1,ly1,lz1,lelv) :: dtheta
+      real, dimension(lx1*ly1*lz1) :: wrk1, wrk2
+      real w1, w2, w3, resv1, resv2, resv3, dv1, dv2, dv3, h1, h2
+      real h2inv, prextr
+      real(dp), dimension(LX2*LY2*LZ2*LELV,lpert) :: dpr
+      COMMON /SCRNS/  w1    (lx1,ly1,lz1,lelv)
+     $ ,              w2    (lx1,ly1,lz1,lelv)
+     $ ,              w3    (lx1,ly1,lz1,lelv)
+     $ ,              RESV1 (LX1,LY1,LZ1,LELV)
+     $ ,              RESV2 (LX1,LY1,LZ1,LELV)
+     $ ,              RESV3 (LX1,LY1,LZ1,LELV)
+     $ ,              DV1   (LX1,LY1,LZ1,LELV)
+     $ ,              DV2   (LX1,LY1,LZ1,LELV)
+     $ ,              DV3   (LX1,LY1,LZ1,LELV)
+      COMMON /SCRVH/  H1    (LX1,LY1,LZ1,LELV)
+      COMMON /SCRCH/ PREXTR(LX2,LY2,LZ2,LELV,lpert)
+     $ ,              H2    (LX1,LY1,LZ1,LELV)
+      common /scrhi/ h2inv (lx1,ly1,lz1,lelv)
+
+      real, dimension(lx1*ly1*lz1*lelv,lpert) :: frc_x, frc_y, frc_q
+      real, dimension(lx2,ly2,lz2,lelv,lpert) :: frc_div
+      common / f2Dh_m / frc_x, frc_y
+      common / f2Dh_t / frc_q
+
+      logical, parameter :: debug = .true.
+
+      ddz   = -beta
+      d2dz  = -beta**2
+      ntot1 = lx1*ly1*lz1*nelv
+      ntot2 = lx2*ly2*lz2*nelv
+
+      ! pert 1: real
+      ! pert 2: imag
+
+      if (istep.eq.0) then
+         ! save baseflow
+         call nek2vec(bf, vx, vy, vz, pr, t)
+         ! load prt IC uvw
+         ! real part
+         call load_fld('IC_poiseuille_uv_r.fld')
+         call nek2vec(prt_r, vx, vy, vz, pr, t)
+         call load_fld('IC_poiseuille_uw_r.fld')
+         call copy(prt_r%theta, vy, ntot1)
+         ! imag part
+         call load_fld('IC_poiseuille_uv_i.fld')
+         call nek2vec(prt_i, vx, vy, vz, pr, t)
+         call load_fld('IC_poiseuille_uw_i.fld')
+         call copy(prt_i%theta, vy, ntot1)
+
+         ! reset baseflow
+         call vec2nek(vx, vy, vz, pr, t, bf)
+         ! set perturbations
+         call copy(vxp(1,1),   prt_r%vx,    ntot1)
+         call copy(vyp(1,1),   prt_r%vy,    ntot1)
+         call copy(tp (1,1,1), prt_r%theta, ntot1)
+         call copy(vxp(1,2),   prt_i%vx,    ntot1)
+         call copy(vyp(1,2),   prt_i%vy,    ntot1)
+         call copy(tp (1,1,2), prt_i%theta, ntot1)
+
+         ! diagnositcs
+         !call outpost(vx, vy, vz, pr, t, 'bas')
+         !call outpost(vxp(1,1), vyp(1,1), vzp, prp(1,1), tp(1,1,1), 'p_r')
+         !call outpost(vxp(1,2), vyp(1,2), vzp, prp(1,2), tp(1,1,2), 'p_i')
+         
+	      do istep = 1, 10
+            call nekgsync
+            call setup_convect(2) ! Save conv vel
+            if (iftran) call settime
+            call setsolv
+            call comment
+            
+            call setprop
+            do igeom = 1,ngeom
+               if (nid == 0) print *, 'istep', istep, 'igeom', igeom
+               if (igeom == 1) then
+                  if (nid == 0) print *, 'istep', istep, 'compute additional viscous forcing'
+                  call rzero(frc_x, npert*ntot1); call rzero(frc_y, npert*ntot1); call rzero(frc_q, npert*ntot1)
+                  do jp = 1, npert
+                     if (nid == 0) print *, 'istep', istep, jp, 'x, y, t'
+                     ! set frc_[xy]
+                     ifield = 1
+                     call col3( frc_x(1,jp), vxp(1,jp), vdiff(1,1,1,1,ifield), ntot1)
+                     call cmult(frc_x(1,jp), d2dz, ntot1)                              ! -beta**2/Re * vxp
+                     call col3( frc_y(1,jp), vyp(1,jp), vdiff(1,1,1,1,ifield), ntot1)
+                     call cmult(frc_y(1,jp), d2dz, ntot1)                              ! -beta**2/Re * vyp
+                     ! set frc_q (aka z)
+                     ifield = 2
+	                  call col3( frc_q(1,jp), tp(1,1,jp), vdiff(1,1,1,1,ifield), ntot1)
+                     call cmult(frc_q(1,jp), d2dz, ntot1)                              ! -beta**2/Re * theta
+                     ! diagnositcs
+                     if (debug) then
+                        write(prefix,'(A2,I1)') 'fr', jp
+                        call outpost(frc_x(1,jp), frc_y(1,jp), vzp, prp(1,jp), frc_q(1,jp), prefix)
+                     end if
+                  end do
+               end if
+	       
+               ! solve advection-diffusion for
+               if (nid == 0 .and. igeom>1) print *, 'istep', istep, 'Solve advection-diffusion for t (1/2)'
+	            call heatp (igeom)
+
+               ! set frc_div as spanwise gradient of temperature
+               if (igeom == 2) then
+                  if (nid == 0) print *, 'istep', istep, 'Compute inhomogeneity of the pressure equation'
+                  ! here the perturbations are flipped!
+                  ! map theta(2) from the velocity to the pressure mesh
+                  do ie = 1, nelv
+                     ie1 = (ie-1)*nxyz1+1
+                     call map12 (frc_div(1,1,1,ie,1), tp(ie1,1,2), ie)
+                  end do
+                  ! frc_div(1) = - ddz theta(2)
+                  call cmult(frc_div(1,1,1,1,1), -ddz, ntot2)
+                  ! map theta(1) from the velocity to the pressure mesh
+                  do ie = 1, nelv
+                     ie1 = (ie-1)*nxyz1+1
+                     call map12 (frc_div(1,1,1,ie,2), tp(ie1,1,1), ie)
+                  end do
+                  ! frc_div(2) =   ddz theta(1)
+                  call cmult(frc_div(1,1,1,1,2), ddz, ntot2)
+                  ! diagnostic
+                  if (debug) then
+                     call outpost(vxp(1,1), vyp(1,1), vzp,frc_div(1,1,1,1,1), tp(1,1,1), 'dv1')
+                     call outpost(vxp(1,2), vyp(1,2), vzp,frc_div(1,1,1,1,2), tp(1,1,2), 'dv2')
+                  end if
+               end if
+
+	            ! solve velocity equations with added forcing and usrdiv
+               !call fluidp(igeom)
+               ! replaced by code below
+               do jp = 1, npert
+                  ifield = 1 
+                  if (igeom == 1) then
+                  !
+                  !  Old geometry, old velocity
+                  !
+                     call makefp               ! call userf and sets the forcing
+                     call lagfieldp
+                  !
+                  else
+                     if (nid == 0) print *, 'istep', istep, 'Solve momentum equations for x/y', jp
+                  !
+                  !  New geometry, new velocity
+                  !
+                     intype = -1
+                     call sethlm   (h1,h2,intype)
+                     call cresvipp (resv1,resv2,resv3,h1,h2)
+                     call ophinv   (dv1,dv2,dv3,resv1,resv2,resv3,h1,h2,tolhv,nmxv)
+                     call opadd2   (vxp(1,jp),vyp(1,jp),vzp(1,jp),dv1,dv2,dv3)
+                  !   call incomprp (vxp(1,jp),vyp(1,jp),vzp(1,jp),prp(1,jp))
+                  ! replaced by code below
+               
+                     intype = 1
+                     dtbd   = bd(1)/dt
+                  
+                     call rzero   (h1,ntot1)
+                     call cmult2  (h2,vtrans(1,1,1,1,ifield),dtbd,ntot1)
+                     call invers2 (h2inv,h2,ntot1)
+                  
+                     call opdiv   (dpr(1,jp),vxp(1,jp),vyp(1,jp),vzp(1,jp))
+                     call chsign  (dpr(1,jp),ntot2)
+
+                     !!! add frc_div to rhs
+                     call add2col2(dpr(1,jp),bm2,frc_div(1,1,1,1,jp),ntot2)
+                     !!!
+                     
+                     call ortho   (dpr(1,jp))
+                  
+                     call esolver (dpr(1,jp),h1,h2,h2inv,intype)
+                  
+                     call opgradt (w1 ,w2 ,w3 ,dpr(1,jp))
+                     call opbinv  (dv1,dv2,dv3,w1 ,w2 ,w3 ,h2inv)
+                     call opadd2  (vxp(1,jp),vyp(1,jp),vzp(1,jp), dv1,dv2,dv3)
+                     if (debug) call outpost(dv1, dv2, dv3, pr, t, 'dv_')
+                     
+                     call extrapprp(prextr)
+                     call lagpresp
+                     call add3(prp(1,jp),prextr,dpr(1,jp),ntot2)
+               
+                  endif
+               
+               end do
+
+            enddo
+
+            !!! compute spanwise pressure gradient add add it to tp
+            ! dtheta(1) = - ddz dpr(2)
+            if (nid == 0) print *, 'istep', istep, 'Add velocity correction for t', 1
+            call mappr(dtheta, dpr(1,2), wrk1, wrk2)
+            call  col2(dtheta, h2inv, ntot1)
+            call cmult(dtheta, -ddz, ntot1)
+            call add2(tp(1,1,1), dtheta, ntot1)
+            ! Diagnostic
+            if (debug) call outpost(dtheta, dtheta, dtheta, pr, t, 'dt1')
+            ! dtheta(2) =   ddz dpr(1)
+            if (nid == 0) print *, 'istep', istep, 'Add velocity correction for t', 2
+            call mappr(dtheta, dpr(1,1), wrk1, wrk2)
+            call  col2(dtheta, h2inv, ntot1)
+            call cmult(dtheta,  ddz, ntot1)
+            call add2(tp(1,1,2), dtheta, ntot1)
+            if (debug) call outpost(dtheta, dtheta, dtheta, pr, t, 'dt2')
+            ! Diagnostic
+            !!!
+            if (debug) then
+               call outpost(vxp(1,1), vyp(1,1), vzp, prp(1,1),tp(1,1,1),'v_1')
+               call outpost(vxp(1,2), vyp(1,2), vzp, prp(1,2),tp(1,1,2),'v_2')
+            end if
+            if (mod(istep,100) == 0) call outpost(vxp, vyp, vzp, prp,tp,'prt')
+         enddo
+	   call nek_end()
+         
+      end if
+      return
+      end
+
+c-----------------------------------------------------------------------
+c     This routine to modify element vertices
+      subroutine usrdat
+
+      implicit none
+
+      include 'SIZE'
+      include 'TOTAL'
+
+      real glmin,glmax
+           
+      real fact,x_min,x_max,y_max,y_min,z_min,z_max
+      integer n
+
+      n = 8*nelv
+      
+      fact = 4.*atan(1.)
+      call cmult(xc,fact,n)
+      if (if3d) then    
+        call cmult(zc,fact,n)
+      endif     
+
+      x_min=glmin(xc,n)
+      y_min=glmin(yc,n)
+      x_max=glmax(xc,n)
+      y_max=glmax(yc,n)
+      if (if3d) then
+        z_min=glmin(zc,n)
+        z_max=glmax(zc,n)
+      endif
+      
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat2
+      implicit none
+      
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat3
+      implicit none
+
+      return
+      end
+

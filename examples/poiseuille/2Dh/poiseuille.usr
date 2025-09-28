@@ -158,7 +158,7 @@ c-----------------------------------------------------------------------
       real h2inv
       real(dp), dimension(LX2*LY2*LZ2*LELV,lpert) :: prextr
       real(dp), dimension(LX2*LY2*LZ2*LELV,lpert) :: dpr
-      !real(dp), dimension(LX2,LY2,LZ2,LELV,lpert) :: dp_copy
+      real(dp), dimension(LX1,LY1,LZ1,LELV) :: bm1h2inv
       COMMON /SCRNS/  w1    (lx1,ly1,lz1,lelv)
      $ ,              w2    (lx1,ly1,lz1,lelv)
      $ ,              w3    (lx1,ly1,lz1,lelv)
@@ -177,8 +177,8 @@ c-----------------------------------------------------------------------
       common / f2Dh_m / frc_x, frc_y
       common / f2Dh_t / frc_q
 
-      logical, parameter :: debug = .false.
-      integer, parameter :: nstp  = 300
+      logical, parameter :: debug = .true.
+      integer, parameter :: nstp  = 20
 
       ddz   = -beta
       d2dz  = -beta**2
@@ -201,7 +201,7 @@ c-----------------------------------------------------------------------
          call load_fld('IC_poiseuille_uv_i.fld')
          call nek2vec(prt_i, vx, vy, vz, pr, t)
          call load_fld('IC_poiseuille_uw_i.fld')
-         call copy(prt_i%theta, -vy, ntot1)
+         call copy(prt_i%theta, vy, ntot1)
 
          ! reset baseflow
          call vec2nek(vx, vy, vz, pr, t, bf)
@@ -272,8 +272,8 @@ c-----------------------------------------------------------------------
                ie1 = (ie-1)*nxyz1+1
                call map12 (frc_div(1,1,1,ie,1), tp(ie1,1,2), ie)
             end do
-            ! frc_div(1) = ddz theta(2)             ! sign checked
-            call cmult(frc_div(1,1,1,1,1), ddz, ntot2)
+            ! frc_div(1) = -ddz theta(2)             ! sign checked
+            call cmult(frc_div(1,1,1,1,1), -ddz, ntot2)
             if (debug .and. nid == 0) print *, 'CHK istep', istep, 2, 'frc_div(1)'
             ! map theta(1) from the velocity to the pressure mesh
             do ie = 1, nelv
@@ -339,12 +339,11 @@ c-----------------------------------------------------------------------
                      
                      call extrapprp(prextr(1,jp))
                      call lagpresp
-                     if (jp == 1) then
-                        call add3(prp(1,jp),prextr(1,jp),dpr(1,jp), ntot2)
-                     else 
-                        call chsign(dpr(1,jp), ntot2)
-                        call chsign(prextr(1,jp), ntot2)
-                        call add3(prp(1,jp),prextr(1,jp),dpr(1,jp), ntot2)
+                     call add3(prp(1,jp),prextr(1,jp),dpr(1,jp), ntot2)
+                     if (debug) then
+                        write(prefix,'(A2,I1)') 'd0', jp
+                        call outpost(w1 ,w2 ,w3,prextr(1,jp),tp,prefix)
+                        call outpost(dv1,dv2,dv3,prextr(1,jp),tp,prefix)
                      end if
                      
                      if (debug) then
@@ -360,19 +359,19 @@ c-----------------------------------------------------------------------
 
             !!! compute spanwise pressure gradient add add it to tp
             if (debug .and. nid == 0) print *, 'CHK istep', istep, 'Add velocity correction for t'
+            call invcol3 (bm1h2inv,bm1,h2inv,ntot1)
+            call dssum   (bm1h2inv,lx1,ly1,lz1)
             ! dtheta(1) = - ddz dpr(2)
             if (debug .and. nid == 0) print *, 'CHK istep', istep, 2, 'dt(1)'
-            call mappr(dtp, dpr(1,2), wrk1, wrk2)
-            call cmult(dtp, ddz, ntot1) ! grad
-            call  col2(dtp, h2inv, ntot1)
+            call mappr(  dtp, dpr(1,2), wrk1, wrk2)
+            call cmult(  dtp, -ddz, ntot1) ! grad
             call add2(tp(1,1,1), dtp, ntot1)
             ! Diagnostic
             if (debug) call outpost(dtp, dtp, dtp, dpr(1,2), tp, 'dt1')
             ! dtheta(2) =   ddz dpr(1)
             if (debug .and. nid == 0) print *, 'CHK istep', istep, 1, 'dt(2)'
-            call mappr(dtp, dpr(1,1), wrk1, wrk2)
-            call cmult(dtp,  ddz, ntot1) ! grad
-            call  col2(dtp, h2inv, ntot1)
+            call mappr(  dtp, dpr(1,1), wrk1, wrk2)
+            call cmult(  dtp, ddz, ntot1) ! grad
             call add2(tp(1,1,2), dtp, ntot1)
             if (debug) call outpost(dtp, dtp, dtp, dpr(1,1), tp, 'dt2')
             ! Diagnostic

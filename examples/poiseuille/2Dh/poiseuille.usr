@@ -146,7 +146,7 @@ c-----------------------------------------------------------------------
       real(dp), parameter :: beta = 1.0_dp
 
       ! internal
-      integer :: igeom, ie1, ie2, ie, ntot1, ntot2, intype, ilag
+      integer :: igeom, ie1, ie2, ie, ntot1, ntot2, intype, ilag, iter
       real :: d2dz, ddz, dtbd
       character(len=3) :: prefix
 
@@ -177,8 +177,8 @@ c-----------------------------------------------------------------------
       common / f2Dh_m / frc_x, frc_y
       common / f2Dh_t / frc_q
 
-      logical, parameter :: debug = .true.
-      integer, parameter :: nstp  = 30
+      logical, parameter :: debug = .false.
+      integer, parameter :: nstp  = 10
 
       ddz   = -beta
       d2dz  = -beta**2
@@ -217,6 +217,8 @@ c-----------------------------------------------------------------------
          !call outpost(vx, vy, vz, pr, t, 'bas')
          !call outpost(vxp(1,1), vyp(1,1), vzp, prp(1,1), tp(1,1,1), 'p_r')
          !call outpost(vxp(1,2), vyp(1,2), vzp, prp(1,2), tp(1,1,2), 'p_i')
+         call outpost(vxp(1,1), vyp(1,1), vzp, prp(1,1),tp(1,1,1),'v_1')
+         call outpost(vxp(1,2), vyp(1,2), vzp, prp(1,2),tp(1,1,2),'v_2')
          
 	      do istep = 1, nstp
             call nekgsync                    ! drive1 - nek_advance
@@ -255,14 +257,14 @@ c-----------------------------------------------------------------------
             jp = 2                                       ! jp for extrapolation of the correct pressure term
             call extrapprp(prextr(1,jp))                 ! compute pressure
             call mappr(dtp, prextr(1,jp), wrk1, wrk2)    ! map to vmesh
-            call cmult(dtp, ddz, ntot1)                  ! d/dz (p_i) = - beta (p_i)
+            call cmult(dtp, -ddz, ntot1)                 ! d/dz (p_i) = - beta (p_i)
             ! we do not collocate with bm1 as this is done in makefp
             call add2(frc_q(1,1), dtp, ntot1)            ! add to forcing term for real part (1)
             ! imaginary component of tp is forced by p_r
             jp = 1                                       ! jp for extrapolation of the correct pressure term
             call extrapprp(prextr(1,jp))                 ! compute pressure 
             call mappr(dtp, prextr(1,jp), wrk1, wrk2)    ! map to vmesh
-            call cmult(dtp, -ddz, ntot1)                 ! -d/dz (p_r) = beta (p_r)
+            call cmult(dtp, ddz, ntot1)                  ! -d/dz (p_r) = beta (p_r)
             ! we do not collocate with bm1 as this is done in makefp
             call add2(frc_q(1,2), dtp, ntot1)            ! add to forcing term for imaginary part (2)
             ! diagnositcs
@@ -290,7 +292,7 @@ c-----------------------------------------------------------------------
                ie1 = (ie-1)*nxyz1+1
                call map12 (frc_div(1,1,1,ie,1), tp(ie1,1,2), ie)  ! map tp(2) to pmesh
             end do
-            call cmult(frc_div(1,1,1,1,1), -ddz, ntot2)           ! frc_div_r = -ddz tp_i = beta tp_i
+            call cmult(frc_div(1,1,1,1,1), ddz, ntot2)            ! frc_div_r = -ddz tp_i = beta tp_i
             call col2( frc_div(1,1,1,1,1),  bm2, ntot2)           ! this is to be consistent with opdiv output
             if (debug .and. nid == 0) print *, 'CHK istep', istep, 2, 'frc_div(1)'
             ! p_i is forced by tp_r
@@ -298,7 +300,7 @@ c-----------------------------------------------------------------------
                ie1 = (ie-1)*nxyz1+1
                call map12 (frc_div(1,1,1,ie,2), tp(ie1,1,1), ie)  ! map tp(1) to pmesh
             end do
-            call cmult(frc_div(1,1,1,1,2), ddz, ntot2)            ! frc_div_i = ddz tp_r  = -beta tp_r
+            call cmult(frc_div(1,1,1,1,2), -ddz, ntot2)           ! frc_div_i = ddz tp_r  = -beta tp_r
             call col2( frc_div(1,1,1,1,2), bm2, ntot2)            ! this is to be consistent with opdiv output
             if (debug .and. nid == 0) print *, 'CHK istep', istep, 1, 'frc_div(2)'
             ! diagnostic
@@ -308,11 +310,11 @@ c-----------------------------------------------------------------------
             end if
 
             if (debug .and. nid == 0) print *, 'CHK istep', istep, 'Solve momentum equations for x/y (both perturbations)'
-            do igeom = 1,ngeom
+            do jp = 1, npert
+               do igeom = 1,ngeom
 	            ! solve velocity equations with added forcing and usrdiv
                !call fluidp(igeom)
                ! replaced by code below
-               do jp = 1, npert
                   ifield = 1 
                   if (igeom == 1) then
                   !
@@ -342,23 +344,24 @@ c-----------------------------------------------------------------------
                      
                      call opdiv   (dpr(1,jp),vxp(1,jp),vyp(1,jp),vzp(1,jp))         ! perturb.f - incomprp  includes bm2 collocation                  (navier1.f)
                      call chsign  (dpr(1,jp),ntot2)                                 ! perturb.f - incomprp
-                     if (debug) then
-                        write(prefix,'(A2,I1)') 'i2', jp
-                        call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp), dpr(1,jp),tp(1,1,jp),prefix)
-                        call outpost(resv1,resv2,resv3,dpr(1,jp),tp(1,1,jp),prefix)
-                     end if
+                     !if (debug) then
+                     !   write(prefix,'(A2,I1)') 'i2', jp
+                     !   call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp), dpr(1,jp),tp(1,1,jp),prefix)
+                     !   call outpost(resv1,resv2,resv3,dpr(1,jp),tp(1,1,jp),prefix)
+                     !end if
 
                      !!! add frc_div to rhs
                      call add2(dpr(1,jp),frc_div(1,1,1,1,jp),ntot2)                 ! rhs = - div(u_r/i) -+ beta p_i/r
                      !!!
-                     if (debug) then
-                        write(prefix,'(A2,I1)') 'd2', jp
-                        call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp), dpr(1,jp),tp(1,1,jp),prefix)
-                     end if
+                     !if (debug) then
+                     !   write(prefix,'(A2,I1)') 'd2', jp
+                     !   call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp), dpr(1,jp),tp(1,1,jp),prefix)
+                     !end if
                      
                      call ortho   (dpr(1,jp))                                       ! perturb.f - incomprp
-                  
-                     call esolver (dpr(1,jp),h1,h2,h2inv,intype)                    ! perturb.f - incomprp
+
+                     !call esolver (dpr(1,jp),h1,h2,h2inv,intype)                    ! perturb.f - incomprp
+                     call uzawa_gmres_2Dh(dpr(1,jp),h1,h2,h2inv,beta,intype,iter)
                   
                      call opgradt (w1 ,w2 ,w3 ,dpr(1,jp))                           ! perturb.f - incomprp  d/dx (dp), d/dy (dp)  (incl. bm2 coll)    (navier1.f)
                      call opbinv  (dv1,dv2,dv3,w1 ,w2 ,w3 ,h2inv)                   ! perturb.f - incomprp  out = (h2*B)^-1 * in      (expl)          (navier1.f)
@@ -380,9 +383,9 @@ c-----------------------------------------------------------------------
                
                   endif
                   
-               end do ! jp
-
-            end do ! igeom
+               end do ! igeom
+                  
+            end do ! jp
 
             call invcol3 (bm1h2inv,bm1,h2inv,ntot1)    ! = bm1/h2inv = B*h2
             call dssum   (bm1h2inv,lx1,ly1,lz1)
@@ -392,7 +395,7 @@ c-----------------------------------------------------------------------
             if (debug .and. nid == 0) print *, 'CHK istep', istep, 2, 'dt(1)'
             call mappr(dtp, dpr(1,2), wrk1, wrk2)              ! map dpr(2) to vmesh
             call col2( dtp, bm1, ntot1)                        ! collocate bm1
-            call cmult(dtp, -ddz, ntot1)                       ! -d/dz (dpr_i) = beta (dpr_i)
+            call cmult(dtp, ddz, ntot1)                        ! d/dz (dpr_i) = beta (dpr_i)
             call col2( dtp, v1mask, ntot1)
             call dssum(dtp, lx1, ly1, lz1)
             call invcol2(dtp, bm1h2inv,ntot1)                  ! (h2*B)^-1 (-d/dz) (dpr_i) = dtp_r
@@ -403,7 +406,7 @@ c-----------------------------------------------------------------------
             if (debug .and. nid == 0) print *, 'CHK istep', istep, 1, 'dt(2)'
             call mappr(dtp, dpr(1,1), wrk1, wrk2)              ! map dpr(1) to vmesh
             call col2( dtp, bm1, ntot1)                        ! collocate bm1
-            call cmult(dtp, ddz, ntot1)                        ! d/dz (dpr_r) = -beta (dpr_r)
+            call cmult(dtp,-ddz, ntot1)                        ! d/dz (dpr_r) = -beta (dpr_r)
             call col2( dtp, v1mask, ntot1)
             call dssum(dtp, lx1, ly1, lz1)
             call invcol2(dtp, bm1h2inv,ntot1)                  ! (h2*B)^-1 d/dz (dpr_r) = dtp_i
@@ -472,3 +475,265 @@ c-----------------------------------------------------------------------
       return
       end
 
+      subroutine uzawa_gmres_2Dh(res,h1,h2,h2inv,beta,intype,iter)
+
+c     Solve the pressure equation by right-preconditioned 
+c     GMRES iteration.
+c     intype =  0  (steady)
+c     intype =  1  (explicit)
+c     intype = -1  (implicit)
+
+      include 'SIZE'
+      include 'TOTAL'
+      include 'GMRES'
+      common  /ctolpr/ divex
+      common  /cprint/ ifprint
+      logical          ifprint
+      real             res  (lx2*ly2*lz2*lelv)
+      real             h1   (lx1,ly1,lz1,lelv)
+      real             h2   (lx1,ly1,lz1,lelv)
+      real             h2inv(lx1,ly1,lz1,lelv)
+      !!! add the contribution from the 3rd perturbation component
+      real             beta
+      !!!
+
+      common /scrmg/    wp (lx2,ly2,lz2,lelv)
+
+      common /ctmp0/   wk1(lgmres),wk2(lgmres)
+      common /cgmres1/ y(lgmres)
+
+      real alpha, l, temp
+      integer j,m
+c
+      logical iflag
+      save    iflag
+      data    iflag /.false./
+      real    norm_fac
+      save    norm_fac
+c
+      real*8 etime1,dnekclock
+c
+      if(.not.iflag) then
+         iflag=.true.
+         call uzawa_gmres_split0(ml_gmres,mu_gmres,bm2,bm2inv,
+     $                           lx2*ly2*lz2*nelv)
+         norm_fac = 1./sqrt(volvm2)
+      endif
+c
+      etime1 = dnekclock()
+      etime_p = 0.
+      divex = 0.
+      iter  = 0
+      m = lgmres
+c
+      call chktcg2(tolps,res,iconv)
+      if (param(21).gt.0.and.tolps.gt.abs(param(21))) 
+     $   tolps = abs(param(21))
+c     if (param(21).lt.0) tolps = abs(param(21))
+      if (istep.eq.0) tolps = 1.e-4
+      tolpss = tolps
+c
+      ntot2  = lx2*ly2*lz2*nelv
+c
+      iconv = 0
+      call rzero(x_gmres,ntot2)
+
+      do while(iconv.eq.0.and.iter.lt.100)
+
+         if(iter.eq.0) then
+                                                        !      -1
+            call col3(r_gmres,ml_gmres,res,ntot2)       ! r = L  res
+
+         else
+            !update residual
+            call copy(r_gmres,res,ntot2)                      ! r = res
+            !call cdabdtp(w_gmres,x_gmres,h1,h2,h2inv,intype)  ! w = A x
+            call cdabdtp_2Dh(w_gmres,x_gmres,h1,h2,h2inv,beta,intype) ! w = A x
+            call add2s2(r_gmres,w_gmres,-1.,ntot2)            ! r = r - w
+                                                              !      -1
+            call col2(r_gmres,ml_gmres,ntot2)                 ! r = L   r
+         endif
+                                                            !            ______
+         gamma_gmres(1) = sqrt(glsc2(r_gmres,r_gmres,ntot2))! gamma  = \/ (r,r) 
+                                                            !      1
+         if(iter.eq.0) then
+            div0 = gamma_gmres(1)*norm_fac
+            if (param(21).lt.0) tolpss=abs(param(21))*div0
+         endif
+
+         !check for lucky convergence
+         rnorm = 0.
+         if(gamma_gmres(1) .eq. 0.) goto 9000
+         temp = 1./gamma_gmres(1)
+         call cmult2(v_gmres(1,1),r_gmres,temp,ntot2)! v  = r / gamma
+                                                     !  1            1
+         do j=1,m
+            iter = iter+1
+                                                           !       -1
+            call col3(w_gmres,mu_gmres,v_gmres(1,j),ntot2) ! w  = U   v
+                                                           !           j
+            
+            etime2 = dnekclock()
+            if(param(43).eq.1) then
+               call uzprec(z_gmres(1,j),w_gmres,h1,h2,intype,wp)
+            else                                        !       -1
+               call hsmg_solve(z_gmres(1,j),w_gmres)    ! z  = M   w
+            endif     
+            etime_p = etime_p + dnekclock()-etime2
+     
+            call cdabdtp_2Dh(w_gmres,z_gmres(1,j),! w = A z
+     $                   h1,h2,h2inv,beta,intype)      !        j
+!            call cdabdtp(w_gmres,z_gmres(1,j),! w = A z
+!     $                   h1,h2,h2inv,intype)      !        j
+                                                  !      -1
+            call col2(w_gmres,ml_gmres,ntot2)     ! w = L   w
+                                               !          i,j  i
+
+c           2-PASS GS, 1st pass:
+
+            do i=1,j
+               h_gmres(i,j)=vlsc2(w_gmres,v_gmres(1,i),ntot2) ! h    = (w,v )
+            enddo                                             !  i,j       i
+
+            call gop(h_gmres(1,j),wk1,'+  ',j)          ! sum over P procs
+
+            do i=1,j
+               call add2s2(w_gmres,v_gmres(1,i),-h_gmres(i,j),ntot2) ! w = w - h    v
+            enddo                                                    !          i,j  i
+
+            !apply Givens rotations to new column
+            do i=1,j-1
+               temp = h_gmres(i,j)                   
+               h_gmres(i  ,j)=  c_gmres(i)*temp 
+     $                        + s_gmres(i)*h_gmres(i+1,j)  
+               h_gmres(i+1,j)= -s_gmres(i)*temp 
+     $                        + c_gmres(i)*h_gmres(i+1,j)
+            enddo
+                                                              !            ______
+            alpha = sqrt(glsc2(w_gmres,w_gmres,ntot2))        ! alpha =  \/ (w,w)
+            rnorm = 0.
+            if(alpha.eq.0.) goto 900  !converged
+            l = sqrt(h_gmres(j,j)*h_gmres(j,j)+alpha*alpha)
+            temp = 1./l
+            c_gmres(j) = h_gmres(j,j) * temp
+            s_gmres(j) = alpha  * temp
+            h_gmres(j,j) = l
+            gamma_gmres(j+1) = -s_gmres(j) * gamma_gmres(j)
+            gamma_gmres(j)   =  c_gmres(j) * gamma_gmres(j)
+
+c            call outmat(h,m,j,' h    ',j)
+            
+            rnorm = abs(gamma_gmres(j+1))*norm_fac
+            ratio = rnorm/div0
+            if (ifprint.and.nio.eq.0) 
+     $         write (6,66) iter,tolpss,rnorm,div0,ratio,istep
+   66       format(i5,1p4e12.5,i8,' Divergence')
+
+#ifndef FIXITER
+            if (rnorm .lt. tolpss) goto 900  !converged
+#else
+            if (iter.gt.param(151)-1) goto 900
+#endif
+            if (j.eq.m) goto 1000 !not converged, restart
+
+            temp = 1./alpha
+            call cmult2(v_gmres(1,j+1),w_gmres,temp,ntot2) ! v    = w / alpha
+                                                           !  j+1            
+         enddo
+  900    iconv = 1
+ 1000    continue
+         !back substitution
+         !     -1
+         !c = H   gamma
+         do k=j,1,-1
+            temp = gamma_gmres(k)
+            do i=j,k+1,-1
+               temp = temp - h_gmres(k,i)*c_gmres(i)
+            enddo
+            c_gmres(k) = temp/h_gmres(k,k)
+         enddo
+         !sum up Arnoldi vectors
+         do i=1,j
+            call add2s2(x_gmres,z_gmres(1,i),c_gmres(i),ntot2) 
+                       ! x = x + c  z
+                       !          i  i
+         enddo
+c        if(iconv.eq.1) call dbg_write(x,lx2,ly2,lz2,nelv,'esol',3)
+      enddo
+ 9000 continue
+c
+      divex = rnorm
+c
+c     DIAGNOSTICS
+       call ortho  (w_gmres) ! Orthogonalize wrt null space, if present
+c     END DIAGNOSTICS
+      call copy(res,x_gmres,ntot2)
+
+      call ortho (res)  ! Orthogonalize wrt null space, if present
+
+      etime1 = dnekclock()-etime1
+      if (nio.eq.0) write(6,9999) istep,'  U-PRES gmres  ', 
+     &                            iter,divex,div0,tolpss,etime_p,etime1
+c     call flush_hack
+ 9999 format(i11,a,I6,1p5e13.4)
+
+      return
+      end
+
+      subroutine cdabdtp_2Dh(ap,wp,h1,h2,h2inv,beta,intype)
+
+C     INTYPE= 0  Compute the matrix-vector product    DA(-1)DT*p
+C     INTYPE= 1  Compute the matrix-vector product    D(B/DT)(-1)DT*p
+C     INTYPE=-1  Compute the matrix-vector product    D(A+B/DT)(-1)DT*p
+
+      include 'SIZE'
+      include 'TOTAL'
+      REAL           AP    (LX2,LY2,LZ2,lelv)
+      REAL           WP    (LX2,LY2,LZ2,lelv)
+      REAL           H1    (LX1,LY1,LZ1,lelv)
+      REAL           H2    (LX1,LY1,LZ1,lelv)
+      REAL           H2INV (LX1,LY1,LZ1,lelv)
+      !!! add the contribution from the 3rd perturbation component
+      real           beta
+C
+      COMMON /SCRNS/ TA1 (LX1,LY1,LZ1,LELV)
+     $ ,             TA2 (LX1,LY1,LZ1,LELV)
+     $ ,             TA3 (LX1,LY1,LZ1,LELV)
+     $ ,             TB1 (LX1,LY1,LZ1,LELV)
+     $ ,             TB2 (LX1,LY1,LZ1,LELV)
+     $ ,             TB3 (LX1,LY1,LZ1,LELV)
+      real, dimension(lx1*ly1*lz1) :: wrk1, wrk2
+      real, dimension(lx2,ly2,lz2,lelv) :: wdiv
+      real, dimension(lx1,ly1,lz1,lelv) :: tmp1, tmp2
+      real :: d2dz
+      integer :: ie, ntot1, ntot2
+
+      ! Regular Ax = D (h2*B)^(-1) D^T
+      call opgradt (ta1,ta2,ta3,wp)
+      call opbinv  (TB1,TB2,TB3,TA1,TA2,TA3,H2INV)
+      call opdiv   (ap,tb1,tb2,tb3)
+      !!! add 3rd perturbation component. 
+      ! we want to add the contribution
+      !
+      ! d/dz (h2*B)^(-1) d/dz wp = (-i beta) (h2*B)^(-1) (-i beta) wp = - beta^2 (h2*B)^(-1) wp
+      !
+      ! Note: we are only considering the ifanls = .false. case
+      d2dz = -beta**2
+      ntot1 = lx1*ly1*lz1*nelv
+      ntot2 = lx2*ly2*lz2*nelv
+      call invcol3 (tmp1,bm1,h2inv,ntot1)           ! = bm1/h2inv = h2*B
+      call dssum   (tmp1,lx1,ly1,lz1)
+      call mappr(tmp2, wp, wrk1, wrk2)              ! map wp to vmesh
+      call col2( tmp2, bm1, ntot1)                  ! collocate bm1
+      call col2( tmp2, v1mask, ntot1)
+      call dssum(tmp2, lx1, ly1, lz1)
+      call invcol2(tmp2, tmp1, ntot1)                ! collocate (h2*B)^-1
+      call cmult(tmp2, d2dz, ntot1)                 ! -beta^2 (h2*B)^(-1)
+      do ie = 1, nelv
+         call map12 (wdiv(1,1,1,ie), tmp2(1,1,1,ie), ie)  ! map ta3 to pmesh
+      end do
+      call col2(wdiv, bm2, ntot2)
+      call add2(ap, wdiv, ntot2)
+      !!!
+      return
+      end

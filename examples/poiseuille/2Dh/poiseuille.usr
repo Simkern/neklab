@@ -274,19 +274,20 @@ c-----------------------------------------------------------------------
 
 
             if (debug .and. nid == 0) print *, 'CHK istep', istep, 'compute pressure gradient term for tp'
+            ! d/dz (p) = beta p_i - i beta p_r
             ifield = 1
             ! tp_r is forced by p_i
             jp = 2                                       ! jp for extrapolation of the correct pressure term
             call extrapprp(prextr(1,jp))                 ! compute pressure
             call mappr(dtp, prextr(1,jp), wrk1, wrk2)    ! map to vmesh
-            call cmult(dtp, beta, ntot1)                 ! d/dz (p_i) = - beta (p_i)
+            call cmult(dtp, beta, ntot1)                 ! Re(d/dz (p)) = beta (p_i)
             ! we do not collocate with bm1 as this is done in makefp
             call add2(frc_q(1,1), dtp, ntot1)            ! add to forcing term for real part (1)
             ! imaginary component of tp is forced by p_r
             jp = 1                                       ! jp for extrapolation of the correct pressure term
             call extrapprp(prextr(1,jp))                 ! compute pressure 
             call mappr(dtp, prextr(1,jp), wrk1, wrk2)    ! map to vmesh
-            call cmult(dtp, -beta, ntot1)                  ! -d/dz (p_r) = beta (p_r)
+            call cmult(dtp, -beta, ntot1)                ! Im(d/dz (p)) = -beta (p_r)
             ! we do not collocate with bm1 as this is done in makefp
             call add2(frc_q(1,2), dtp, ntot1)            ! add to forcing term for imaginary part (2)
             ! diagnositcs
@@ -335,12 +336,13 @@ c-----------------------------------------------------------------------
 
             ! set frc_div as spanwise gradient of temperature
             if (debug .and. nid == 0) print *, 'CHK istep', istep, 'Compute inhomogeneity of the pressure equation'
+            ! d/dz (tp) = beta tp_i - i beta tp_r
             ! p_r is forced by tp_i
             do ie = 1, nelv
                ie1 = (ie-1)*nxyz1+1
-               call map12 (frc_div(1,1,1,ie,1), tp(ie1,1,2), ie)  ! map tp(2) to pmesh
+               call map12 (frc_div(1,1,1,ie,1), tp(ie1,1,2), ie)   ! map tp(2) to pmesh
             end do
-            call cmult(frc_div(1,1,1,1,1), beta, ntot2)            ! frc_div_r = -ddz tp_i = beta tp_i
+            call cmult(frc_div(1,1,1,1,1), beta, ntot2)            ! Re(frc_div) = beta tp_i
             call col2( frc_div(1,1,1,1,1),  bm2, ntot2)            ! this is to be consistent with opdiv output
             if (debug .and. nid == 0) print *, 'CHK istep', istep, 2, 'frc_div(1)'
             ! p_i is forced by tp_r
@@ -348,8 +350,8 @@ c-----------------------------------------------------------------------
                ie1 = (ie-1)*nxyz1+1
                call map12 (frc_div(1,1,1,ie,2), tp(ie1,1,1), ie)  ! map tp(1) to pmesh
             end do
-            call cmult(frc_div(1,1,1,1,2), -beta, ntot2)            ! frc_div_i = ddz tp_r  = -beta tp_r
-            call col2( frc_div(1,1,1,1,2), bm2, ntot2)            ! this is to be consistent with opdiv output
+            call cmult(frc_div(1,1,1,1,2), -beta, ntot2)          ! Im(frc_div) = -beta tp_r
+            call col2( frc_div(1,1,1,1,2),   bm2, ntot2)          ! this is to be consistent with opdiv output
             if (debug .and. nid == 0) print *, 'CHK istep', istep, 1, 'frc_div(2)'
             ! diagnostic
             !if (debug) then
@@ -396,7 +398,7 @@ c-----------------------------------------------------------------------
                      dtbd   = bd(1)/dt                                              ! perturb.f - incomprp
                   
                      call rzero   (h1,ntot1)                                        ! perturb.f - incomprp
-                     call cmult2  (h2,vtrans(1,1,1,1,ifield),dtbd,ntot1)            ! perturb.f - incomprp  h2 = bd(1)/dt
+                     call cmult2  (h2,vtrans(1,1,1,1,ifield),dtbd,ntot1)            ! perturb.f - incomprp  h2 = bd(1)/dt, vtrans = 1
                      call invers2 (h2inv,h2,ntot1)                                  ! perturb.f - incomprp
                      
                      call opdiv   (dpr(1,jp),vxp(1,jp),vyp(1,jp),vzp(1,jp))         ! perturb.f - incomprp  includes bm2 collocation                  (navier1.f)
@@ -458,22 +460,23 @@ c-----------------------------------------------------------------------
             call dssum   (bm1h2inv,lx1,ly1,lz1)
             !!! compute spanwise pressure gradient add add it to tp
             if (debug .and. nid == 0) print *, 'CHK istep', istep, 'Add velocity correction for t'
-            ! dtp(1) = -d/dz dpr_i
+            ! d/dz dpr = beta dpr_i - i beta dpr_r
+            ! dtp(1) = beta dpr_i
             if (debug .and. nid == 0) print *, 'CHK istep', istep, 2, 'dt(1)'
             call mappr(dtp, dpr(1,2), wrk1, wrk2)              ! map dpr(2) to vmesh
             call col2( dtp, bm1, ntot1)                        ! collocate bm1
-            call cmult(dtp, beta, ntot1)                        ! d/dz (dpr_i) = beta (dpr_i)
+            call cmult(dtp, beta, ntot1)                       ! Re(dtp) = beta (dpr_i)
             call col2( dtp, v1mask, ntot1)
             call dssum(dtp, lx1, ly1, lz1)
             call invcol2(dtp, bm1h2inv,ntot1)                  ! (h2*B)^-1 (-d/dz) (dpr_i) = dtp_r
             call add2(tp(1,1,1), dtp, ntot1)
             ! Diagnostic
             if (debug) call outpost(dtp, dtp, dtp, dpr(1,2), tp, 'dt1')
-            ! dtp(2) =  d/dz dpr_r
+            ! dtp(2) = -beta dpr_r
             if (debug .and. nid == 0) print *, 'CHK istep', istep, 1, 'dt(2)'
             call mappr(dtp, dpr(1,1), wrk1, wrk2)              ! map dpr(1) to vmesh
             call col2( dtp, bm1, ntot1)                        ! collocate bm1
-            call cmult(dtp, -beta, ntot1)                        ! d/dz (dpr_r) = -beta (dpr_r)
+            call cmult(dtp, -beta, ntot1)                      ! Im(dtp) = -beta (dpr_r)
             call col2( dtp, v1mask, ntot1)
             call dssum(dtp, lx1, ly1, lz1)
             call invcol2(dtp, bm1h2inv,ntot1)                  ! (h2*B)^-1 d/dz (dpr_r) = dtp_i

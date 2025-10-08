@@ -1,7 +1,7 @@
       module neklab_linops
          use stdlib_optval, only: optval
          use LightKrylov, only: dp, atol_dp, rtol_dp
-         use LightKrylov, only: abstract_linop_rdp, abstract_vector_rdp
+         use LightKrylov, only: abstract_linop_rdp, abstract_vector_rdp, abstract_sym_linop_rdp, abstract_precond_rdp
          use LightKrylov, only: abstract_linop_cdp, abstract_vector_cdp
          use LightKrylov, only: cg, cg_dp_opts, cg_dp_metadata
          use LightKrylov_Logger
@@ -102,8 +102,8 @@
             logical :: is_initialized = .false.
          contains
             private
-            procedure, pass(self), public :: init => floquet_init
-            procedure, pass(self), public :: matvec => floquet_matvec
+            procedure, pass(self), public :: init    => floquet_init
+            procedure, pass(self), public :: matvec  => floquet_matvec
             procedure, pass(self), public :: rmatvec => floquet_rmatvec
          end type
       
@@ -123,6 +123,67 @@
                class(floquet_linop), intent(inout) :: self
                class(abstract_vector_rdp), intent(in) :: vec_in
                class(abstract_vector_rdp), intent(out) :: vec_out
+            end subroutine
+         end interface
+
+      !--------------------------------------
+      !-----     HELMHOLTZ OPERATOR     -----
+      !--------------------------------------
+      
+      ! --> Type.
+         type, extends(abstract_sym_linop_rdp), public :: helmholtz_linop
+            type(nek_dvector) :: baseflow
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: h1 = 0.0_dp
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: h2 = 0.0_dp
+            integer :: imesh = 1
+            integer :: isd = 1
+            integer :: integration_type = 0
+            logical :: is_initialized = .false.
+         contains
+            private
+            procedure, pass(self), public :: init    => helmholtz_init
+            procedure, pass(self), public :: matvec  => helmholtz_matvec
+            procedure, pass(self), public :: rmatvec => helmholtz_matvec
+         end type
+      
+      ! --> Type-bound procedures: helmholtz_operator.f90
+         interface
+            module subroutine helmholtz_init(self, integration_type)
+               class(helmholtz_linop), intent(inout) :: self
+            end subroutine
+
+            module subroutine helmholtz_matvec(self, vec_in, vec_out)
+               class(helmholtz_linop), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+            end subroutine
+         end interface
+
+         type, extends(abstract_precond_rdp), public :: jacobi_preconditioner
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: D = 0.0_dp
+            logical :: is_initialized = .false.
+         contains
+            private
+            procedure, pass(self), public :: init  => construct_jacobi_preconditioner
+            procedure, pass(self), public :: apply => apply_jacobi_preconditioner
+         end type
+
+      ! --> Type-bound procedures: helmholtz_operator.f90
+         interface
+            module subroutine construct_jacobi_preconditioner(self, h1, h2, imsh, isd)
+               class(jacobi_preconditioner), intent(inout) :: self
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: h1
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: h2
+               integer, intent(in) :: imsh
+               integer, intent(in) :: isd
+            end subroutine
+
+            module subroutine apply_jacobi_preconditioner(self, vec, iter, current_residual, target_residual)
+               class(jacobi_preconditioner), intent(inout) :: self
+               class(abstract_vector_rdp), intent(inout) :: vec
+               integer, optional, intent(in) :: iter
+               real(dp), optional, intent(in) :: current_residual
+               real(dp), optional, intent(in) :: target_residual
             end subroutine
          end interface
       

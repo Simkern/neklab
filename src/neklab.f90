@@ -49,6 +49,7 @@
       
       ! Definition of the abstract vectors in the Nek framework.
          public :: nek_dvector
+         public :: nekv_dvector
          public :: nek_zvector
          public :: nek_pr_dvector
          public :: nek_ext_dvector
@@ -58,7 +59,9 @@
       ! Implementation of the standard linear operators.
          public :: exptA_linop
          public :: floquet_linop
+         public :: helmholtz_linop
          public :: resolvent_linop
+         public :: jacobi_preconditioner
       
       ! Implementation of the abstract systems and Jacobians
          public :: nek_system, nek_jacobian
@@ -97,6 +100,7 @@
       
       ! Various utilities.
          public :: nek2vec, vec2nek
+         public :: nek2vcomp, vcomp2nek
          public :: nek2ext_vec, ext_vec2nek
          public :: nek2ext_vec_f, ext_vec_f2nek
          public :: setup_nonlinear_solver, setup_linear_solver

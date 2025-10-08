@@ -110,6 +110,7 @@ echo "include $NEKLAB_SOURCE_ROOT/src/makefile_neklab" > makefile_usr.inc
 # User-specified object files
 USR="neklab_vectors.o"
 USR+=" real_vectors.o"
+USR+=" velocity_component.o"
 USR+=" real_extended_vectors.o"
 USR+=" complex_vectors.o"
 USR+=" neklab_utils.o"
@@ -124,6 +125,7 @@ USR+=" helix_mflow_fft.o"
 USR+=" neklab_linops.o"
 USR+=" exponential_propagator.o"
 USR+=" floquet_operator_torus.o"
+USR+=" helmholtz_operator.o"
 USR+=" resolvent.o"
 USR+=" neklab_systems.o"
 USR+=" fixed_point.o"
@@ -154,6 +156,6 @@ if [[ $1 != "clean" ]]; then
  $NEK_SOURCE_ROOT/bin/nekconfig -build-dep
  set -o pipefail
  touch $1.usr 
- make -j4 2>&1 | tee -a build.log
+ make -j1 2>&1 | tee -a build.log
  set +o pipefail
 fi

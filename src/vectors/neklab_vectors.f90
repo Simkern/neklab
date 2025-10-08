@@ -207,6 +207,70 @@
                class(nek_zvector), intent(in) :: self
             end function
          end interface
+
+      !----------------------------------------------------
+      !-----     NEK REAL VELOCITY COMPONENT TYPE     -----
+      !----------------------------------------------------
+      
+      ! --> Type.
+         type, extends(abstract_vector_rdp), public :: nekv_dvector
+            real(kind=dp), dimension(lv) :: v
+            real(kind=dp), dimension(lv) :: mask
+            real(kind=dp), dimension(lv) :: vmult
+            integer :: isd
+         contains
+            private
+            procedure, pass(self), public :: zero => nekv_dzero
+            procedure, pass(self), public :: rand => nekv_drand
+            procedure, pass(self), public :: scal => nekv_dscal
+            procedure, pass(self), public :: axpby => nekv_daxpby
+            procedure, pass(self), public :: dot => nekv_ddot
+            procedure, pass(self), public :: get_size => nekv_dsize
+         end type nekv_dvector
+      
+      ! --> Constructor.
+         interface nekv_dvector
+            pure module function construct_nekv_dvector(v, mask, vmult, isd) result(out)
+               real(kind=dp), dimension(lv), intent(in) :: v
+               real(kind=dp), dimension(lv), intent(in) :: mask
+               real(kind=dp), dimension(lv), intent(in) :: vmult
+               integer, intent(in) :: isd
+               type(nekv_dvector) :: out
+            end function
+         end interface
+      
+      ! --> Type-bound procedures.
+         interface
+            module subroutine nekv_dzero(self)
+               class(nekv_dvector), intent(inout) :: self
+            end subroutine
+      
+            module subroutine nekv_drand(self, ifnorm)
+               class(nekv_dvector), intent(inout) :: self
+               logical, optional, intent(in) :: ifnorm
+            end subroutine
+      
+            module subroutine nekv_dscal(self, alpha)
+               class(nekv_dvector), intent(inout) :: self
+               real(kind=dp), intent(in) :: alpha
+            end subroutine
+      
+            module subroutine nekv_daxpby(alpha, vec, beta, self)
+               class(nekv_dvector), intent(inout) :: self
+               real(kind=dp), intent(in) :: alpha
+               class(abstract_vector_rdp), intent(in) :: vec
+               real(kind=dp), intent(in) :: beta
+            end subroutine
+      
+            real(kind=dp) module function nekv_ddot(self, vec) result(alpha)
+               class(nekv_dvector), intent(in) :: self
+               class(abstract_vector_rdp), intent(in) :: vec
+            end function
+      
+            integer pure module function nekv_dsize(self) result(n)
+               class(nekv_dvector), intent(in) :: self
+            end function
+         end interface
       
       contains
       

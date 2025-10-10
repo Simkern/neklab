@@ -92,3 +92,6 @@ examples/**/*.f
 **/prod/*csv*
 **/pipe/*
 *.py
+
+**.session
+**.gui

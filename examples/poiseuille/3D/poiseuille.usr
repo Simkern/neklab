@@ -146,8 +146,8 @@ c-----------------------------------------------------------------------
       common /scrhi/  h2inv (lx1,ly1,lz1,lelv)
       COMMON /SCRCH/  PREXTR(LX2,LY2,LZ2,LELV)
 
-      logical, parameter :: debug = .false.
-      integer, parameter :: nstp = 100
+      logical, parameter :: debug = .true.
+      integer, parameter :: nstp = 2
 
       ! State vectors
       type(nek_dvector) :: bf, ini
@@ -212,6 +212,10 @@ c-----------------------------------------------------------------------
                      ! Diagnostics
                      call opcopy(tmp1, tmp2, tmp3, vx, vy, vz)
                      call opcopy(vx, vy, vz, resv1,resv2,resv3)
+                     call col2(vx, binvm1, ntot1)
+                     call col2(vy, binvm1, ntot1)
+                     call col2(vz, binvm1, ntot1)
+                     call opdssum(vx, vy, vz)
                      call hpts()
                      call opcopy(vx, vy, vz, tmp1, tmp2, tmp3)
                      print *, 'HPTS_FILE: RESV1, RESV2, RESV3'
@@ -264,6 +268,7 @@ c-----------------------------------------------------------------------
                      ! Diagnostics
                      call copy(tmppr, pr, ntot2)
                      call copy(pr, dpr, ntot2)
+                     call col2(pr, bm2inv, ntot2)
                      call hpts()
                      call copy(pr, tmppr, ntot2)
                      print *, 'HPTS_FILE: DP'
@@ -277,22 +282,38 @@ c-----------------------------------------------------------------------
                      call hpts()
                      call copy(pr, tmppr, ntot2)
                      print *, 'HPTS_FILE: DP solved'
-
-                     STOP 9
                   
                      call opgradt (w1 ,w2 ,w3 ,dpr)
                      call opbinv  (dv1,dv2,dv3,w1 ,w2 ,w3 ,h2inv)
                      call opadd2  (vxp,vyp,vzp, dv1,dv2,dv3)
 
+                     ! Diagnostics
+                     call opcopy(tmp1, tmp2, tmp3, vx, vy, vz)
+                     call opcopy(vx, vy, vz, dv1,dv2,dv3)
+                     call hpts()
+                     call opcopy(vx, vy, vz, tmp1, tmp2, tmp3)
+                     print *, 'HPTS_FILE: DVDP1, DVDP2, DVDP3'
+                     ! Diagnostics
+
                      call extrapprp(prextr)
                      call lagpresp
                      call add3(prp, prextr, dpr, ntot2)
 
-                     if (debug) call outpost(dv1,dv2,dv3,dpr,tp,'dv3')
+                     ! Diagnostics
+                     call opcopy(tmp1, tmp2, tmp3, vx, vy, vz)
+                     call opcopy(vx,vy,vz,vxp(1,jp),vyp(1,jp),vzp(1,jp))
+                     call hpts()
+                     call opcopy(vx, vy, vz, tmp1, tmp2, tmp3)
+                     print *, 'HPTS_FILE: V1, V2, V3'
+                     call copy(tmppr, pr, ntot2)
+                     call copy(pr, prp(1,jp), ntot2)
+                     call hpts()
+                     call copy(pr, tmppr, ntot2)
+                     print *, 'HPTS_FILE: P'
+                     ! Diagnostics
                   endif
 
                end do ! jp = 1, npert
-               jp = 0
             end do ! igeom = 1, ngeom
             if (debug) call outpost(vxp, vyp, vzp, prp, tp, 'vvv')
 

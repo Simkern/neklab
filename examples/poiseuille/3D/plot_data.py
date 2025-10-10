@@ -184,27 +184,28 @@ basename = 'poiseuille0.f'
 fldr2Dh = '../2Dh/'
 
 #2Dh nek data
-steps     = [ 1, 2 ]
+steps     = [ 1,2 ]
 hpts_names = [name + str(step) for step in steps for name in hpts_names_ref ]
 fld_nms   = [ [ 'u_x', 'u_y', 'u_z' ], 
               [ 'pr' ], 
               [ 'u_x', 'u_y', 'u_z' ],
               [ 'u_x', 'u_y', 'u_z' ], 
               [ 'pr' ] ]
-#fld_nms   = [ [ 'u_x', 'u_y', 'u_z' ] ]
 fld_tle   = [ [ 'resv', 'dv' ],
               [ 'resp', 'dp' ],
               [ 'dvdp' ], 
               [ 'v' ],
               [ 'p' ] ]
-#fld_tle   = [ [ 'resv' ], [ 'resp' ] ] 
-#fld_tle   = [ [ 'dvdp' ] ]
 fld_pfx   = [ [ 'rv', 'dv' ], 
               [ 'rp', 'dp' ], 
               [ 'vv' ],
               [ 'vl' ],
               [ 'pr' ] ]
-#fld_pfx   = [ [ 'rv' ], [ 'rp' ] ]
+
+#fld_nms   = [ [ 'u_z' ] ]
+#fld_tle   = [ [ 'resv', 'dv' ] ] 
+#fld_tle   = [ [ 'dvdp' ] ]
+#fld_pfx   = [ [ 'rv', 'dv' ] ]
 #fld_pfx   = [ [ 'vv' ] ]
 
 nplot = sum(len(a) * len(b) for a, b in zip(fld_pfx, fld_nms))
@@ -213,7 +214,7 @@ for istep in steps:  # timesteps
     #print(f'Timestep {istep}')
     
     if ifplot:
-        fig, axs = plt.subplots(4,nplot, figsize=(18, 8), constrained_layout=True)
+        fig, axs = plt.subplots(6,nplot, figsize=(18, 8), constrained_layout=True)
 
     for jp in range(2):
         #print(f'  jp = {jp}')
@@ -222,7 +223,7 @@ for istep in steps:  # timesteps
         for (fld_names, pfx_names, titles) in zip(fld_nms, fld_pfx, fld_tle):
             fld_idxs  = [ fld_names_ref.index(iname)+1 for iname in fld_names ]  # +1 to skip time
 
-            irow = 2*jp
+            irow = 3*jp
             for (fld_idx, name) in zip(fld_idxs, fld_names):
                 print(f'    {name}')
                 for icase, (pfx, tle) in enumerate(zip(pfx_names, titles)):
@@ -232,25 +233,35 @@ for istep in steps:  # timesteps
 
                     if ifplot:
                         ax = axs[irow+0,icol]
-                        fld = griddata(xy_nek, flds[0], xy_plot, method='cubic', fill_value=0).reshape(xx.shape)
-                        c = ax.contourf(xx, yy, fld, levels=50, cmap='viridis')
+                        fld_2D = griddata(xy_nek, flds[0], xy_plot, method='cubic', fill_value=0).reshape(xx.shape)
+                        c = ax.contourf(xx, yy, fld_2D, levels=50, cmap='viridis')
                         fig.colorbar(c, ax=ax, orientation='vertical')
                         if jp == 0:
                             ax.set_title(f'{name} {tle}', fontsize=15)
 
                         i3D = hpts_names.index(tle+str(istep)) # get index in hpts list ordering 3dstep = 1 outpost
                         ax = axs[irow+1, icol]
-                        plot_t(fig, ax, xy, xy_plot, xx, yy, idx, data_list, field_index=fld_idx, istep=i3D, islice=jp)
+                        field = data_list[i3D][jp, :, fld_idx]
+                        # interpolate
+                        fld_3D = griddata(xy, field[idx], xy_plot, method='cubic', fill_value=0).reshape(xx.shape)
+                        c = ax.contourf(xx, yy, fld_3D, levels=50, cmap='viridis')
+                        fig.colorbar(c, ax=ax, orientation='vertical')
+                        ax = axs[irow+2, icol]
+                        c = ax.contourf(xx, yy, fld_2D-fld_3D, levels=50, cmap='RdBu_r')
+                        fig.colorbar(c, ax=ax, orientation='vertical')
                         icol += 1
+                        #plot_t(fig, ax, xy, xy_plot, xx, yy, idx, data_list, field_index=fld_idx, istep=i3D, islice=jp)
     if ifplot:
         for ax in axs.flatten():
             ax.get_xaxis().set_visible(False)
             ax.get_yaxis().set_visible(False)
         fig.suptitle(f'step {istep}', fontsize=25)
-        axs[0,0].text(-1, 0, rf'2Dh real', fontsize=20, rotation=90, va='center', ha='center')
-        axs[1,0].text(-1, 0, rf'3D  real', fontsize=20, rotation=90, va='center', ha='center')
-        axs[2,0].text(-1, 0, rf'2Dh imag', fontsize=20, rotation=90, va='center', ha='center')
-        axs[3,0].text(-1, 0, rf'3D  imag', fontsize=20, rotation=90, va='center', ha='center')
+        axs[0,0].text(-1, 0, rf'2Dh  real', fontsize=15, rotation=90, va='center', ha='center')
+        axs[1,0].text(-1, 0, rf'3D   real', fontsize=15, rotation=90, va='center', ha='center')
+        axs[2,0].text(-1, 0, rf'diff real', fontsize=15, rotation=90, va='center', ha='center')
+        axs[3,0].text(-1, 0, rf'2Dh  imag', fontsize=15, rotation=90, va='center', ha='center')
+        axs[4,0].text(-1, 0, rf'3D   imag', fontsize=15, rotation=90, va='center', ha='center')
+        axs[5,0].text(-1, 0, rf'duff imag', fontsize=15, rotation=90, va='center', ha='center')
 
 
 

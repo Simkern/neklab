@@ -24,13 +24,13 @@ c-----------------------------------------------------------------------
       integer :: ix,iy,iz,ieg
       integer :: e, ijke
 
-      real, dimension(lx1*ly1*lz1*lelv,lpert) :: frc_x, frc_y
-      common / f2Dh_m / frc_x, frc_y
+      !real, dimension(lx1*ly1*lz1*lelv,lpert) :: frc_x, frc_y
+      !common / f2Dh_m / frc_x, frc_y
 
       e = gllel(ieg)
       ijke = ix + lx1*((iy - 1) + ly1*((iz - 1) + lz1*(e - 1)))
-      FFX = frc_x(ijke,jp) 
-      FFY = frc_y(ijke,jp)
+      FFX = 0.0
+      FFY = 0.0
       FFZ = 0.0 
      
       return
@@ -162,6 +162,7 @@ c-----------------------------------------------------------------------
       real w1, w2, w3, resv1, resv2, resv3, dv1, dv2, dv3, h1, h2
       real h2inv
       real(dp), dimension(LX2*LY2*LZ2*LELV,lpert) :: prextr
+      real(dp), dimension(LX2,LY2,LZ2,LELV)       :: pe
       real(dp), dimension(LX2*LY2*LZ2*LELV,lpert) :: dpr
       real(dp), dimension(LX1,LY1,LZ1,LELV) :: bm1h2inv
       COMMON /SCRNS/  w1    (lx1,ly1,lz1,lelv)
@@ -246,101 +247,47 @@ c-----------------------------------------------------------------------
             call setprop                     ! drive1 - nek_advance
 
 
-
-
-            ! Compute additional viscous forcing terms
-
-
-
-
-            !if (debug .and. nid == 0) print *, 'CHK istep', istep, 'compute additional viscous forcing v[xy] and tp'
-            call rzero(frc_x, npert*ntot1); call rzero(frc_y, npert*ntot1); call rzero(frc_q, npert*ntot1)
-
-
+            
 
             ! subtract best estimate for d/dz (p) from temperature forcing
-
-
-
-
+            
+            
+            
+            
             if (debug .and. nid == 0) print *, 'CHK istep', istep, 'compute pressure gradient term for tp'
+            call rzero(frc_q, npert*ntot1)
             ! d/dz (p) = beta_z p_i - i beta_z p_r
             ifield = 1
-            ! tp_r is forced by p_i
-            jp = 2                                       ! jp for extrapolation of the correct pressure term
-            call extrapprp(prextr(1,jp))                 ! compute pressure
-            call mappr(dtp, prextr(1,jp), wrk1, wrk2)    ! map to vmesh
-            call cmult(dtp, beta_z, ntot1)                 ! Re(d/dz (p)) = beta_z (p_i)
-            ! we do not collocate with bm1 as this is done in makefp
-            jp = 1 ! this is the component we want to force
-            call add2(frc_q(1,jp), dtp, ntot1)           ! add to forcing term for real part (1)
-            !call sub2(frc_q(1,jp), dtp, ntot1)           ! add to forcing term for real part (1)
             ! imaginary component of tp is forced by p_r
             jp = 1                                       ! jp for extrapolation of the correct pressure term
             call extrapprp(prextr(1,jp))                 ! compute pressure 
             call mappr(dtp, prextr(1,jp), wrk1, wrk2)    ! map to vmesh
-            call cmult(dtp, -beta_z, ntot1)                ! Im(d/dz (p)) = -beta_z (p_r)
+            call cmult(dtp, beta_z, ntot1)               ! Im(d/dz (p)) =  beta_z (p_r)
             ! we do not collocate with bm1 as this is done in makefp
-            jp = 2 ! this is the component we want to force
-            call add2(frc_q(1,jp), dtp, ntot1)           ! add to forcing term for imaginary part (2)
-            !call sub2(frc_q(1,jp), dtp, ntot1)           ! add to forcing term for imaginary part (2)
-            ! diagnositcs
-            !if (debug) then
-            !   do jp = 1, npert
-            !      write(prefix,'(A2,I1)') 'ff', jp
-            !      !call invcol2(frc_div(1,1,1,1,jp),bm2,ntot2)
-            !      call outpost(frc_x(1,jp), frc_y(1,jp), vzp, prp(1,jp),frc_q(1,jp), prefix)
-            !      !call col2   (dpr(1,jp),bm2,ntot2)
-            !   end do
-            !end if
+            call add2(frc_q(1,2), dtp, ntot1)            ! add to forcing term for imaginary part (2)
+            
+            call outpost(frc_q(1,2), frc_q(1,2), vzp, prextr(1,1), tp(1,1,2),'ts2')
+            
+            ! tp_r is forced by p_i
+            jp = 2                                       ! jp for extrapolation of the correct pressure term
+            call extrapprp(prextr(1,jp))                 ! compute pressure
+            call mappr(dtp, prextr(1,jp), wrk1, wrk2)    ! map to vmesh
+            call cmult(dtp, -beta_z, ntot1)              ! Re(d/dz (p)) = -beta_z (p_i)
+            ! we do not collocate with bm1 as this is done in makefp
+            call add2(frc_q(1,1), dtp, ntot1)            ! add to forcing term for real part (1)
 
+            call outpost(frc_q(1,1), frc_q(1,1), vzp, prextr(1,2), tp(1,1,1),'ts1')
 
-
-
-            ! Solve advection-diffusion equation for temperature (with additional forcing)
-
-
-
-
-            if (debug .and. nid == 0) print *, 'CHK istep', istep, 'Solve advection-diffusion for t (both perturbations)'
-            !do igeom = 1,ngeom
-            !   ! solve advection-diffusion for temperature, adding frc_q to the RHS
-	         !   call heatp (igeom)
-            !end do
-            !if (debug) then
-            !   write(prefix,'(A2,I1)') 'tt', jp
-            !   call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp),prp(1,jp), tp(1,1,jp), prefix)
-            !end if
-            ! diagnostic
-            !if (debug) then
-            !   do jp = 1, npert
-            !      write(prefix,'(A2,I1)') 'fd', jp
-            !      !call invcol2(frc_div(1,1,1,1,jp),bm2,ntot2)
-            !      call outpost(frc_x(1,jp), frc_y(1,jp), vzp, frc_div(1,1,1,1,jp),frc_q(1,jp), prefix)
-            !      !call col2   (dpr(1,jp),bm2,ntot2)
-            !   end do
-            !end if
-
-
-
-            ! Compute spanwise velocity gradient to add to 2D divergence
-
-
-
+            
 
             
 
 
 
-
+            ! Solve advection-diffusion equation for temperature (with additional forcing)
             ! Compute intermediate velocity in x,y and solve for pressure correction using added divergence term
-
-            !do jp = 1, npert
-            !   print *, 'CHK PRERUN outpost jp', jp
-            !   call outpost(vxp(1,jp),vxp(1,jp),vxp(1,jp),prp(1,jp), tp(1,1,jp),'prt')
-            !end do
-            !jp = 0
-
+            
+            if (debug .and. nid == 0) print *, 'CHK istep', istep, 'Solve advection-diffusion for t (both perturbations)'          
             if (debug .and. nid == 0) print *, 'CHK istep', istep, 'Solve momentum equations for x/y (both perturbations)'
             do jp = 1, npert
                print *, 'CHK ipert', jp
@@ -400,6 +347,8 @@ c-----------------------------------------------------------------------
                      call opcopy(resv1,resv2,resv3,usave(1,1), usave(1,2),usave(1,ldim))
                      call copy(tp(1,1,1), tmp1, ntot1)
                      call copy(tp(1,1,2), tmp2, ntot1)
+                     !write(prefix,'(A2,I1)') 'pe', jp
+                     !call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp),prextr(1,jp),tp(1,1,jp),prefix)
                      ! Diagnostics
 
                      !call ophinv_2Dh(dv1,dv2,dv3,resv1,resv2,resv3,h1, h2,tolhv,nmxv,beta_z) ! perturb.f - perturbv  out = (h1*A+h2*B)^-1 * in  (impl)         (induct.f)
@@ -461,6 +410,7 @@ c-----------------------------------------------------------------------
             call col2( frc_div(1,1,1,1,jp),   bm2, ntot2)          ! this is to be consistent with opdiv output
             if (debug .and. nid == 0) print *, 'CHK istep', istep, 1, 'frc_div(2)'
               
+            if (debug .and. nid == 0) print *, 'CHK istep', istep, 'Compute pressure correction to enforce mass balance'
             do jp = 1, npert
                !   call incomprp (vxp(1,jp),vyp(1,jp),vzp(1,jp),prp(1,jp))       ! perturb.f - perturbv
                ! replaced by code below
@@ -549,6 +499,7 @@ c-----------------------------------------------------------------------
 
 
 
+            if (debug .and. nid == 0) print *, 'CHK istep', istep, 'Compute velocity correction based on pressure correction'
             do jp = 1, npert
                call opgradt (w1 ,w2 ,w3 ,dpr(1,jp))                           ! perturb.f - incomprp  d/dx (dp), d/dy (dp)  (incl. bm2 coll)    (navier1.f)
                call opbinv  (dv1,dv2,dv3,w1 ,w2 ,w3 ,h2inv)                   ! perturb.f - incomprp  out = (h2*B)^-1 * in      (expl)          (navier1.f)
@@ -573,10 +524,9 @@ c-----------------------------------------------------------------------
             call add2(tp(1,1,2), dwdp_i, ntot1)
             
             do jp = 1, npert
-
                ! Diagnostics
                write(prefix,'(A2,I1)') 'vl', jp
-               call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp), prp(1,jp), tp(1,1,jp), prefix)
+               call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp), prp(1,jp),tp(1,1,jp), prefix)
                ! Diagnostics
                
                call extrapprp(prextr(1,jp))                                   ! perturb.f - incomprp  Reconstruct pressure
@@ -585,26 +535,11 @@ c-----------------------------------------------------------------------
 
                ! Diagnostics
                write(prefix,'(A2,I1)') 'pr', jp
-               call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp), prp(1,jp), tp(1,1,jp), prefix)
+               call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp), prp(1,jp),tp(1,1,jp), prefix)
                ! Diagnostics
             end do
-
-
-
-
-
-            !!!
-            !call outpost(vxp(1,1), vyp(1,1), vzp, prp(1,1),tp(1,1,1),'v_1')
-            !call outpost(vxp(1,2), vyp(1,2), vzp, prp(1,2),tp(1,1,2),'v_2')
-            !if (mod(istep,10) == 0) then
-            !   do jp = 1, npert
-            !      write(prefix,'(A2,I1)') '2D', jp
-            !      call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp),prp(1,jp),tp(1,1,jp),prefix)
-            !   end do
-            !end if
          enddo
-	   call nek_end()
-         
+	      call nek_end()
       end if
       return
       end

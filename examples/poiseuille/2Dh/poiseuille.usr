@@ -22,13 +22,7 @@ c-----------------------------------------------------------------------
       include 'NEKUSE'          ! FFX, FFY, FFZ
       include 'PARALLEL'        ! GLLEL
       integer :: ix,iy,iz,ieg
-      integer :: e, ijke
 
-      !real, dimension(lx1*ly1*lz1*lelv,lpert) :: frc_x, frc_y
-      !common / f2Dh_m / frc_x, frc_y
-
-      e = gllel(ieg)
-      ijke = ix + lx1*((iy - 1) + ly1*((iz - 1) + lz1*(e - 1)))
       FFX = 0.0
       FFY = 0.0
       FFZ = 0.0 
@@ -45,15 +39,8 @@ c-----------------------------------------------------------------------
       include 'NEKUSE'          ! QVOL
       include 'PARALLEL'        ! GLLEL
       integer :: ix,iy,iz,ieg
-      integer :: e, ijke
-
-      !real, dimension(lx1*ly1*lz1*lelv,lpert) :: frc_q
-      !common / f2Dh_t / frc_q
-
       
-      e = gllel(ieg)
-      ijke = ix + lx1*((iy - 1) + ly1*((iz - 1) + lz1*(e - 1)))
-      QVOL = 0.0 !frc_q(ijke,jp) 
+      QVOL = 0.0
 
       return
       end
@@ -153,17 +140,8 @@ c-----------------------------------------------------------------------
 
       common /cgeom/ igeom
 
-      real, dimension(lx1,ly1,lz1,lelv) :: dtp, tmp1, tmp2
-      real, dimension(lx1*ly1*lz1*lelv,npert) :: dwdp
-      real, dimension(lx1*ly1*lz1*lelv,ldim) :: usave
-      real, dimension(lx2*ly2*lz2*lelv)      :: psave
-      real :: ta, tb
-      real, dimension(lx1*ly1*lz1) :: wrk1, wrk2
       real w1, w2, w3, resv1, resv2, resv3, dv1, dv2, dv3, h1, h2
       real h2inv
-      real(dp), dimension(LX2*LY2*LZ2*LELV,lpert) :: prextr
-      real(dp), dimension(LX2*LY2*LZ2*LELV,lpert) :: dpr
-      real(dp), dimension(LX1,LY1,LZ1,LELV) :: bm1h2inv
       COMMON /SCRNS/  w1    (lx1,ly1,lz1,lelv)
      $ ,              w2    (lx1,ly1,lz1,lelv)
      $ ,              w3    (lx1,ly1,lz1,lelv)
@@ -176,9 +154,15 @@ c-----------------------------------------------------------------------
       COMMON /SCRVH/  H1    (LX1,LY1,LZ1,LELV)
       COMMON /SCRCH/  H2    (LX1,LY1,LZ1,LELV)
       common /scrhi/ h2inv (lx1,ly1,lz1,lelv)
-
-      real, dimension(lx1*ly1*lz1*lelv,lpert) :: gradz_p
-      real, dimension(lx2,ly2,lz2,lelv,lpert) :: frc_div
+      
+      real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: dwdp
+      real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: gradz_p
+      real(dp), dimension(lx2,ly2,lz2,lelv,lpert) :: frc_div
+      real(dp), dimension(lx2*ly2*lz2*lelv,lpert) :: dpr
+      real(dp), dimension(lx2*ly2*lz2*lelv) :: prextr
+      real(dp), dimension(lx1,ly1,lz1,lelv) :: bm1h2inv
+      real :: energy
+      real :: Lz
 
       character(len=*), parameter :: fmt = '(A4,I6,A)'
 
@@ -187,6 +171,7 @@ c-----------------------------------------------------------------------
       ntot1 = lx1*ly1*lz1*nelv
       ntot2 = lx2*ly2*lz2*nelv
 
+      Lz = 2*pi
       ! pert 1: real
       ! pert 2: imag
 
@@ -217,35 +202,22 @@ c-----------------------------------------------------------------------
 
 	      do istep = 1, nstp
             if (nid == 0) print *, '2Dh step', istep
-            call nekgsync                    ! drive1 - nek_advance
-            call setup_convect(2)            ! drive1 - nek_advance
-            if (iftran) call settime         ! drive1 - nek_advance
-            call setsolv                     ! drive1 - nek_advance
-            call comment                     ! drive1 - nek_advance
-            call setprop                     ! drive1 - nek_advance
+            call nekgsync
+            call setup_convect(2)
+            call settime
+            call setsolv
+            call comment
+            call setprop
 
-            ! subtract best estimate for d/dz (p) from temperature forcing
+            ! compute best estimate for d/dz (p)
             
             if (nid == 0) print fmt, '2Dh ', istep, ': Compute explicit pressure gradient term for w'
-            ! d/dz (p) = beta_z p_i - i beta_z p_r
             ifield = 1
-            ! imaginary component of tp is forced by p_r
-            jp = 1                                       ! jp for extrapolation of the correct pressure term
-            call rzero(resv3, ntot1)
-            call extrapprp(prextr(1,jp))                 ! compute current pressure estimate
-            call mappr(resv3, prextr(1,jp), wrk1, wrk2)  ! map to vmesh
-            call cmult(resv3, beta_z, ntot1)             ! Im(d/dz (p)) =  beta_z (p_r)
-            call col2 (resv3, bm1, ntot1)
-            call copy (gradz_p(1,2), resv3, ntot1)       ! add to forcing term for imaginary part (2)
-            
-            ! tp_r is forced by p_i
-            jp = 2                                       ! jp for extrapolation of the correct pressure term
-            call rzero(resv3, ntot1)
-            call extrapprp(prextr(1,jp))                 ! compute current pressure estimate
-            call mappr(resv3, prextr(1,jp), wrk1, wrk2)  ! map to vmesh
-            call cmult(resv3, -beta_z, ntot1)            ! Re(d/dz (p)) = -beta_z (p_i)
-            call col2 (resv3, bm1, ntot1)
-            call copy (gradz_p(1,1), resv3, ntot1)       ! add to forcing term for real part (1)
+            do jp = 1, npert
+               ! we need to do this outside of the other jp loop for extrapolation of the correct pressure term
+               call extrapprp(prextr)
+               call compute_gradz_p(gradz_p, prextr, beta_z)
+            end do
 
             ! Compute intermediate velocities
 
@@ -276,13 +248,13 @@ c-----------------------------------------------------------------------
 
                      call extrapprp(prextr)
                      call opgradt(resv1,resv2,resv3,prextr)      ! d/dx pr, d/dy pr
+                     call opadd2 (resv1,resv2,resv3,bfxp(1,jp), bfyp(1,jp),bfzp(1,jp))
                      call copy   (resv3,gradz_p(1,jp),ntot1)     ! d/dz pr
-                     call opadd2(resv1,resv2,resv3,bfxp(1,jp), bfyp(1,jp),bfzp(1,jp))
-                     call   add2(resv3, bqp(1,1,jp), ntot1)
+                     call   add2 (resv3, bqp(1,1,jp), ntot1)
                      ! ophx
-                     call axhelm_2Dh(w1, vxp(1,jp),H1,H2,beta_z)
-                     call axhelm_2Dh(w2, vyp(1,jp),H1,H2,beta_z)
-                     call axhelm_2Dh(w3,tp(1,1,jp),H1,H2,beta_z)
+                     call axhelm_2Dh(w1, vxp(1,jp),h1,h2,beta_z)
+                     call axhelm_2Dh(w2, vyp(1,jp),h1,h2,beta_z)
+                     call axhelm_2Dh(w3,tp(1,1,jp),h1,h2,beta_z)
                      call opsub2(resv1,resv2,resv3,w1,w2,w3)
                      call   sub2(            resv3,      w3,ntot1)
                 
@@ -312,26 +284,6 @@ c-----------------------------------------------------------------------
                end do ! igeom
             end do ! jp
                   
-            ! set frc_div as spanwise gradient of temperature
-            if (nid == 0) print fmt, '2Dh ', istep, ': Compute inhomogeneity of the pressure equation'
-            ! d/dz (tp) = beta_z tp_i - i beta_z tp_r
-            jp = 1
-            ! p_r is forced by tp_i
-            do ie = 1, nelv
-               ie1 = (ie-1)*nxyz1+1
-               call map12 (frc_div(1,1,1,ie,jp), tp(ie1,1,2), ie)   ! map tp(2) to pmesh
-            end do
-            call cmult(frc_div(1,1,1,1,jp), beta_z, ntot2)          ! Re(frc_div) = beta_z tp_i
-            call col2( frc_div(1,1,1,1,jp), bm2,    ntot2)          ! this is to be consistent with opdiv output
-            jp = 2
-            ! p_i is forced by tp_r
-            do ie = 1, nelv
-               ie1 = (ie-1)*nxyz1+1
-               call map12 (frc_div(1,1,1,ie,jp), tp(ie1,1,1), ie)   ! map tp(1) to pmesh
-            end do
-            call cmult(frc_div(1,1,1,1,jp), -beta_z, ntot2)         ! Im(frc_div) = -beta_z tp_r
-            call col2( frc_div(1,1,1,1,jp),     bm2, ntot2)         ! this is to be consistent with opdiv output
-              
             if (nid == 0) print fmt, '2Dh ', istep, ': Compute pressure correction to enforce mass balance'
             do jp = 1, npert
                ! incomprp
@@ -344,29 +296,15 @@ c-----------------------------------------------------------------------
                call invers2 (h2inv,h2,ntot1)
                   
                call opdiv   (dpr(1,jp),vxp(1,jp),vyp(1,jp),vzp(1,jp))
-               call add2(dpr(1,jp),frc_div(1,1,1,1,jp),ntot2)                 ! rhs = div(u_r/i) -+ beta_z p_i/r
+
+               call compute_frc_div(frc_div, tp, beta_z)
+               call add2(dpr(1,jp),frc_div(1,1,1,1,jp),ntot2)
                   
                call chsign  (dpr(1,jp),ntot2)
                call ortho   (dpr(1,jp))
              
                call uzawa_gmres_2Dh(dpr(1,jp),h1,h2,h2inv,beta_z,intype,iter)
             end do ! jp                
-
-            ! Compute spanwise velocity correction from the pressure correction
-            
-            !!! compute spanwise pressure gradient
-            if (nid == 0) print fmt, '2Dh ', istep, ': Compute velocity correction for w'
-            
-            !! update spanwise velocity
-            call rzero(dwdp, ntot1*npert)
-            ! d/dz dpr = beta_z dpr_i - i beta_z dpr_r
-
-            ! dtp(1) = beta_z dpr_i
-            call mappr  (dwdp(1,1), dpr(1,2), wrk1, wrk2)              ! map dpr(2) to vmesh
-            call cmult  (dwdp(1,1), -beta_z, ntot1)                    ! Re(dw) = -beta_z (dpr_i)
-            ! dtp(2) = -beta_z dpr_r
-            call mappr  (dwdp(1,2), dpr(1,1), wrk1, wrk2)              ! map dpr(1) to vmesh
-            call cmult  (dwdp(1,2), beta_z, ntot1)                     ! Im(dw) =  beta_z (dpr_r)
 
             ! Reconstruct pressure and add pressure correction
 
@@ -378,24 +316,25 @@ c-----------------------------------------------------------------------
             do jp = 1, npert
                call opgradt (w1 ,w2 ,w3 ,dpr(1,jp))
                call opbinv  (dv1,dv2,dv3,w1 ,w2 ,w3 ,h2inv)
-               ! dw
-               call col2    (dwdp(1,jp), bm1,     ntot1)
-               call col2    (dwdp(1,jp), v3mask,  ntot1)
-               call dssum   (dwdp(1,jp), lx1, ly1, lz1)
-               call invcol2 (dwdp(1,jp), bm1h2inv,ntot1)
+               call compute_dw(dwdp, dpr, bm1h2inv, beta_z) ! dw
 
-               call opadd2  (vxp(1,jp),vyp(1,jp),vzp(1,jp), dv1,dv2,dv3)
-               call   add2  (tp(1,1,jp), dwdp(1,jp), ntot1)
+               call opadd2 (vxp(1,jp),vyp(1,jp),vzp(1,jp), dv1,dv2,dv3)
+               call   add2 (tp(1,1,jp), dwdp(1,jp), ntot1)
              
-               call extrapprp(prextr(1,jp))
+               call extrapprp(prextr)
                call lagpresp
-               call add3(prp(1,jp),prextr(1,jp),dpr(1,jp), ntot2)
+               call add3(prp(1,jp),prextr,dpr(1,jp), ntot2)
 
                if (mod(istep,100) == 0) then
                   write(prefix,'(A2,I1)') 'pr', jp
                   call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp),prp(1,jp),tp(1,1,jp),prefix)
                end if
             end do !jp
+
+            call nek2vec(prt_r, vxp, vyp, vzp, prp, tp, 1)
+            call nek2vec(prt_i, vxp, vyp, vzp, prp, tp, 2)
+            energy = 0.5*(prt_r%norm()**2 + prt_i%norm()**2)*Lz
+            if (nid == 0) print *, 'time', time, 'energy', energy
          enddo
 	      call nek_end()
       end if
@@ -897,4 +836,73 @@ c
       niterhm = niter
       ifsolv = .false.
       return
+      end
+
+      subroutine compute_dw(dwdp, dpr, bm1h2inv, beta_z)
+         implicit none
+         include 'SIZE'
+         include 'SOLN' ! v3mask, jp
+         include 'MASS' ! bm1
+         real, dimension(lx1*ly1*lz1*lelv,lpert), intent(out) :: dwdp
+         real, dimension(lx2*ly2*lz2*lelv,lpert), intent(in) :: dpr
+         real, dimension(lx1*ly1*lz1*lelv,lpert), intent(in) :: bm1h2inv
+         real, intent(in) :: beta_z
+         ! internal
+         integer :: ipert, spert, ntot
+         real, dimension(lx1*ly1*lz1) :: wrk1, wrk2
+
+         ipert = npert + 1 - jp
+         spert = merge(1, -1, jp == 1)  ! +1 for jp = 1, -1 for jp = 2
+         ntot = lx1*ly1*lz1*nelv
+         call mappr  (dwdp(1,jp), dpr(1,ipert), wrk1, wrk2) ! map to vmesh
+         call cmult  (dwdp(1,jp), -spert*beta_z, ntot)
+         call col2   (dwdp(1,jp), bm1,     ntot)
+         call col2   (dwdp(1,jp), v3mask,  ntot)
+         call dssum  (dwdp(1,jp), lx1, ly1, lz1)
+         call invcol2(dwdp(1,jp), bm1h2inv,ntot)
+      end
+
+      subroutine compute_frc_div(frc_div, w, beta_z)
+         implicit none
+         include 'SIZE'
+         include 'SOLN' ! jp
+         include 'MASS' ! bm2
+         real, dimension(lx2,ly2,lz2,lelv,lpert), intent(out) :: frc_div
+         real, dimension(lx1*ly1*lz1*lelv,ldimt,lpert), intent(in) :: w
+         real, intent(in) :: beta_z
+         ! internal
+         integer :: ipert, spert, ie, ie1, nxyz1, ntot2
+
+         ipert = npert + 1 - jp
+         spert = merge(1, -1, jp == 1)  ! +1 for jp = 1, -1 for jp = 2
+         nxyz1 = lx1*ly1*lz1
+         ntot2 = lx2*ly2*lz2*nelv
+         do ie = 1, nelv
+            ie1 = (ie-1)*nxyz1+1
+            call map12 (frc_div(1,1,1,ie,jp), w(ie1,1,ipert), ie) ! map to pmesh
+         end do
+         call cmult(frc_div(1,1,1,1,jp), spert*beta_z, ntot2)
+         call col2( frc_div(1,1,1,1,jp), bm2,          ntot2) ! this is to be consistent with opdiv output
+      end
+
+      subroutine compute_gradz_p(gradz_p, prextr, beta_z)
+         implicit none
+         include 'SIZE'
+         include 'SOLN' ! jp
+         include 'MASS' ! bm2
+         real, dimension(lx1*ly1*lz1*lelv,lpert), intent(out) :: gradz_p
+         real, dimension(lx2*ly2*lz2*lelv), intent(in) :: prextr
+         real, intent(in) :: beta_z
+         ! internal
+         integer :: ipert, spert, ntot
+         real, dimension(lx1,ly1,lz1,lelv) :: wrk
+         real, dimension(lx1*ly1*lz1) :: wrk1, wrk2
+
+         ipert = npert + 1 - jp
+         spert = merge(1, -1, jp == 1)  ! +1 for jp = 1, -1 for jp = 2
+         ntot = lx1*ly1*lz1*nelv
+         call rzero(gradz_p(1,ipert), ntot)
+         call mappr(gradz_p(1,ipert), prextr, wrk1, wrk2)  ! map to vmesh
+         call cmult(gradz_p(1,ipert), spert*beta_z, ntot)
+         call col2 (gradz_p(1,ipert), bm1, ntot)
       end

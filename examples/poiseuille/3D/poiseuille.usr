@@ -149,7 +149,7 @@ c-----------------------------------------------------------------------
       integer, parameter :: nstp = 1000
 
       ! State vectors
-      type(nek_dvector) :: bf, ini
+      type(nek_dvector) :: bf, prt
       real :: energy
       integer :: iter_gmres
 
@@ -160,9 +160,9 @@ c-----------------------------------------------------------------------
          call nek2vec(bf, vx, vy, vz, pr, t)
          
          call load_fld('IC_poiseuille.fld')
-         call nek2vec(ini, vx, vy, vz, pr, t)
+         call nek2vec(prt, vx, vy, vz, pr, t)
 
-         call vec2nek(vxp, vyp, vzp, prp, tp, ini)
+         call vec2nek(vxp, vyp, vzp, prp, tp, prt)
          call vec2nek(vx, vy, vz, pr, t, bf)   
          
          do istep = 1, nstp
@@ -248,7 +248,12 @@ c-----------------------------------------------------------------------
 
                end do ! jp = 1, npert
             end do ! igeom = 1, ngeom
+
             if (mod(istep,100) == 0) call outpost(vxp, vyp, vzp, prp,tp,'prt')
+
+            call nek2vec(prt, vxp, vyp, vzp, prp, tp)
+            energy = prt%norm()**2
+            if (nid == 0) print *, 'time', time, 'energy', energy
          enddo
 	      call nek_end()
       end if

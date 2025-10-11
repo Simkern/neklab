@@ -271,8 +271,8 @@ c-----------------------------------------------------------------------
                      ifield = 1     !  velocity
                      call sethlm   (h1,h2,intype)
                      ! cresvipp 
-                     call bcdirvc (vxp(1,jp),vyp(1,jp),vzp(1,jp),v1mask,v2mask,v3mask)
-                     call bcdirsc (tp(1,1,jp))
+                     call bcdirvc (vxp(1,jp), vyp(1,jp), vzp(1,jp),v1mask,v2mask,v3mask)
+                     call bcdirvc (tp(1,1,jp),vyp(1,jp), vzp(1,jp),v3mask,v2mask,v3mask)
 
                      call extrapprp(prextr)
                      call opgradt(resv1,resv2,resv3,prextr)      ! d/dx pr, d/dy pr
@@ -502,7 +502,6 @@ c
       call chktcg2(tolps,res,iconv)
       if (param(21).gt.0.and.tolps.gt.abs(param(21))) 
      $   tolps = abs(param(21))
-c     if (param(21).lt.0) tolps = abs(param(21))
       if (istep.eq.0) tolps = 1.e-4
       tolpss = tolps
 c
@@ -519,12 +518,11 @@ c
 
          else
             !update residual
-            call copy(r_gmres,res,ntot2)                      ! r = res
-            !call cdabdtp(w_gmres,x_gmres,h1,h2,h2inv,intype)  ! w = A x
+            call copy(r_gmres,res,ntot2)                                ! r = res
             call cdabdtp_2Dh(w_gmres,x_gmres,h1,h2,h2inv,beta_z,intype) ! w = A x
-            call add2s2(r_gmres,w_gmres,-1.,ntot2)            ! r = r - w
-                                                              !      -1
-            call col2(r_gmres,ml_gmres,ntot2)                 ! r = L   r
+            call add2s2(r_gmres,w_gmres,-1.,ntot2)                      ! r = r - w
+                                                                        !      -1
+            call col2(r_gmres,ml_gmres,ntot2)                           ! r = L   r
          endif
                                                             !            ______
          gamma_gmres(1) = sqrt(glsc2(r_gmres,r_gmres,ntot2))! gamma  = \/ (r,r) 
@@ -545,7 +543,6 @@ c
                                                            !       -1
             call col3(w_gmres,mu_gmres,v_gmres(1,j),ntot2) ! w  = U   v
                                                            !           j
-            
             etime2 = dnekclock()
             if(param(43).eq.1) then
                call uzprec(z_gmres(1,j),w_gmres,h1,h2,intype,wp)
@@ -554,13 +551,11 @@ c
             endif     
             etime_p = etime_p + dnekclock()-etime2
      
-            call cdabdtp_2Dh(w_gmres,z_gmres(1,j),! w = A z
+            call cdabdtp_2Dh(w_gmres,z_gmres(1,j),       ! w = A z
      $                   h1,h2,h2inv,beta_z,intype)      !        j
-!            call cdabdtp(w_gmres,z_gmres(1,j),! w = A z
-!     $                   h1,h2,h2inv,intype)      !        j
-                                                  !      -1
-            call col2(w_gmres,ml_gmres,ntot2)     ! w = L   w
-                                               !          i,j  i
+                                                         !      -1
+            call col2(w_gmres,ml_gmres,ntot2)            ! w = L   w
+                                                         !      i,j  i
 
 c           2-PASS GS, 1st pass:
 
@@ -593,8 +588,6 @@ c           2-PASS GS, 1st pass:
             h_gmres(j,j) = l
             gamma_gmres(j+1) = -s_gmres(j) * gamma_gmres(j)
             gamma_gmres(j)   =  c_gmres(j) * gamma_gmres(j)
-
-c            call outmat(h,m,j,' h    ',j)
             
             rnorm = abs(gamma_gmres(j+1))*norm_fac
             ratio = rnorm/div0
@@ -631,7 +624,6 @@ c            call outmat(h,m,j,' h    ',j)
                        ! x = x + c  z
                        !          i  i
          enddo
-c        if(iconv.eq.1) call dbg_write(x,lx2,ly2,lz2,nelv,'esol',3)
       enddo
  9000 continue
 c
@@ -676,8 +668,9 @@ C
      $ ,             TB2 (LX1,LY1,LZ1,LELV)
      $ ,             TB3 (LX1,LY1,LZ1,LELV)
       real, dimension(lx1*ly1*lz1) :: wrk1, wrk2
-      real, dimension(lx2,ly2,lz2,lelv) :: wdiv
-      real, dimension(lx1,ly1,lz1,lelv) :: tmp1, tmp2
+      real, dimension(lx1,ly1,lz1,lelv) :: wdivm1
+      real, dimension(lx1,ly1,lz1,lelv) :: h2B
+      real, dimension(lx2,ly2,lz2,lelv) :: wdivm2
 
       integer :: ie, ntot1, ntot2
 
@@ -686,26 +679,26 @@ C
       call opbinv  (TB1,TB2,TB3,TA1,TA2,TA3,H2INV)
       call opdiv   (ap,tb1,tb2,tb3)
       !!! add 3rd perturbation component. 
-      ! we want to add the contribution
+      ! we want to subtract the contribution
       !
       ! d/dz (h2*B)^(-1) d/dz wp = (-i beta_z) (h2*B)^(-1) (-i beta_z) wp = - beta_z^2 (h2*B)^(-1) wp
       !
       ! Note: we are only considering the ifanls = .false. case
       ntot1 = lx1*ly1*lz1*nelv
       ntot2 = lx2*ly2*lz2*nelv
-      call invcol3 (tmp1,bm1,h2inv,ntot1)           ! = bm1/h2inv = h2*B
-      call dssum   (tmp1,lx1,ly1,lz1)
-      call mappr(tmp2, wp, wrk1, wrk2)              ! map wp to vmesh
-      call col2( tmp2, bm1, ntot1)                  ! collocate bm1
-      call col2( tmp2, v1mask, ntot1)
-      call dssum(tmp2, lx1, ly1, lz1)
-      call invcol2(tmp2, tmp1, ntot1)                ! collocate (h2*B)^-1
-      call cmult(tmp2, -beta_z**2, ntot1)                 ! -beta_z^2 (h2*B)^(-1)
+      call invcol3 (h2B,bm1,h2inv,ntot1)                      ! = bm1/h2inv = h2*B
+      call dssum   (h2B,lx1,ly1,lz1)
+      call mappr  (wdivm1, wp, wrk1, wrk2)                    ! map to vmesh
+      call col2   (wdivm1, bm1, ntot1)                        ! collocate bm1
+      call col2   (wdivm1, v3mask, ntot1)
+      call dssum  (wdivm1, lx1, ly1, lz1)
+      call invcol2(wdivm1, h2B, ntot1)                        ! collocate (h2*B)^-1
+      call cmult  (wdivm1, -beta_z**2, ntot1)                 ! -beta_z^2 (h2*B)^(-1)
       do ie = 1, nelv
-         call map12 (wdiv(1,1,1,ie), tmp2(1,1,1,ie), ie)  ! map ta3 to pmesh
+         call map12 (wdivm2(1,1,1,ie), wdivm1(1,1,1,ie), ie)  ! map wdiv to pmesh
       end do
-      call col2(wdiv, bm2, ntot2)
-      call sub2(ap, wdiv, ntot2)                     ! subtract because of chsign
+      call col2(wdivm2, bm2, ntot2)
+      call sub2(ap, wdivm2, ntot2)
       !!!
       return
       end
@@ -724,11 +717,11 @@ C
          integer :: ntot1
          IMESH = 1
          ntot1 = lx1*ly1*lz1*nelv
-         CALL AXHELM (Au,u,Helm1,Helm2,IMESH,1)
+         CALL AXHELM (Au,u,helm1,helm2,IMESH,1)
          call col3( tmp, u, vdiff(1,1,1,1,1),ntot1)
          call cmult(tmp,-beta_z**2, ntot1)
          call col2( tmp, bm1, ntot1)
-         call add2(Au, tmp, ntot1)
+         call add2( Au, tmp, ntot1)
       end
 
       subroutine cggo_2Dh(x,f,h1,h2,mask,mult,imsh,tin,maxit,isd,binv,name,beta_z)
@@ -903,21 +896,5 @@ c
  9999 continue
       niterhm = niter
       ifsolv = .false.
-c
-c
-c     Call eigenvalue routine for Lanczos scheme:
-c          two work arrays are req'd if you want to save "diag & upper"
-c
-c     if (iter.ge.3) then
-c        niter = iter-1
-c        call calc (diagt,upper,w,z,krylov,dmax,dmin)
-c        cond = dmax/dmin
-c        if (nid.eq.0) write(6,6) istep,cond,dmin,dmax,' lambda'
-c     endif
-c   6 format(i9,1p3e12.4,4x,a7)
-c
-c     if (n.gt.0) write(6,*) 'quit in cggo'
-c     if (n.gt.0) call exitt
-c     call exitt
       return
       end

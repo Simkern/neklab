@@ -329,7 +329,7 @@ c-----------------------------------------------------------------------
                   write(prefix,'(A2,I1)') 'pr', jp
                   call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp),prp(1,jp),tp(1,1,jp),prefix)
                end if
-            end do !jp
+            end do ! jp
 
             call nek2vec(prt_r, vxp, vyp, vzp, prp, tp, 1)
             call nek2vec(prt_i, vxp, vyp, vzp, prp, tp, 2)
@@ -848,18 +848,19 @@ c
          real, dimension(lx1*ly1*lz1*lelv,lpert), intent(in) :: bm1h2inv
          real, intent(in) :: beta_z
          ! internal
-         integer :: ipert, spert, ntot
+         integer :: ipert, spert, ntot1
          real, dimension(lx1*ly1*lz1) :: wrk1, wrk2
 
          ipert = npert + 1 - jp
          spert = merge(1, -1, jp == 1)  ! +1 for jp = 1, -1 for jp = 2
-         ntot = lx1*ly1*lz1*nelv
+         ntot1 = lx1*ly1*lz1*nelv
+         call rzero  (dw(1,jp), ntot1)
          call mappr  (dw(1,jp), dpr(1,ipert), wrk1, wrk2) ! map to vmesh
-         call cmult  (dw(1,jp), -spert*beta_z, ntot)
-         call col2   (dw(1,jp), bm1,     ntot)
-         call col2   (dw(1,jp), v3mask,  ntot)
+         call col2c  (dw(1,jp), bm1, -spert*beta_z, ntot1)
+         ! call dssum on dw
+         call col2   (dw(1,jp), v3mask, ntot1)
          call dssum  (dw(1,jp), lx1, ly1, lz1)
-         call invcol2(dw(1,jp), bm1h2inv,ntot)
+         call invcol2(dw(1,jp), bm1h2inv,ntot1)
       end
 
       subroutine compute_frc_div(frc_div, w, beta_z)
@@ -877,12 +878,12 @@ c
          spert = merge(1, -1, jp == 1)  ! +1 for jp = 1, -1 for jp = 2
          nxyz1 = lx1*ly1*lz1
          ntot2 = lx2*ly2*lz2*nelv
+         call rzero(frc_div(1,1,1,1,jp), ntot2)
          do ie = 1, nelv
             ie1 = (ie-1)*nxyz1+1
             call map12 (frc_div(1,1,1,ie,jp), w(ie1,1,ipert), ie) ! map to pmesh
          end do
-         call cmult(frc_div(1,1,1,1,jp), spert*beta_z, ntot2)
-         call col2( frc_div(1,1,1,1,jp), bm2,          ntot2) ! this is to be consistent with opdiv output
+         call col2c(frc_div(1,1,1,1,jp), bm2, spert*beta_z, ntot2) ! this is to be consistent with opdiv output
       end
 
       subroutine compute_gradz_p(gradz_p, prextr, beta_z)
@@ -894,15 +895,15 @@ c
          real, dimension(lx2*ly2*lz2*lelv), intent(in) :: prextr
          real, intent(in) :: beta_z
          ! internal
-         integer :: ipert, spert, ntot
+         integer :: ipert, spert, ntot1
          real, dimension(lx1,ly1,lz1,lelv) :: wrk
          real, dimension(lx1*ly1*lz1) :: wrk1, wrk2
 
          ipert = npert + 1 - jp
          spert = merge(1, -1, jp == 1)  ! +1 for jp = 1, -1 for jp = 2
-         ntot = lx1*ly1*lz1*nelv
-         call rzero(gradz_p(1,ipert), ntot)
+         ntot1 = lx1*ly1*lz1*nelv
+         call rzero(gradz_p(1,ipert), ntot1)
          call mappr(gradz_p(1,ipert), prextr, wrk1, wrk2)  ! map to vmesh
-         call cmult(gradz_p(1,ipert), spert*beta_z, ntot)
-         call col2 (gradz_p(1,ipert), bm1, ntot)
+         call col2c(gradz_p(1,ipert), bm1, spert*beta_z, ntot1)
+         ! dssum will be called on the vel residual later
       end

@@ -147,7 +147,7 @@ c-----------------------------------------------------------------------
       COMMON /SCRCH/  PREXTR(LX2,LY2,LZ2,LELV)
 
       logical, parameter :: debug = .false.
-      integer, parameter :: nstp = 2
+      integer, parameter :: nstp = 10
 
       ! State vectors
       type(nek_dvector) :: bf, ini
@@ -201,22 +201,14 @@ c-----------------------------------------------------------------------
                      call extrapprp(prextr)
                      call opgradt(resv1,resv2,resv3,prextr)
                      ! Diagnostics
-                        !if (istep == nstp) then
-                        call opcopy(tmp1, tmp2, tmp3, vx, vy, vz)
-                        call opcopy(vx, vy, vz, resv1,resv2,resv3)
-                        call col2(vx, binvm1, ntot1)
-                        call col2(vy, binvm1, ntot1)
-                        call col2(vz, binvm1, ntot1)
-                        call opdssum(vx, vy, vz)
-                        call outpost(vx, vy, vz, prextr, t, 'tst')
-                        call opcopy(vx, vy, vz, tmp1, tmp2, tmp3)
-                        !call copy(tmppr, pr, ntot2)
-                        !call copy(pr, prextr, ntot2)
-                        !call hpts()
-                        !call outpost(vx, vy, vz, pr, t, 'tst')
-                        !call copy(pr, tmppr, ntot2)
-                        !print *, 'HPTS_FILE: PREXTR'
-                     !end if
+                     !call opcopy(tmp1, tmp2, tmp3, vx, vy, vz)
+                     !call opcopy(vx, vy, vz, resv1,resv2,resv3)
+                     !call col2(vx, binvm1, ntot1)
+                     !call col2(vy, binvm1, ntot1)
+                     !call col2(vz, binvm1, ntot1)
+                     !call opdssum(vx, vy, vz)
+                     !call outpost(vx, vy, vz, prextr, t, 'tst')
+                     !call opcopy(vx, vy, vz, tmp1, tmp2, tmp3)
                      ! Diagnostics
                      
                      call opadd2 (resv1,resv2,resv3,bfxp(1,jp),bfyp(1,jp),bfzp(1,jp))
@@ -228,23 +220,15 @@ c-----------------------------------------------------------------------
                      !call ophinv   (dv1,dv2,dv3,resv1,resv2,resv3,h1,h2,tolhv,nmxv)
 
                      ! Diagnostics
-                     !if (istep == nstp) then
-                        call opcopy(tmp1, tmp2, tmp3, vx, vy, vz)
-                        call opcopy(vx, vy, vz, resv1,resv2,resv3)
-                        call col2(vx, binvm1, ntot1)
-                        call col2(vy, binvm1, ntot1)
-                        call col2(vz, binvm1, ntot1)
-                        call opdssum(vx, vy, vz)
-                        call hpts()
-                        call opcopy(vx, vy, vz, tmp1, tmp2, tmp3)
-                        print *, 'HPTS_FILE: RESV1, RESV2, RESV3'
-                        !call copy(tmppr, pr, ntot2)
-                        !call copy(pr, prextr, ntot2)
-                        !call hpts()
-                        !call outpost(vx, vy, vz, pr, t, 'tst')
-                        !call copy(pr, tmppr, ntot2)
-                        !print *, 'HPTS_FILE: PREXTR'
-                     !end if
+                     !call opcopy(tmp1, tmp2, tmp3, vx, vy, vz)
+                     !call opcopy(vx, vy, vz, resv1,resv2,resv3)
+                     !call col2(vx, binvm1, ntot1)
+                     !call col2(vy, binvm1, ntot1)
+                     !call col2(vz, binvm1, ntot1)
+                     !call opdssum(vx, vy, vz)
+                     !call hpts()
+                     !call opcopy(vx, vy, vz, tmp1, tmp2, tmp3)
+                     !print *, 'HPTS_FILE: resv'
                      ! Diagnostics
 
                      kfldfdm = -1
@@ -265,16 +249,14 @@ c-----------------------------------------------------------------------
                      if (param(22).eq.0.or.istep.le.10) call chktcg1 (tolhv,resv3,h1,h2,v3mask,vmult,imesh,1)
                      call cggo(dv3,resv3,h1,h2,v3mask,vmult,imesh,tolhv,nmxv,1,binvm1,'VELZ')
 
-                     call outpost(dv1, dv2, dv3, pr, t, 'dv_')
+                     !call outpost(dv1, dv2, dv3, pr, t, 'dv_')
 
                      ! Diagnostics
-                     !if (istep == nstp) then
-                        call opcopy(tmp1, tmp2, tmp3, vx, vy, vz)
-                        call opcopy(vx, vy, vz, dv1,dv2,dv3)
-                        call hpts()
-                        call opcopy(vx, vy, vz, tmp1, tmp2, tmp3)
-                        print *, 'HPTS_FILE: DV1, DV2, DV3'
-                     !end if
+                     !call opcopy(tmp1, tmp2, tmp3, vx, vy, vz)
+                     !call opcopy(vx, vy, vz, dv1,dv2,dv3)
+                     !call hpts()
+                     !call opcopy(vx, vy, vz, tmp1, tmp2, tmp3)
+                     !print *, 'HPTS_FILE: dv'
                      ! Diagnostics
 
                      call opadd2   (vxp(1,jp),vyp(1,jp),vzp(1,jp),dv1,dv2,dv3)
@@ -294,40 +276,34 @@ c-----------------------------------------------------------------------
                      call ortho   (dpr)
 
                      ! Diagnostics
-                     !if (istep == nstp) then
-                        call copy(tmppr, pr, ntot2)
-                        call copy(pr, dpr, ntot2)
-                        call col2(pr, bm2inv, ntot2)
-                        call hpts()
-                        call copy(pr, tmppr, ntot2)
-                        print *, 'HPTS_FILE: DP'
-                     !end if
+                     !call copy(tmppr, pr, ntot2)
+                     !call copy(pr, dpr, ntot2)
+                     !call col2(pr, bm2inv, ntot2)
+                     !call hpts()
+                     !call copy(pr, tmppr, ntot2)
+                     !print *, 'HPTS_FILE: resp'
                      ! Diagnostics
                   
                      !call esolver (dpr,h1,h2,h2inv,intype)
                      call uzawa_gmres(dpr,h1,h2,h2inv,intype,iter_gmres)
 
                      ! Diagnostics
-                     !if (istep == nstp) then
-                        call copy(tmppr, pr, ntot2)
-                        call copy(pr, dpr, ntot2)
-                        call hpts()
-                        call copy(pr, tmppr, ntot2)
-                        print *, 'HPTS_FILE: DP solved'
-                     !end if
+                     !call copy(tmppr, pr, ntot2)
+                     !call copy(pr, dpr, ntot2)
+                     !call hpts()
+                     !call copy(pr, tmppr, ntot2)
+                     !print *, 'HPTS_FILE: dp'
                   
                      call opgradt (w1 ,w2 ,w3 ,dpr)
                      call opbinv  (dv1,dv2,dv3,w1 ,w2 ,w3 ,h2inv)
                      call opadd2  (vxp,vyp,vzp, dv1,dv2,dv3)
 
                      ! Diagnostics
-                     !if (istep == nstp) then
-                        call opcopy(tmp1, tmp2, tmp3, vx, vy, vz)
-                        call opcopy(vx, vy, vz, dv1,dv2,dv3)
-                        call hpts()
-                        call opcopy(vx, vy, vz, tmp1, tmp2, tmp3)
-                        print *, 'HPTS_FILE: DVDP1, DVDP2, DVDP3'
-                     !end if
+                     !call opcopy(tmp1, tmp2, tmp3, vx, vy, vz)
+                     !call opcopy(vx, vy, vz, dv1,dv2,dv3)
+                     !call hpts()
+                     !call opcopy(vx, vy, vz, tmp1, tmp2, tmp3)
+                     !print *, 'HPTS_FILE: dvdp'
                      ! Diagnostics
 
                      call extrapprp(prextr)
@@ -335,18 +311,16 @@ c-----------------------------------------------------------------------
                      call add3(prp, prextr, dpr, ntot2)
 
                      ! Diagnostics
-                     !if (istep == nstp) then
-                        call opcopy(tmp1, tmp2, tmp3, vx, vy, vz)
-                        call opcopy(vx,vy,vz,vxp(1,jp),vyp(1,jp),vzp(1,jp))
-                        call hpts()
-                        call opcopy(vx, vy, vz, tmp1, tmp2, tmp3)
-                        print *, 'HPTS_FILE: V1, V2, V3'
-                        call copy(tmppr, pr, ntot2)
-                        call copy(pr, prp(1,jp), ntot2)
-                        call hpts()
-                        call copy(pr, tmppr, ntot2)
-                        print *, 'HPTS_FILE: P'
-                     !end if
+                     call opcopy(tmp1, tmp2, tmp3, vx, vy, vz)
+                     call opcopy(vx,vy,vz,vxp(1,jp),vyp(1,jp),vzp(1,jp))
+                     call hpts()
+                     call opcopy(vx, vy, vz, tmp1, tmp2, tmp3)
+                     print *, 'HPTS_FILE: v'
+                     call copy(tmppr, pr, ntot2)
+                     call copy(pr, prp(1,jp), ntot2)
+                     call hpts()
+                     call copy(pr, tmppr, ntot2)
+                     print *, 'HPTS_FILE: p'
                      ! Diagnostics
                   endif
 

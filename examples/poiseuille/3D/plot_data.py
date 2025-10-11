@@ -72,6 +72,23 @@ def generate_mesh(coords):
     xy_plot = np.stack([xx.ravel(), yy.ravel()], axis=1)
     return xy, xy_plot, xx, yy, idx
 
+def read_logfile(logfile):
+   hpts_names = []
+   print(f'\n{logfile}:')
+   istep = 0
+   with open(logfile, 'r') as f:
+      for line in f.readlines():
+         if 'HPTS' in line:
+            param = line.strip().split()[-1]
+            if param not in hpts_names:
+                hpts_names.append(param)
+            print(f'{istep:3d}: {line.strip()}')
+            istep += 1
+   nval  = len(hpts_names)
+   niter = istep // nval
+   print(f'\nNumber of timesteps recorded: {niter}\n')
+   return hpts_names, niter
+
 def extract_nek(fname, names, jp):
     print(f'Read {fname}')
     m2d = pm.neksuite.readnek(fname)
@@ -156,36 +173,25 @@ def plot_all(xy, xy_plot, xx, yy, idx, data_list, field_index=4, islice=0, names
         axs[j].axis('off')
     plt.show()
 
-# Write them to disk
-#coords, data = read_his("poiseuille.his")
-#print("Coordinates shape:", coords.shape)  # (n, 3)
-#print("Data shape:", data.shape)          # (15, n, 5)
-#write_data(coords, data)
 plt.close('all')
 
 ifplot = True
 
 nslice = 2
+basename = 'poiseuille0.f'
+fldr2Dh = '../2Dh/'
+logfile = 'logfile.txt'
+fld_names_ref = [ 'u_x', 'u_y', 'u_z', 'pr' ]
+
 coords, data_list, z_list = read_his("poiseuille.his", nslice=nslice)
 xy, xy_plot, xx, yy, idx = generate_mesh(coords)
 
-print('\nlogfile:')
-istep = 0
-with open('logfile.txt', 'r') as f:
-    for line in f.readlines():
-        if 'HPTS' in line:
-            print(f'{istep:3d}: {line.strip()}')
-            istep += 1
-print('')
-hpts_names_ref = ['resv','dv','resp','dp','dvdp','v','p']
-fld_names_ref = [ 'u_x', 'u_y', 'u_z', 'pr' ]
+hpts_names_ref, nsteps3D = read_logfile(logfile)
 
-basename = 'poiseuille0.f'
-fldr2Dh = '../2Dh/'
+steps     = [ 1, 10 ]
 
+''' debug mode
 #2Dh nek data
-steps     = [ 1,2 ]
-hpts_names = [name + str(step) for step in steps for name in hpts_names_ref ]
 fld_nms   = [ [ 'u_x', 'u_y', 'u_z' ], 
               [ 'pr' ], 
               [ 'u_x', 'u_y', 'u_z' ],
@@ -201,13 +207,13 @@ fld_pfx   = [ [ 'rv', 'dv' ],
               [ 'vv' ],
               [ 'vl' ],
               [ 'pr' ] ]
+'''
+# check mode
+fld_nms   = [ [ 'u_x', 'u_y', 'u_z' ], [ 'pr' ] ]   # components to plot
+fld_tle   = [ [ 'v' ], [ 'p' ] ]                    # names  in 3D hpts extraction
+fld_pfx   = [ [ 'vl' ], [ 'pr' ] ]                  # prefix in 2D outpost
 
-#fld_nms   = [ [ 'u_z' ] ]
-#fld_tle   = [ [ 'resv', 'dv' ] ] 
-#fld_tle   = [ [ 'dvdp' ] ]
-#fld_pfx   = [ [ 'rv', 'dv' ] ]
-#fld_pfx   = [ [ 'vv' ] ]
-
+hpts_names = [name + str(step) for step in range(1,nsteps3D+1) for name in hpts_names_ref ]
 nplot = sum(len(a) * len(b) for a, b in zip(fld_pfx, fld_nms))
 
 for istep in steps:  # timesteps
@@ -229,8 +235,9 @@ for istep in steps:  # timesteps
                 for icase, (pfx, tle) in enumerate(zip(pfx_names, titles)):
                     fname = os.path.join(fldr2Dh, pfx+str(jp+1)+basename+f'{istep:05d}')
                     flds, xy_nek, comp = extract_nek(fname, [name], jp)
-                    #print(f'      {pfx} {tle}: slice {jp}')
 
+                    #print(f'      {pfx} {tle}: slice {jp}')
+                    #print(f' 3D:   istep: {i3D}, jp = {jp}, fld_idx = {fld_idx}')
                     if ifplot:
                         ax = axs[irow+0,icol]
                         fld_2D = griddata(xy_nek, flds[0], xy_plot, method='cubic', fill_value=0).reshape(xx.shape)

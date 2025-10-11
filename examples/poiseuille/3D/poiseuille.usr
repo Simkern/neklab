@@ -199,18 +199,7 @@ c-----------------------------------------------------------------------
                      !call cresvipp (resv1,resv2,resv3,h1,h2)
                      call bcdirvc (vxp(1,jp),vyp(1,jp),vzp(1,jp),v1mask,v2mask,v3mask)
                      call extrapprp(prextr)
-                     call opgradt(resv1,resv2,resv3,prextr)
-                     ! Diagnostics
-                     !call opcopy(tmp1, tmp2, tmp3, vx, vy, vz)
-                     !call opcopy(vx, vy, vz, resv1,resv2,resv3)
-                     !call col2(vx, binvm1, ntot1)
-                     !call col2(vy, binvm1, ntot1)
-                     !call col2(vz, binvm1, ntot1)
-                     !call opdssum(vx, vy, vz)
-                     !call outpost(vx, vy, vz, prextr, t, 'tst')
-                     !call opcopy(vx, vy, vz, tmp1, tmp2, tmp3)
-                     ! Diagnostics
-                     
+                     call opgradt(resv1,resv2,resv3,prextr)                    
                      call opadd2 (resv1,resv2,resv3,bfxp(1,jp),bfyp(1,jp),bfzp(1,jp))
                      !call ophx  (w1,w2,w3,vxp(1,jp),vyp(1,jp),vzp(1,jp),h1,h2)
                      CALL AXHELM (w1,vxp(1,jp),H1,H2,imesh,1)
@@ -293,6 +282,7 @@ c-----------------------------------------------------------------------
                      !call hpts()
                      !call copy(pr, tmppr, ntot2)
                      !print *, 'HPTS_FILE: dp'
+                     ! Diagnostics
                   
                      call opgradt (w1 ,w2 ,w3 ,dpr)
                      call opbinv  (dv1,dv2,dv3,w1 ,w2 ,w3 ,h2inv)

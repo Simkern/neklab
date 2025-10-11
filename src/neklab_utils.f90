@@ -38,11 +38,13 @@
          interface nek2vec
             module procedure nek2vec_std
             module procedure nek2vec_prt
+            module procedure nek2vec_prt_single
          end interface
       
          interface vec2nek
             module procedure vec2nek_std
             module procedure vec2nek_prt
+            module procedure vec2nek_prt_single
          end interface
       
          interface abs_vec2nek
@@ -90,6 +92,21 @@
             call nopcopy(vec%vx, vec%vy, vec%vz, vec%pr, vec%theta, vx_(:, 1), vy_(:, 1), vz_(:, 1), pr_(:, 1), t_(:, :, 1))
       
          end subroutine nek2vec_prt
+
+         subroutine nek2vec_prt_single(vec, vx_, vy_, vz_, pr_, t_, ipert)
+            include "SIZE"
+            type(nek_dvector), intent(out) :: vec
+            real(kind=dp), dimension(lv, lpert), intent(in) :: vx_
+            real(kind=dp), dimension(lv, lpert), intent(in) :: vy_
+            real(kind=dp), dimension(lv, lpert), intent(in) :: vz_
+            real(kind=dp), dimension(lp, lpert), intent(in) :: pr_
+            real(kind=dp), dimension(lx1*ly1*lz1*lelt, ldimt, lpert), intent(in) :: t_
+            integer, intent(in) :: ipert
+      
+            if (ipert > npert) call stop_error('The chosen perturbation index is not defined.',this_module,'nek2vec_prt_single')
+            call nopcopy(vec%vx, vec%vy, vec%vz, vec%pr, vec%theta, vx_(:, ipert), vy_(:, ipert), vz_(:, ipert), pr_(:, ipert), t_(:, :, ipert))
+      
+         end subroutine nek2vec_prt_single
       
          subroutine nek2vec_std(vec, vx_, vy_, vz_, pr_, t_)
             include "SIZE"
@@ -120,15 +137,30 @@
          subroutine vec2nek_prt(vx_, vy_, vz_, pr_, t_, vec)
             include "SIZE"
             type(nek_dvector), intent(in) :: vec
-            real(kind=dp), dimension(lv, 1), intent(out) :: vx_
-            real(kind=dp), dimension(lv, 1), intent(out) :: vy_
-            real(kind=dp), dimension(lv, 1), intent(out) :: vz_
-            real(kind=dp), dimension(lp, 1), intent(out) :: pr_
-            real(kind=dp), dimension(lt, ldimt, 1), intent(out) :: t_
+            real(kind=dp), dimension(lv, lpert), intent(out) :: vx_
+            real(kind=dp), dimension(lv, lpert), intent(out) :: vy_
+            real(kind=dp), dimension(lv, lpert), intent(out) :: vz_
+            real(kind=dp), dimension(lp, lpert), intent(out) :: pr_
+            real(kind=dp), dimension(lt, ldimt, lpert), intent(out) :: t_
       
             call nopcopy(vx_(:, 1), vy_(:, 1), vz_(:, 1), pr_(:, 1), t_(:, :, 1), vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
       
          end subroutine vec2nek_prt
+
+         subroutine vec2nek_prt_single(vx_, vy_, vz_, pr_, t_, ipert, vec)
+            include "SIZE"
+            type(nek_dvector), intent(in) :: vec
+            integer, intent(in) :: ipert
+            real(kind=dp), dimension(lv, lpert), intent(out) :: vx_
+            real(kind=dp), dimension(lv, lpert), intent(out) :: vy_
+            real(kind=dp), dimension(lv, lpert), intent(out) :: vz_
+            real(kind=dp), dimension(lp, lpert), intent(out) :: pr_
+            real(kind=dp), dimension(lt, ldimt, lpert), intent(out) :: t_
+      
+            if (ipert > npert) call stop_error('The chosen perturbation index is not defined.',this_module,'vec2nek_prt_single')
+            call nopcopy(vx_(:, ipert), vy_(:, ipert), vz_(:, ipert), pr_(:, ipert), t_(:, :, ipert), vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
+      
+         end subroutine vec2nek_prt_single
       
          subroutine abstract_vec2nek_std(vx_, vy_, vz_, pr_, t_, vec)
             include "SIZE"

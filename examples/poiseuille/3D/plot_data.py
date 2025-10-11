@@ -176,42 +176,48 @@ def plot_all(xy, xy_plot, xx, yy, idx, data_list, field_index=4, islice=0, names
 plt.close('all')
 
 ifplot = True
-
 nslice = 2
 basename = 'poiseuille0.f'
 fldr2Dh = '../2Dh/'
 logfile = 'logfile.txt'
 fld_names_ref = [ 'u_x', 'u_y', 'u_z', 'pr' ]
 
+chk = True
+debug = False
+if debug:
+    chk = False
+
 coords, data_list, z_list = read_his("poiseuille.his", nslice=nslice)
 xy, xy_plot, xx, yy, idx = generate_mesh(coords)
 
 hpts_names_ref, nsteps3D = read_logfile(logfile)
 
-steps     = [ 1, 10 ]
+steps     = [ 10 ]
 
-''' debug mode
+
 #2Dh nek data
-fld_nms   = [ [ 'u_x', 'u_y', 'u_z' ], 
-              [ 'pr' ], 
-              [ 'u_x', 'u_y', 'u_z' ],
-              [ 'u_x', 'u_y', 'u_z' ], 
-              [ 'pr' ] ]
-fld_tle   = [ [ 'resv', 'dv' ],
-              [ 'resp', 'dp' ],
-              [ 'dvdp' ], 
-              [ 'v' ],
-              [ 'p' ] ]
-fld_pfx   = [ [ 'rv', 'dv' ], 
-              [ 'rp', 'dp' ], 
-              [ 'vv' ],
-              [ 'vl' ],
-              [ 'pr' ] ]
-'''
-# check mode
-fld_nms   = [ [ 'u_x', 'u_y', 'u_z' ], [ 'pr' ] ]   # components to plot
-fld_tle   = [ [ 'v' ], [ 'p' ] ]                    # names  in 3D hpts extraction
-fld_pfx   = [ [ 'vl' ], [ 'pr' ] ]                  # prefix in 2D outpost
+if debug :
+   #debug mode
+   fld_nms   = [ [ 'u_x', 'u_y', 'u_z' ], 
+                 [ 'pr' ], 
+                 [ 'u_x', 'u_y', 'u_z' ],
+                 [ 'u_x', 'u_y', 'u_z' ], 
+                 [ 'pr' ] ]
+   fld_tle   = [ [ 'resv', 'dv' ],
+                 [ 'resp', 'dp' ],
+                 [ 'dvdp' ], 
+                 [ 'v' ],
+                 [ 'p' ] ]
+   fld_pfx   = [ [ 'rv', 'dv' ], 
+                 [ 'rp', 'dp' ], 
+                 [ 'vv' ],
+                 [ 'vl' ],
+                 [ 'pr' ] ]
+else:
+   # check mode
+   fld_nms   = [ [ 'u_x', 'u_y', 'u_z' ], [ 'pr' ] ]   # components to plot
+   fld_tle   = [ [ 'v' ], [ 'p' ] ]                    # names  in 3D hpts extraction
+   fld_pfx   = [ [ 'vl' ], [ 'pr' ] ]                  # prefix in 2D outpost
 
 hpts_names = [name + str(step) for step in range(1,nsteps3D+1) for name in hpts_names_ref ]
 nplot = sum(len(a) * len(b) for a, b in zip(fld_pfx, fld_nms))

@@ -153,7 +153,7 @@ c-----------------------------------------------------------------------
 
       common /cgeom/ igeom
 
-      real, dimension(lx1,ly1,lz1,lelv) :: dtp, tmp1, tmp2, htmp1, htmp2
+      real, dimension(lx1,ly1,lz1,lelv) :: dtp, tmp1, tmp2
       real, dimension(lx1*ly1*lz1*lelv,npert) :: dwdp
       real, dimension(lx1*ly1*lz1*lelv,ldim) :: usave
       real, dimension(lx2*ly2*lz2*lelv)      :: psave
@@ -162,7 +162,6 @@ c-----------------------------------------------------------------------
       real w1, w2, w3, resv1, resv2, resv3, dv1, dv2, dv3, h1, h2
       real h2inv
       real(dp), dimension(LX2*LY2*LZ2*LELV,lpert) :: prextr
-      real(dp), dimension(LX2,LY2,LZ2,LELV)       :: pe
       real(dp), dimension(LX2*LY2*LZ2*LELV,lpert) :: dpr
       real(dp), dimension(LX1,LY1,LZ1,LELV) :: bm1h2inv
       COMMON /SCRNS/  w1    (lx1,ly1,lz1,lelv)
@@ -174,19 +173,15 @@ c-----------------------------------------------------------------------
      $ ,              DV1   (LX1,LY1,LZ1,LELV)
      $ ,              DV2   (LX1,LY1,LZ1,LELV)
      $ ,              DV3   (LX1,LY1,LZ1,LELV)
-      COMMON /SCRNS/ TA(LX1,LY1,LZ1,LELT)
-     $              ,TB(LX1,LY1,LZ1,LELT)
       COMMON /SCRVH/  H1    (LX1,LY1,LZ1,LELV)
       COMMON /SCRCH/  H2    (LX1,LY1,LZ1,LELV)
       common /scrhi/ h2inv (lx1,ly1,lz1,lelv)
 
-      !real, dimension(lx1*ly1*lz1*lelv,lpert) :: frc_x, frc_y, frc_q
       real, dimension(lx1*ly1*lz1*lelv,lpert) :: gradz_p
       real, dimension(lx2,ly2,lz2,lelv,lpert) :: frc_div
-      !common / f2Dh_m / frc_x, frc_y
-      !common / f2Dh_t / frc_q
 
-      logical, parameter :: debug = .true.
+      logical, parameter :: debug = .false.
+      logical, parameter :: ifchk = .true.
       integer, parameter :: nstp  = 10
 
       ntot1 = lx1*ly1*lz1*nelv
@@ -220,13 +215,14 @@ c-----------------------------------------------------------------------
          call copy(vyp(1,2),   prt_i%vy,    ntot1)
          call copy(tp (1,1,2), prt_i%theta, ntot1)
 
-         ! diagnositcs
-         !call outpost(vx, vy, vz, pr, t, 'bas')
-         !call outpost(vxp(1,1), vyp(1,1), vzp, prp(1,1), tp(1,1,1), 'p_r')
-         !call outpost(vxp(1,2), vyp(1,2), vzp, prp(1,2), tp(1,1,2), 'p_i')
-         !call outpost(vxp(1,1), vyp(1,1), vzp, prp(1,1),tp(1,1,1),'v_1')
-         !call outpost(vxp(1,2), vyp(1,2), vzp, prp(1,2),tp(1,1,2),'v_2')
-
+         ! Diagnostics
+         if (ifchk) then
+            call outpost(vx, vy, vz, pr, t, 'bas')
+            call outpost(vxp(1,1), vyp(1,1), vzp, prp(1,1), tp(1,1,1), 'p_r')
+            call outpost(vxp(1,2), vyp(1,2), vzp, prp(1,2), tp(1,1,2), 'p_i')
+            call outpost(vxp(1,1), vyp(1,1), vzp, prp(1,1),tp(1,1,1),'v_1')
+            call outpost(vxp(1,2), vyp(1,2), vzp, prp(1,2),tp(1,1,2),'v_2')
+         end if
          
 	      do istep = 1, nstp
             call nekgsync                    ! drive1 - nek_advance
@@ -244,7 +240,7 @@ c-----------------------------------------------------------------------
             
             
             
-            if (debug .and. nid == 0) print *, 'CHK istep', istep, 'compute pressure gradient term for tp'
+            if (nid == 0) print *, 'CHK istep', istep, 'compute pressure gradient term for tp'
             ! d/dz (p) = beta_z p_i - i beta_z p_r
             ifield = 1
             ! imaginary component of tp is forced by p_r
@@ -272,12 +268,10 @@ c-----------------------------------------------------------------------
             ! Solve advection-diffusion equation for temperature (with additional forcing)
             ! Compute intermediate velocity in x,y and solve for pressure correction using added divergence term
             
-            if (debug .and. nid == 0) print *, 'CHK istep', istep, 'Solve advection-diffusion for t (both perturbations)'          
-            if (debug .and. nid == 0) print *, 'CHK istep', istep, 'Solve momentum equations for x/y (both perturbations)'
+            if (nid == 0) print *, 'CHK istep', istep, 'Solve advection-diffusion for t (both perturbations)'          
+            if (nid == 0) print *, 'CHK istep', istep, 'Solve momentum equations for x/y (both perturbations)'
             do jp = 1, npert
-               !print *, 'CHK ipert', jp
                do igeom = 1,ngeom
-                  !print *, 'CHK     igeom', igeom
                   if (igeom == 1) then
                   !
                   !  Old geometry, old velocity
@@ -298,18 +292,18 @@ c-----------------------------------------------------------------------
                      call sethlm   (h1,h2,intype)                                   ! perturb.f - perturbv  h1 = 1/Re, h2 = bd(1)/dt: H = (h1*A + h2*B)
                      !call cresvipp (resv1,resv2,resv3,h1,h2)                        ! perturb.f - perturbv  BCs; f = gradt (p) + ff[xy]; f - H*u 
                      call bcdirvc (vxp(1,jp),vyp(1,jp),vzp(1,jp),v1mask,v2mask,v3mask)
-                     !ifield = 2     !  temperature (w)
-                     CALL BCDIRSC (tp(1,1,jp))
-                     !ifield = 1
+                     CALL bcdirsc (tp(1,1,jp))
                      call extrapprp(prextr)
                      call opgradt(resv1,resv2,resv3,prextr)      ! d/dx pr, d/dy pr
                      call copy(resv3, gradz_p(1,jp), ntot1)      ! d/dz pr
                      
                      ! Diagnostics
-                     !write(prefix,'(A2,I1)') 'bf', jp
-                     !call outpost(bfxp(1,jp), bfyp(1,jp),bfzp(1,jp),prp(1,jp),tp(1,1,jp),prefix)
-                     !write(prefix,'(A2,I1)') 'bq', jp
-                     !call outpost(bqp(1,ifield-1,jp), adqp(1,ifield-1,jp),bfzp(1,jp),prp(1,jp),tp(1,1,jp),prefix)
+                     if (debug) then
+                        write(prefix,'(A2,I1)') 'bf', jp
+                        call outpost(bfxp(1,jp), bfyp(1,jp),bfzp(1,jp),prp(1,jp),tp(1,1,jp),prefix)
+                        write(prefix,'(A2,I1)') 'bq', jp
+                        call outpost(bqp(1,ifield-1,jp),adqp(1,ifield-1,jp),bfzp(1,jp),prp(1,jp),tp(1,1,jp),prefix)
+                     end if
                      ! Diagnostics
 
                      call opadd2(resv1,resv2,resv3,bfxp(1,jp), bfyp(1,jp),bfzp(1,jp))
@@ -321,31 +315,23 @@ c-----------------------------------------------------------------------
                      call opsub2(resv1,resv2,resv3,w1,w2,w3)
                      call   sub2(            resv3,      w3,ntot1)
                      
-                     !CALL BCNEUSC (TA,-1)                           ! does not appear in our case
-                     !CALL ADD2    (H2,TA,NTOT1)                     ! does not appear in our case
-                     !call add2    (h2,adqp(1,ifield-1,jp),ntot1)    ! does not appear in our case
-                     !CALL AXHELM  (TA,TP (1,ifield-1,jp),H1,H2,IMESH,1)
-                     !CALL SUB3    (TB,BQP(1,ifield-1,jp),TA,NTOT1)
-                     !CALL BCNEUSC (TA,1)                            ! does not appear in our case
-                     !CALL ADD2    (TB,TA,NTOT1)                     ! does not appear in our case
-
                      ! Diagnostics
-                     !call opcopy(usave(1,1),usave(1,2),usave(1,ldim),resv1,resv2,resv3)
-                     !call copy(tmp1,     resv3, ntot1)
-                     !call copy(tmp2,tp(1,1,jp), ntot1)
-                     !call col2(resv1,      binvm1, ntot1)
-                     !call col2(resv2,      binvm1, ntot1)
-                     !call col2(resv3,      binvm1, ntot1)
-                     !call opdssum(resv1, resv2, resv3)
-                     !call   dssum(resv3, lx1, ly1, lz1)
-                     !write(prefix,'(A2,I1)') 'rv', jp
-                     !call copy(tp(1,1,jp), resv3, ntot1)
-                     !call outpost(resv1,resv2,resv3, prp, tp, prefix)
-                     !call opcopy (resv1,resv2,resv3,usave(1,1),usave(1,2),usave(1,ldim))
-                     !call copy(resv3,      tmp1, ntot1)
-                     !call copy(tp(1,1,jp), tmp2, ntot1)
-                     !write(prefix,'(A2,I1)') 'pe', jp
-                     !call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp),prextr(1,jp),tp(1,1,jp),prefix)
+                     if (debug) then
+                        call opcopy(usave(1,1),usave(1,2),usave(1,ldim),resv1,resv2,resv3)
+                        call copy(tmp1,     resv3, ntot1)
+                        call copy(tmp2,tp(1,1,jp), ntot1)
+                        call col2(resv1,      binvm1, ntot1)
+                        call col2(resv2,      binvm1, ntot1)
+                        call col2(resv3,      binvm1, ntot1)
+                        call opdssum(resv1, resv2, resv3)
+                        call   dssum(resv3, lx1, ly1, lz1)
+                        write(prefix,'(A2,I1)') 'rv', jp
+                        call copy(tp(1,1,jp), resv3, ntot1)
+                        call outpost(resv1,resv2,resv3, prp, tp, prefix)
+                        call opcopy (resv1,resv2,resv3,usave(1,1),usave(1,2),usave(1,ldim))
+                        call copy(resv3,      tmp1, ntot1)
+                        call copy(tp(1,1,jp), tmp2, ntot1)
+                     end if
                      ! Diagnostics
 
                      !call ophinv_2Dh(dv1,dv2,dv3,resv1,resv2,resv3,h1, h2,tolhv,nmxv,beta_z) ! perturb.f - perturbv  out = (h1*A+h2*B)^-1 * in  (impl)         (induct.f)
@@ -355,35 +341,37 @@ c-----------------------------------------------------------------------
 
                      call dssum  (resv1,lx1,ly1,lz1)
                      call col2   (resv1,v1mask,ntot1)
-                     if (param(22).eq.0.or.istep.le.10) call chktcg1 (tolhv,resv1,h1,h2,v1mask,vmult,imesh,1)
+                     if (istep < 10) call chktcg1 (tolhv,resv1,h1,h2,v1mask,vmult,imesh,1)
                      call cggo_2Dh(dv1,resv1,h1,h2,v1mask,vmult,imesh,tolhv,nmxv,1,binvm1,'VELX',beta_z)
 
                      call dssum  (resv2,lx1,ly1,lz1)
                      call col2   (resv2,v2mask,ntot1)
-                     if (param(22).eq.0.or.istep.le.10) call chktcg1 (tolhv,resv2,h1,h2,v2mask,vmult,imesh,2)
+                     if (istep < 10) call chktcg1 (tolhv,resv2,h1,h2,v2mask,vmult,imesh,2)
                      call cggo_2Dh(dv2,resv2,h1,h2,v2mask,vmult,imesh,tolhv,nmxv,1,binvm1,'VELY',beta_z)
                      
                      call dssum  (resv3,lx1,ly1,lz1)
                      call col2   (resv3,v3mask,ntot1)
-                     if (param(22).eq.0.or.istep.le.10) call chktcg1 (tolhv,resv3,h1,h2,v3mask,vmult,imesh,1)
+                     if (istep < 10) call chktcg1 (tolhv,resv3,h1,h2,v3mask,vmult,imesh,1)
                      call cggo_2Dh(dv3,resv3,h1,h2,v3mask,vmult,imesh, tolhv,nmxv,1,binvm1,'VELZ',beta_z)
                      
-                     call opadd2   (vxp(1,jp),vyp(1,jp),vzp(1,jp),dv1,dv2,dv3)      ! perturb.f - perturbv
-                     call add2    (TP(1,1,jp),dv3,NTOT1)
+                     call opadd2 (vxp(1,jp),vyp(1,jp),vzp(1,jp),dv1,dv2,dv3)      ! perturb.f - perturbv
+                     call add2   (tp(1,1,jp),dv3,ntot1)
                      
                      ! Diagnostics
-                     !call copy(tmp1, tp(1,1,jp), ntot1)
-                     !call copy(tp(1,1,jp), dv3, ntot1)
-                     !write(prefix,'(A2,I1)') 'dv', jp
-                     !call outpost(dv1, dv2, dv3, prp, tp, prefix)
-                     !call copy(tp(1,1,jp), tmp1, ntot1)
+                     if (debug) then
+                        call copy(tmp1, tp(1,1,jp), ntot1)
+                        call copy(tp(1,1,jp), dv3, ntot1)
+                        write(prefix,'(A2,I1)') 'dv', jp
+                        call outpost(dv1, dv2, dv3, prp, tp, prefix)
+                        call copy(tp(1,1,jp), tmp1, ntot1)
+                     end if
                      ! Diagnostics
                   end if
                end do ! igeom
             end do ! jp
                   
             ! set frc_div as spanwise gradient of temperature
-            if (debug .and. nid == 0) print *, 'CHK istep', istep, 'Compute inhomogeneity of the pressure equation'
+            if (nid == 0) print *, 'CHK istep', istep, 'Compute inhomogeneity of the pressure equation'
             ! d/dz (tp) = beta_z tp_i - i beta_z tp_r
             jp = 1
             ! p_r is forced by tp_i
@@ -393,7 +381,7 @@ c-----------------------------------------------------------------------
             end do
             call cmult(frc_div(1,1,1,1,jp), beta_z, ntot2)          ! Re(frc_div) = beta_z tp_i
             call col2( frc_div(1,1,1,1,jp), bm2,    ntot2)          ! this is to be consistent with opdiv output
-            if (debug .and. nid == 0) print *, 'CHK istep', istep, 2, 'frc_div(1)'
+            if (nid == 0) print *, 'CHK istep', istep, 2, 'frc_div(1)'
             jp = 2
             ! p_i is forced by tp_r
             do ie = 1, nelv
@@ -402,9 +390,9 @@ c-----------------------------------------------------------------------
             end do
             call cmult(frc_div(1,1,1,1,jp), -beta_z, ntot2)         ! Im(frc_div) = -beta_z tp_r
             call col2( frc_div(1,1,1,1,jp),     bm2, ntot2)         ! this is to be consistent with opdiv output
-            if (debug .and. nid == 0) print *, 'CHK istep', istep, 1, 'frc_div(2)'
+            if (nid == 0) print *, 'CHK istep', istep, 1, 'frc_div(2)'
               
-            if (debug .and. nid == 0) print *, 'CHK istep', istep, 'Compute pressure correction to enforce mass balance'
+            if (nid == 0) print *, 'CHK istep', istep, 'Compute pressure correction to enforce mass balance'
             do jp = 1, npert
                !   call incomprp (vxp(1,jp),vyp(1,jp),vzp(1,jp),prp(1,jp))       ! perturb.f - perturbv
                ! replaced by code below
@@ -420,11 +408,13 @@ c-----------------------------------------------------------------------
                call opdiv   (dpr(1,jp),vxp(1,jp),vyp(1,jp),vzp(1,jp))         ! perturb.f - incomprp  includes bm2 collocation                  (navier1.f)
 
                ! diagnostics
-               !call copy(psave, dpr(1,jp), ntot2)
-               !call col2(dpr(1,jp), bm2inv, ntot2)
-               !write(prefix,'(A2,I1)') 'r1', jp
-               !call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp),dpr(1,jp), tp(1,1,jp),prefix)
-               !call copy(dpr(1,jp), psave, ntot2)
+               if (debug) then
+                  call copy(psave, dpr(1,jp), ntot2)
+                  call col2(dpr(1,jp), bm2inv, ntot2)
+                  write(prefix,'(A2,I1)') 'r1', jp
+                  call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp),dpr(1,jp), tp(1,1,jp),prefix)
+                  call copy(dpr(1,jp), psave, ntot2)
+               end if
                ! diagnostics
                   
                !!! add frc_div to rhs
@@ -435,19 +425,23 @@ c-----------------------------------------------------------------------
                call ortho   (dpr(1,jp))                                       ! perturb.f - incomprp
              
                ! diagnostics
-               !call copy(psave, dpr(1,jp), ntot2)
-               !call col2(dpr(1,jp), bm2inv, ntot2)
-               !write(prefix,'(A2,I1)') 'rp', jp
-               !call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp),dpr(1,jp), tp(1,1,jp),prefix)
-               !call copy(dpr(1,jp), psave, ntot2)
+               if (debug) then
+                  call copy(psave, dpr(1,jp), ntot2)
+                  call col2(dpr(1,jp), bm2inv, ntot2)
+                  write(prefix,'(A2,I1)') 'rp', jp
+                  call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp),dpr(1,jp), tp(1,1,jp),prefix)
+                  call copy(dpr(1,jp), psave, ntot2)
+               end if
                ! diagnostics
              
                !call esolver (dpr(1,jp),h1,h2,h2inv,intype)                    ! perturb.f - incomprp
                call uzawa_gmres_2Dh(dpr(1,jp),h1,h2,h2inv,beta_z,intype,iter)
                
                ! diagnostics
-               !write(prefix,'(A2,I1)') 'dp', jp
-               !call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp),dpr(1,jp), tp(1,1,jp),prefix)
+               if (debug) then
+                  write(prefix,'(A2,I1)') 'dp', jp
+                  call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp),dpr(1,jp), tp(1,1,jp),prefix)
+               end if
                ! diagnostics
             end do ! jp                
 
@@ -461,8 +455,8 @@ c-----------------------------------------------------------------------
 
             
             !!! compute spanwise pressure gradient
-            if (debug .and. nid == 0) print *, 'CHK istep', istep, 'Add velocity correction for t'
-            if (debug .and. nid == 0) print *, 'CHK istep', istep, 2, 'dw(1)'
+            if (nid == 0) print *, 'CHK istep', istep, 'Add velocity correction for t'
+            if (nid == 0) print *, 'CHK istep', istep, 2, 'dw(1)'
             
             !! update spanwise velocity
             call rzero(dwdp, ntot1*npert)
@@ -472,7 +466,7 @@ c-----------------------------------------------------------------------
             call mappr  (dwdp(1,1), dpr(1,2), wrk1, wrk2)              ! map dpr(2) to vmesh
             call cmult  (dwdp(1,1), -beta_z, ntot1)                    ! Re(dw) = -beta_z (dpr_i)
             ! dtp(2) = -beta_z dpr_r
-            if (debug .and. nid == 0) print *, 'CHK istep', istep, 1, 'dw(2)'
+            if (nid == 0) print *, 'CHK istep', istep, 1, 'dw(2)'
             call mappr  (dwdp(1,2), dpr(1,1), wrk1, wrk2)              ! map dpr(1) to vmesh
             call cmult  (dwdp(1,2), beta_z, ntot1)                     ! Im(dw) =  beta_z (dpr_r)
 
@@ -483,7 +477,7 @@ c-----------------------------------------------------------------------
 
 
 
-            if (debug .and. nid == 0) print *, 'CHK istep', istep, 'Compute velocity correction based on pressure correction'
+            if (nid == 0) print *, 'CHK istep', istep, 'Compute velocity correction based on pressure correction'
             ! prepare
             call invcol3 (bm1h2inv,bm1,h2inv,ntot1)    ! = bm1/h2inv = B*h2
             call dssum   (bm1h2inv,lx1,ly1,lz1)
@@ -495,29 +489,36 @@ c-----------------------------------------------------------------------
                call col2    (dwdp(1,jp), v3mask,  ntot1)
                call dssum   (dwdp(1,jp), lx1, ly1, lz1)
                call invcol2 (dwdp(1,jp), bm1h2inv,ntot1)                      ! (h2*B)^-1 (-d/dz) (dpr_i) = dtp_r
+               
                ! Diagnostics
-               !call copy(tmp1,       tp(1,1,jp), ntot1)
-               !call copy(tp(1,1,jp), dwdp(1,jp), ntot1)
-               !write(prefix,'(A2,I1)') 'vv', jp
-               !call outpost(dv1, dv2, dv3, prp, tp, prefix)
-               !call copy(tp(1,1,jp), tmp1, ntot1)
+               if (debug) then
+                  call copy(tmp1,       tp(1,1,jp), ntot1)
+                  call copy(tp(1,1,jp), dwdp(1,jp), ntot1)
+                  write(prefix,'(A2,I1)') 'vv', jp
+                  call outpost(dv1, dv2, dv3, prp, tp, prefix)
+                  call copy(tp(1,1,jp), tmp1, ntot1)
+               end if
                ! Diagnostics
 
                call opadd2  (vxp(1,jp),vyp(1,jp),vzp(1,jp), dv1,dv2,dv3)      ! perturb.f - incomprp
                call   add2  (tp(1,1,jp), dwdp(1,jp), ntot1)
              
                ! Diagnostics
-               write(prefix,'(A2,I1)') 'vl', jp
-               call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp), prp(1,jp),tp(1,1,jp), prefix)
+               if (ifchk) then
+                  write(prefix,'(A2,I1)') 'vl', jp
+                  call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp), prp(1,jp),tp(1,1,jp), prefix)
+               end if
                ! Diagnostics
                
                call extrapprp(prextr(1,jp))                                   ! perturb.f - incomprp  Reconstruct pressure
                call lagpresp                                                  ! perturb.f - incomprp  Save lagged pressure
                call add3(prp(1,jp),prextr(1,jp),dpr(1,jp), ntot2)             ! perturb.f - incomprp  Add correction
-
+               
                ! Diagnostics
-               write(prefix,'(A2,I1)') 'pr', jp
-               call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp), prp(1,jp),tp(1,1,jp), prefix)
+               if (ifchk) then
+                  write(prefix,'(A2,I1)') 'pr', jp
+                  call outpost(vxp(1,jp),vyp(1,jp),vzp(1,jp), prp(1,jp),tp(1,1,jp), prefix)
+               end if
                ! Diagnostics
             end do
          enddo

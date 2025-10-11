@@ -155,7 +155,7 @@ c-----------------------------------------------------------------------
       COMMON /SCRCH/  H2    (LX1,LY1,LZ1,LELV)
       common /scrhi/ h2inv (lx1,ly1,lz1,lelv)
       
-      real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: dwdp
+      real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: dw
       real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: gradz_p
       real(dp), dimension(lx2,ly2,lz2,lelv,lpert) :: frc_div
       real(dp), dimension(lx2*ly2*lz2*lelv,lpert) :: dpr
@@ -316,10 +316,10 @@ c-----------------------------------------------------------------------
             do jp = 1, npert
                call opgradt (w1 ,w2 ,w3 ,dpr(1,jp))
                call opbinv  (dv1,dv2,dv3,w1 ,w2 ,w3 ,h2inv)
-               call compute_dw(dwdp, dpr, bm1h2inv, beta_z) ! dw
+               call compute_dw(dw, dpr, bm1h2inv, beta_z) ! dw
 
                call opadd2 (vxp(1,jp),vyp(1,jp),vzp(1,jp), dv1,dv2,dv3)
-               call   add2 (tp(1,1,jp), dwdp(1,jp), ntot1)
+               call   add2 (tp(1,1,jp), dw(1,jp), ntot1)
              
                call extrapprp(prextr)
                call lagpresp
@@ -838,12 +838,12 @@ c
       return
       end
 
-      subroutine compute_dw(dwdp, dpr, bm1h2inv, beta_z)
+      subroutine compute_dw(dw, dpr, bm1h2inv, beta_z)
          implicit none
          include 'SIZE'
          include 'SOLN' ! v3mask, jp
          include 'MASS' ! bm1
-         real, dimension(lx1*ly1*lz1*lelv,lpert), intent(out) :: dwdp
+         real, dimension(lx1*ly1*lz1*lelv,lpert), intent(out) :: dw
          real, dimension(lx2*ly2*lz2*lelv,lpert), intent(in) :: dpr
          real, dimension(lx1*ly1*lz1*lelv,lpert), intent(in) :: bm1h2inv
          real, intent(in) :: beta_z
@@ -854,12 +854,12 @@ c
          ipert = npert + 1 - jp
          spert = merge(1, -1, jp == 1)  ! +1 for jp = 1, -1 for jp = 2
          ntot = lx1*ly1*lz1*nelv
-         call mappr  (dwdp(1,jp), dpr(1,ipert), wrk1, wrk2) ! map to vmesh
-         call cmult  (dwdp(1,jp), -spert*beta_z, ntot)
-         call col2   (dwdp(1,jp), bm1,     ntot)
-         call col2   (dwdp(1,jp), v3mask,  ntot)
-         call dssum  (dwdp(1,jp), lx1, ly1, lz1)
-         call invcol2(dwdp(1,jp), bm1h2inv,ntot)
+         call mappr  (dw(1,jp), dpr(1,ipert), wrk1, wrk2) ! map to vmesh
+         call cmult  (dw(1,jp), -spert*beta_z, ntot)
+         call col2   (dw(1,jp), bm1,     ntot)
+         call col2   (dw(1,jp), v3mask,  ntot)
+         call dssum  (dw(1,jp), lx1, ly1, lz1)
+         call invcol2(dw(1,jp), bm1h2inv,ntot)
       end
 
       subroutine compute_frc_div(frc_div, w, beta_z)

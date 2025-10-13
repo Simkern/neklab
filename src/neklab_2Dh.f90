@@ -129,7 +129,7 @@
                      call dssum  (resv2,lx1,ly1,lz1)
                      call col2   (resv2,v2mask,ntot1)
                      if (istep < 10) call chktcg1 (tolhv,resv2,h1,h2,v2mask,vmult,imesh,2)
-                     call solve_helmholtz_2Dh(dv2,resv2,h1,h2,v2mask,vmult,imesh,tolhv,nmxv,1,binvm1,'VELY',beta_z)
+                     call solve_helmholtz_2Dh(dv2,resv2,h1,h2,v2mask,vmult,imesh,tolhv,nmxv,2,binvm1,'VELY',beta_z)
                      
                      call dssum  (resv3,lx1,ly1,lz1)
                      call col2   (resv3,v3mask,ntot1)

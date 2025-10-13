@@ -67,6 +67,11 @@
                call random_number(fcoeff); fcoeff = fcoeff*1.0e4_dp
                self%vz(ijke) = self%vz(ijke) + mth_rand(ix, iy, iz, ieg, xl, fcoeff)
             end if
+
+            if (ifto) then
+               call random_number(fcoeff); fcoeff = fcoeff*1.0e4_dp
+               self%theta(ijke,1) = self%theta(ijke,1) + mth_rand(ix, iy, iz, ieg, xl, fcoeff)
+            end if
          end do
          end do
          end do
@@ -85,6 +90,7 @@
                         self%vx(ijke) = 0.0_dp
                         self%vy(ijke) = 0.0_dp
                         if (if3d) self%vz(ijke) = 0.0_dp
+                        if (ifto) self%theta(ijke,1) = 0.0_dp
                      end do
                      end do
                      end do
@@ -95,10 +101,15 @@
       
       ! Face averaging.
          call opdssum(self%vx, self%vy, self%vz)
-         call opcolv(self%vx, self%vy, self%vz, vmult)
+         call col2(self%theta, vmult)
          call dsavg(self%vx)
          call dsavg(self%vy)
          if (if3d) call dsavg(self%vz)
+         if (ifto) then
+            call dssum(self%theta, lx1, ly1, lz1)
+            call opcolv(self%vx, self%vy, self%vz, vmult)
+            call dsavg(self%theta)
+         end if         
          call bcdirvc(self%vx, self%vy, self%vz, v1mask, v2mask, v3mask)
       
          if (normalize) then

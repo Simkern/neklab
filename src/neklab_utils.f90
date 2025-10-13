@@ -8,7 +8,7 @@
          use LightKrylov, only: dp
          use LightKrylov_Logger
       ! Abstract types for real-valued vectors.
-         use LightKrylov, only: abstract_vector_rdp
+         use LightKrylov, only: abstract_vector, abstract_vector_rdp
       ! Neklab vectors
          use neklab_vectors
       
@@ -31,6 +31,8 @@
       ! utilities for extended nek vectors
          public :: nek2ext_vec, ext_vec2nek, abs_ext_vec2nek, outpost_ext_dnek
          public :: get_period, get_period_abs
+      ! utility for outposting
+         public :: outpost_nek, outpost_2Dh
       ! miscellaneous
          public :: nopcopy
       
@@ -39,12 +41,14 @@
             module procedure nek2vec_std
             module procedure nek2vec_prt
             module procedure nek2vec_prt_single
+            module procedure nek2vec_2Dh
          end interface
       
          interface vec2nek
             module procedure vec2nek_std
             module procedure vec2nek_prt
             module procedure vec2nek_prt_single
+            module procedure vec2nek_2Dh
          end interface
       
          interface abs_vec2nek
@@ -73,9 +77,20 @@
             module procedure abstract_ext_vec2nek_prt
          end interface
       
+      ! Outposting
          interface outpost_ext_dnek
             module procedure outpost_ext_dnek_vector
             module procedure outpost_ext_dnek_basis
+         end interface
+
+         interface outpost_nek
+            module procedure outpost_vector
+            module procedure outpost_basis
+         end interface
+
+         interface outpost_2Dh
+            module procedure outpost_2Dh_vector
+            module procedure outpost_2Dh_basis
          end interface
       
       contains
@@ -120,6 +135,20 @@
             call nopcopy(vec%vx, vec%vy, vec%vz, vec%pr, vec%theta, vx_, vy_, vz_, pr_, t_)
       
          end subroutine nek2vec_std
+
+         subroutine nek2vec_2Dh(vec, vx_, vy_, vz_, pr_, t_)
+            include "SIZE"
+            type(nek_zvector), intent(out) :: vec
+            real(kind=dp), dimension(lv, lpert), intent(in) :: vx_
+            real(kind=dp), dimension(lv, lpert), intent(in) :: vy_
+            real(kind=dp), dimension(lv, lpert), intent(in) :: vz_
+            real(kind=dp), dimension(lp, lpert), intent(in) :: pr_
+            real(kind=dp), dimension(lx1*ly1*lz1*lelt, ldimt, lpert), intent(in) :: t_
+      
+            call nek2vec_prt_single(vec%re, vx_, vy_, vz_, pr_, t_, 1)
+            call nek2vec_prt_single(vec%im, vx_, vy_, vz_, pr_, t_, 2)
+      
+         end subroutine nek2vec_2Dh
       
          subroutine vec2nek_std(vx_, vy_, vz_, pr_, t_, vec)
             include "SIZE"
@@ -147,7 +176,7 @@
       
          end subroutine vec2nek_prt
 
-         subroutine vec2nek_prt_single(vx_, vy_, vz_, pr_, t_, ipert, vec)
+         subroutine vec2nek_prt_single(vx_, vy_, vz_, pr_, t_, vec, ipert)
             include "SIZE"
             type(nek_dvector), intent(in) :: vec
             integer, intent(in) :: ipert
@@ -161,6 +190,20 @@
             call nopcopy(vx_(:, ipert), vy_(:, ipert), vz_(:, ipert), pr_(:, ipert), t_(:, :, ipert), vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
       
          end subroutine vec2nek_prt_single
+
+         subroutine vec2nek_2Dh(vx_, vy_, vz_, pr_, t_, vec)
+            include "SIZE"
+            type(nek_zvector), intent(in) :: vec
+            real(kind=dp), dimension(lv, lpert), intent(out) :: vx_
+            real(kind=dp), dimension(lv, lpert), intent(out) :: vy_
+            real(kind=dp), dimension(lv, lpert), intent(out) :: vz_
+            real(kind=dp), dimension(lp, lpert), intent(out) :: pr_
+            real(kind=dp), dimension(lx1*ly1*lz1*lelt, ldimt, lpert), intent(out) :: t_
+      
+            call vec2nek_prt_single(vx_, vy_, vz_, pr_, t_, vec%re, 1)
+            call vec2nek_prt_single(vx_, vy_, vz_, pr_, t_, vec%im, 2)
+      
+         end subroutine vec2nek_2Dh
       
          subroutine abstract_vec2nek_std(vx_, vy_, vz_, pr_, t_, vec)
             include "SIZE"
@@ -324,6 +367,8 @@
             end do
             end if
          end subroutine nopcopy
+      
+      ! OUTPOSTING
          
          subroutine outpost_dnek_vector(vec, prefix)
             type(nek_dvector), intent(in) :: vec
@@ -352,6 +397,29 @@
                call outpost_dnek_vector(vec(i), prefix)
             end do
          end subroutine outpost_dnek_basis
+
+         subroutine outpost_2Dh_vector(vec, prefix2)
+            type(nek_zvector), intent(in) :: vec
+            character(len=2), intent(in) :: prefix2
+            character(len=3) :: prefix
+            write(prefix,'(A2,A1)') prefix2, 'r' 
+            associate (v => vec%re)
+               call outpost(v%vx, v%vy, v%vz, v%pr, v%theta, prefix)
+            end associate
+            write(prefix,'(A2,A1)') prefix2, 'i' 
+            associate (v => vec%im)
+               call outpost(v%vx, v%vy, v%vz, v%pr, v%theta, prefix)
+            end associate
+         end subroutine outpost_2Dh_vector
+
+         subroutine outpost_2Dh_basis(vec, prefix2)
+            type(nek_zvector), intent(in) :: vec(:)
+            character(len=2), intent(in) :: prefix2
+            integer :: i
+            do i = 1, size(vec)
+               call outpost_2Dh_vector(vec(i), prefix2)
+            end do
+         end subroutine outpost_2Dh_basis
       
          subroutine outpost_ext_dnek_vector(vec, prefix)
             type(nek_ext_dvector), intent(in) :: vec
@@ -367,5 +435,29 @@
                call outpost_ext_dnek_vector(vec(i), prefix)
             end do
          end subroutine outpost_ext_dnek_basis
+
+         subroutine outpost_vector(vec, prefix)
+            class(abstract_vector), intent(in) :: vec
+            character(len=3), intent(in) :: prefix
+            select type (vec)
+            type is (nek_dvector)
+               call outpost_dnek    (vec, prefix)
+            type is (nek_zvector)
+               call outpost_2Dh     (vec, prefix(1:2))
+            type is (nek_ext_dvector)
+               call outpost_ext_dnek(vec, prefix)
+            class default
+               call type_error('vec','nek_dvector/zvector/ext_dvector','IN',this_module,'outpost_nek')
+            end select
+         end subroutine outpost_vector
+
+         subroutine outpost_basis(vec, prefix)
+            class(abstract_vector), intent(in) :: vec(:)
+            character(len=3), intent(in) :: prefix
+            integer :: i
+            do i = 1, size(vec)
+               call outpost_vector(vec(i), prefix)
+            end do
+         end subroutine outpost_basis
 
       end module neklab_utils

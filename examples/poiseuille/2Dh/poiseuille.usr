@@ -175,15 +175,18 @@ c-----------------------------------------------------------------------
 
 	      do istep = 1, nstp
             call nek_advance_2Dh(betaz)
-            call nek2vec(prt_r, vxp, vyp, vzp, prp, tp, 1)
-            call nek2vec(prt_i, vxp, vyp, vzp, prp, tp, 2)
-            energy = (prt_r%norm()**2 + prt_i%norm()**2)*Lz
+            call nek2vec(prt_out, vxp, vyp, vzp, prp, tp)
+            energy = prt_out%norm()**2*exptA%Lz
             if (nid == 0) print *, 'time', time, 'energy', energy
          enddo
 
-         call exptA%matvec(prt, prt_out)
+         call outpost_nek(prt, 'p__')
          energy = prt%norm()**2*exptA%Lz
          if (nid == 0) print *, 'energy in ', energy
+         
+         call exptA%matvec(prt, prt_out)
+         
+         call outpost_nek(prt_out, 'p__')
          energy = prt_out%norm()**2*exptA%Lz
          if (nid == 0) print *, 'energy out', energy
 

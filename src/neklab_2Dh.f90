@@ -4,7 +4,6 @@
          implicit none
          include "SIZE"
          include "TOTAL"
-         !include "ADJOINT"
       
          private
          character(len=*), parameter, private :: this_module = 'neklab_2Dh'
@@ -359,11 +358,8 @@
                   call col3(w_gmres,mu_gmres,v_gmres(1,j),ntot2) ! w  = U   v
                                                                  !           j
                   etime2 = dnekclock()
-                  if(param(43).eq.1) then
-                     call uzprec(z_gmres(1,j),w_gmres,h1,h2,intype,wp)
-                  else                                        !       -1
-                     call hsmg_solve(z_gmres(1,j),w_gmres)    ! z  = M   w
-                  endif     
+                                                           !       -1                                  
+                  call hsmg_solve(z_gmres(1,j),w_gmres)    ! z  = M   w
                   etime_p = etime_p + dnekclock()-etime2
                
                   call pressure_matvec_2Dh(w_gmres,z_gmres(1,j),      ! w = A z
@@ -406,13 +402,8 @@
                   if (ifprint.and.nio.eq.0) write (6,66) iter,tolpss,rnorm,div0,ratio,istep
    66             format(i5,1p4e12.5,i8,' Divergence')
                
-#ifndef FIXITER
                   if (rnorm .lt. tolpss) goto 900  !converged
-#else 
-                  if (iter.gt.param(151)-1) goto 900
-#endif   
                   if (j.eq.m) goto 1000 !not converged, restart
-
                   temp = 1./alpha
                   call cmult2(v_gmres(1,j+1),w_gmres,temp,ntot2) ! v    = w / alpha
                                                            !  j+1            
@@ -607,27 +598,10 @@
             call rzero(p,n)
 
             fmax = glamax(f,n)
-            if (fmax.eq.0.0) ifsolv=.false.
-            if (fmax.eq.0.0) return
+            if (fmax == 0.0) call nek_stop_error(name//': residual is zero.', this_module, 'solve_helmholtz_2Dh')
 
             ! Check for non-trivial null-space
 
-            ifmcor = .false.
-            h2max = glmax(h2  ,n)
-            skmin = glmin(mask,n)
-            if (skmin.gt.0.and.h2max.eq.0) ifmcor = .true.
-         
-            if (name.eq.'PRES') then
-            elseif (ifmcor) then
-
-               smean = -1./glsum(bm1,n) ! Modified 5/4/12 pff
-               rmean = smean*glsc2(r,mult,n)
-               call copy(x,bm1,n)
-               call dssum(x,lx1,ly1,lz1)
-               call add2s2(r,x,rmean,n)
-               call rzero(x,n)
-            endif
-         
             krylov = 0
             rtz1=1.0
             niterhm = 0
@@ -658,13 +632,7 @@
 
 
                ! Always take at least one iteration   (for projection) pff 11/23/98
-#ifndef FIXITER
                IF (rbn2.LE.TOL.and.(iter.gt.1 .or. istep.le.5)) THEN
-#else    
-               iter_max = param(150)
-               if (name.eq.'PRES') iter_max = param(151)
-               if (iter.gt.iter_max) then
-#endif      
                NITER = ITER-1
                if (nio.eq.0) write(6,3000) istep,'  Hmholtz ' // name, niter,rbn2,rbn0,tol
                   goto 9999

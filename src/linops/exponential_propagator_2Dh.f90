@@ -17,13 +17,14 @@
          type is (nek_zvector)
             select type (vec_out)
             type is (nek_zvector)
+         ! Force baseflow.
+               call vec2nek(vx, vy, vz, pr, t, self%baseflow)
+         ! Ensure correct Nek status
                call setup_linear_solver(transpose     = .false.,
      &                                  silent        = .false.,
      &                                  endtime       = self%tau,
      &                                  recompute_dt  = .true.,
      &                                  cfl_limit     = 0.5_dp)
-         ! Force baseflow.
-               call vec2nek(vx, vy, vz, pr, t, self%baseflow)
          ! Set initial condition for the linearized solver.
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
          ! Integrate the equations forward in time.
@@ -46,13 +47,14 @@
          type is (nek_zvector)
             select type (vec_out)
             type is (nek_zvector)
+         ! Force baseflow.
+               call vec2nek(vx, vy, vz, pr, t, self%baseflow)
+         ! Ensure correct Nek status
                call setup_linear_solver(transpose     = .true.,
      &                                  silent        = .false.,
      &                                  endtime       = self%tau,
      &                                  recompute_dt  = .true.,
      &                                  cfl_limit     = 0.5_dp)
-         ! Force baseflow.
-               call vec2nek(vx, vy, vz, pr, t, self%baseflow)
          ! Set initial condition for the linearized solver.
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
          ! Integrate the equations forward in time.

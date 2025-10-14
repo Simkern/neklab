@@ -101,13 +101,13 @@
       
       ! Face averaging.
          call opdssum(self%vx, self%vy, self%vz)
-         call col2(self%theta, vmult)
+         call opcolv(self%vx, self%vy, self%vz, vmult)
          call dsavg(self%vx)
          call dsavg(self%vy)
          if (if3d) call dsavg(self%vz)
          if (ifto) then
             call dssum(self%theta, lx1, ly1, lz1)
-            call opcolv(self%vx, self%vy, self%vz, vmult)
+            call col2(self%theta, vmult, lx1*ly1*lz1*lelv)
             call dsavg(self%theta)
          end if         
          call bcdirvc(self%vx, self%vy, self%vz, v1mask, v2mask, v3mask)

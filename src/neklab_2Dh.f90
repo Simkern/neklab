@@ -48,7 +48,7 @@
             ! prefactor
             ! Miscellaneous
             character(len=*), parameter :: this_procedure = 'nek_advance'
-            character(len=*), parameter :: fmt = '(I6,A)'
+            character(len=*), parameter :: fmt = '(A,I6)'
             character(len=256) :: msg
             real(dp) :: dtbd
             integer :: igeom, iter, intype, kfldfdm
@@ -56,7 +56,9 @@
 
             ntot1 = lx1*ly1*lz1*nelv
             ntot2 = lx2*ly2*lz2*nelv
-            if (nid == 0) print *, '2Dh step', istep
+            write(msg,fmt) 'Step', istep
+            call nek_log_debug(msg,this_module,this_procedure)
+
             call nekgsync
             call setup_convect(2)
             call settime
@@ -66,8 +68,8 @@
 
             ! compute best estimate for d/dz (p)
             
-            write(msg,fmt) istep, ': Compute explicit pressure gradient term for w'
-            call nek_log_message(msg,this_module,this_procedure)
+            msg = 'Compute explicit pressure gradient term for w'
+            call nek_log_debug(msg,this_module,this_procedure)
             ifield = 1
             do jp = 1, npert
                ! we need to do this outside of the other jp loop for extrapolation of the correct pressure term
@@ -77,8 +79,8 @@
 
             ! Compute intermediate velocities
 
-            write(msg,fmt) istep, ': Solve momentum equations for u/v/w'
-            call nek_log_message(msg,this_module,this_procedure)
+            msg = 'Solve momentum equations for u/v/w'
+            call nek_log_debug(msg,this_module,this_procedure)
             do jp = 1, npert
                do igeom = 1,ngeom
                   if (igeom == 1) then
@@ -132,8 +134,8 @@
                      
                      call dssum  (resv3,lx1,ly1,lz1)
                      call col2   (resv3,v3mask,ntot1)
-                     if (istep < 10) call chktcg1 (tolhv,resv3,h1,h2,v3mask,vmult,imesh,1)
-                     call solve_helmholtz_2Dh(dv3,resv3,h1,h2,v3mask,vmult,imesh, tolhv,nmxv,1,binvm1,'VELZ',beta_z)
+                     if (istep < 10) call chktcg1 (tolhv,resv3,h1,h2,v3mask,vmult,imesh,3)
+                     call solve_helmholtz_2Dh(dv3,resv3,h1,h2,v3mask,vmult,imesh,tolhv,nmxv,3,binvm1,'VELZ',beta_z)
                      
                      call opadd2 (vxp(1,jp),vyp(1,jp),vzp(1,jp),dv1,dv2,dv3)
                      call add2   (tp(1,1,jp),dv3,ntot1)
@@ -141,8 +143,8 @@
                end do ! igeom
             end do ! jp
                   
-            write(msg,fmt) istep, ': Compute pressure correction to enforce mass balance'
-            call nek_log_message(msg,this_module,this_procedure)
+            msg = 'Compute pressure correction to enforce mass balance'
+            call nek_log_debug(msg,this_module,this_procedure)
             do jp = 1, npert
                ! incomprp
                ifield = 1 ! velocity
@@ -166,8 +168,8 @@
 
             ! Reconstruct pressure and add pressure correction
 
-            write(msg,fmt) istep, ': Compute velocity correction based on pressure correction'
-            call nek_log_message(msg,this_module,this_procedure)
+            msg = 'Compute velocity correction based on pressure correction'
+            call nek_log_debug(msg,this_module,this_procedure)
             ! prepare
             call invcol3 (bm1h2inv,bm1,h2inv,ntot1)    ! = bm1/h2inv = B*h2
             call dssum   (bm1h2inv,lx1,ly1,lz1)

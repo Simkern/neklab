@@ -9,6 +9,9 @@
          character(len=*), parameter, private :: this_module = 'neklab_2Dh'
       
          public :: nek_advance_2Dh
+         public :: pressure_matvec_2Dh, helmholtz_matvec_2Dh
+         public :: solve_pressure_2Dh, solve_helmholtz_2Dh
+         public :: compute_dw, compute_frc_div, compute_gradz_p
       
       contains
 

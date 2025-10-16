@@ -32,7 +32,7 @@
          public :: nek2ext_vec, ext_vec2nek, abs_ext_vec2nek, outpost_ext_dnek
          public :: get_period, get_period_abs
       ! Utilities for velocity components
-         public :: nek2vcomp, vcomp2nek
+         public :: nek2v, v2nek
       ! utility for outposting
          public :: outpost_nek, outpost_2Dh
       ! miscellaneous
@@ -96,12 +96,13 @@
          end interface
 
       ! V component utilities
-         interface nek2vcomp
+         interface nek2v
             module procedure nek2vcomp_std
             module procedure nek2vcomp_prt
+            module procedure nek2vcomp_prt_single
          end interface
       
-         interface vcomp2nek
+         interface v2nek
             module procedure vcomp2nek_std
             module procedure vcomp2nek_prt
          end interface
@@ -362,6 +363,24 @@
             vec%isd = isd_
       
          end subroutine nek2vcomp_prt
+
+         subroutine nek2vcomp_prt_single(vec, v_, mask_, vmult_, isd_, ipert)
+            include "SIZE"
+            type(nekv_dvector), intent(out) :: vec
+            real(kind=dp), dimension(lv, lpert), intent(in) :: v_
+            real(kind=dp), dimension(lx1, ly1, lz1, lelv), intent(in) :: mask_
+            real(kind=dp), dimension(lx1, ly1, lz1, lelv), intent(in) :: vmult_
+            integer, intent(in) :: isd_
+            integer, intent(in) :: ipert
+            ! internal
+            integer :: n
+            n = lx1*ly1*lz1*nelv
+            call copy(vec%v,     v_(:, ipert), n)
+            call copy(vec%mask,  mask_,        n)
+            call copy(vec%vmult, vmult_,       n)
+            vec%isd = isd_
+      
+         end subroutine nek2vcomp_prt_single
       
          subroutine nek2vcomp_std(vec, v_, mask_, vmult_, isd_)
             include "SIZE"

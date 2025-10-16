@@ -170,6 +170,7 @@
       ! --> Type.
          type, extends(abstract_sym_linop_rdp), public :: helmholtz_linop
             type(nek_dvector) :: baseflow
+            real(dp) :: betaz
             real(dp), dimension(lx1,ly1,lz1,lelv) :: h1 = 0.0_dp
             real(dp), dimension(lx1,ly1,lz1,lelv) :: h2 = 0.0_dp
             integer :: imesh = 1
@@ -185,8 +186,13 @@
       
       ! --> Type-bound procedures: helmholtz_operator.f90
          interface
-            module subroutine helmholtz_init(self, integration_type)
+            module subroutine helmholtz_init(self, bf, betaz, integration_type, imesh, isd)
                class(helmholtz_linop), intent(inout) :: self
+               type(nek_dvector), intent(in) :: bf
+               real(dp), intent(in) :: betaz
+               integer, intent(in) :: integration_type
+               integer, optional, intent(in) :: imesh
+               integer, optional, intent(in) :: isd
             end subroutine
 
             module subroutine helmholtz_matvec(self, vec_in, vec_out)

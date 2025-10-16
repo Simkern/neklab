@@ -117,8 +117,11 @@ c     perturbation
       end
 c-----------------------------------------------------------------------
       subroutine userchk
-
+      use stdlib_logger, only: information_level
+      use LightKrylov_Logger
       use neklab
+      use neklab_nek_setup, only: nek_log_debug
+      use neklab_2Dh
       implicit none
       include "SIZE"
       include "FDMH1"
@@ -128,43 +131,58 @@ c-----------------------------------------------------------------------
       type(nek_dvector) :: bf, prt_r, prt_i
       type(nek_zvector) :: prt, prt_out
       type(exptA_2Dh_linop) :: exptA
+      ! HMH
+      type(helmholtz_linop) :: H
+      type(nekv_dvector) :: v, vout
 
       ! parameters
+      character(len=*), parameter :: this_module = 'userchk'
+      character(len=*), parameter :: this_procedure = 'nek_advance'
+      character(len=*), parameter :: fmt = '(A,I6)'
       integer, parameter :: nxyz1 = lx1*ly1*lz1
       integer, parameter :: nxyz2 = lx2*ly2*lz2
       integer, parameter :: lv    = nxyz1*lelv
+      integer, parameter :: nstp  = 5
       
       ! internal
+      character(len=256) :: msg
       integer :: ntot1, ntot2
       real(dp) :: energy
       real(dp) :: betaz
       real(dp) :: Lz
 
-      character(len=*), parameter :: fmt = '(A4,I6,A)'
-
-      real, dimension(lx1,ly1,lz1,lelv) :: dtp, tmp1, tmp2, htmp1, htmp2
-      real :: ta, tb
-      real, dimension(lx1*ly1*lz1) :: wrk1, wrk2
-      real w1, w2, w3, resv1, resv2, resv3, dv1, dv2, dv3, h1, h2
-      real h2inv
-      real(dp), dimension(LX2*LY2*LZ2*LELV,lpert) :: prextr
-      real(dp), dimension(LX2*LY2*LZ2*LELV,lpert) :: dpr
-      real(dp), dimension(LX1,LY1,LZ1,LELV) :: bm1h2inv
-      COMMON /SCRNS/  w1    (lx1,ly1,lz1,lelv)
-     $ ,              w2    (lx1,ly1,lz1,lelv)
-     $ ,              w3    (lx1,ly1,lz1,lelv)
-     $ ,              RESV1 (LX1,LY1,LZ1,LELV)
-     $ ,              RESV2 (LX1,LY1,LZ1,LELV)
-     $ ,              RESV3 (LX1,LY1,LZ1,LELV)
-     $ ,              DV1   (LX1,LY1,LZ1,LELV)
-     $ ,              DV2   (LX1,LY1,LZ1,LELV)
-     $ ,              DV3   (LX1,LY1,LZ1,LELV)
-      COMMON /SCRNS/ TA(LX1,LY1,LZ1,LELT)
-     $              ,TB(LX1,LY1,LZ1,LELT)
-      COMMON /SCRVH/  H1    (LX1,LY1,LZ1,LELV)
-      COMMON /SCRCH/  H2    (LX1,LY1,LZ1,LELV)
-      common /scrhi/ h2inv (lx1,ly1,lz1,lelv)
-      integer, parameter :: nstp  = 5
+      real(dp), dimension(lx1,ly1,lz1,lelv) :: w1, w2, w3
+      ! temporary velocity fields
+      real(dp), dimension(lx1,ly1,lz1,lelv) :: resv1, resv2, resv3
+      ! velocity residuals for Helmholtz solve
+      real(dp), dimension(lx1,ly1,lz1,lelv) :: dv1, dv2, dv3
+      ! velocity correction
+      real(dp), dimension(lx1,ly1,lz1,lelv) :: h1, h2
+      ! weights for the Helmholtz operator
+      real(dp), dimension(lx1,ly1,lz1,lelv) :: h2inv
+      ! utility array
+      common /SCRNS/  w1, w2, w3, resv1, resv2, resv3, dv1, dv2, dv3
+      common /SCRVH/  h1
+      common /SCRCH/  h2
+      common /scrhi/ h2inv
+      real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: gradz_p
+      ! spanwise pressure gradient
+      real(dp), dimension(lx2,ly2,lz2,lelv,lpert) :: frc_div
+      ! spanwise divergence
+      real(dp), dimension(lx2*ly2*lz2*lelv) :: prextr
+      ! extrapolated pressure
+      real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: dw
+      ! spanwise velocity correction
+      real(dp), dimension(lx2*ly2*lz2*lelv,lpert) :: dpr
+      ! pressure correction
+      real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: bm1h2inv
+      ! prefactor
+      ! Miscellaneous
+      real(dp) :: dtbd
+      integer :: igeom, iter, intype
+      real, external :: glmax
+      
+      call logger_setup(nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
 
       ntot1 = nxyz1*nelv
       ntot2 = nxyz2*nelv
@@ -201,7 +219,6 @@ c-----------------------------------------------------------------------
          !call outpost(vxp(1,2), vyp(1,2), vzp, prp(1,2), tp(1,1,2), 'p_i')
          call outpost(vxp(1,1), vyp(1,1), vzp, prp(1,1),tp(1,1,1),'v_1')
          call outpost(vxp(1,2), vyp(1,2), vzp, prp(1,2),tp(1,1,2),'v_2')
-
          
 	      do istep = 1, nstp
             call nekgsync
@@ -219,7 +236,7 @@ c-----------------------------------------------------------------------
             do jp = 1, npert
                ! we need to do this outside of the other jp loop for extrapolation of the correct pressure term
                call extrapprp(prextr)
-               call compute_gradz_p(gradz_p, prextr, beta_z)
+               call compute_gradz_p(gradz_p, prextr, betaz)
             end do
 
             ! Compute intermediate velocities
@@ -256,9 +273,19 @@ c-----------------------------------------------------------------------
                      call copy   (resv3,gradz_p(1,jp),ntot1)     ! d/dz pr
                      call   add2 (resv3, bqp(1,1,jp), ntot1)
                      ! ophx
-                     call helmholtz_matvec_2Dh(w1, vxp(1,jp),h1,h2,beta_z)
-                     call helmholtz_matvec_2Dh(w2, vyp(1,jp),h1,h2,beta_z)
-                     call helmholtz_matvec_2Dh(w3,tp(1,1,jp),h1,h2,beta_z)
+                     call H%init(bf, betaz, -1)
+                     call nek2v(v, vxp, v1mask, vmult, 1, jp)
+                     call H%matvec(v,vout)
+                     call copy(w1, vout%v, ntot1)
+                     !call helmholtz_matvec_2Dh(w1, vxp(1,jp),h1,h2,betaz)
+                     call nek2v(v, vyp, v2mask, vmult, 1, jp)
+                     call H%matvec(v,vout)
+                     call copy(w1, vout%v, ntot1)
+                     !call helmholtz_matvec_2Dh(w2, vyp(1,jp),h1,h2,betaz)
+                     call nek2v(v, vzp, v1mask, vmult, 1, jp)
+                     call H%matvec(v,vout)
+                     call copy(w1, vout%v, ntot1)
+                     !call helmholtz_matvec_2Dh(w3,tp(1,1,jp),h1,h2,betaz)
                      call opsub2(resv1,resv2,resv3,w1,w2,w3)
                      call   sub2(            resv3,      w3,ntot1)
                 
@@ -270,17 +297,17 @@ c-----------------------------------------------------------------------
                      call dssum  (resv1,lx1,ly1,lz1)
                      call col2   (resv1,v1mask,ntot1)
                      if (istep < 10) call chktcg1 (tolhv,resv1,h1,h2,v1mask,vmult,imesh,1)
-                     call solve_helmholtz_2Dh(dv1,resv1,h1,h2,v1mask,vmult,imesh,tolhv,nmxv,1,binvm1,'VELX',beta_z)
+                     call solve_helmholtz_2Dh(dv1,resv1,h1,h2,v1mask,vmult,imesh,tolhv,nmxv,1,binvm1,'VELX',betaz)
 
                      call dssum  (resv2,lx1,ly1,lz1)
                      call col2   (resv2,v2mask,ntot1)
                      if (istep < 10) call chktcg1 (tolhv,resv2,h1,h2,v2mask,vmult,imesh,2)
-                     call solve_helmholtz_2Dh(dv2,resv2,h1,h2,v2mask,vmult,imesh,tolhv,nmxv,2,binvm1,'VELY',beta_z)
+                     call solve_helmholtz_2Dh(dv2,resv2,h1,h2,v2mask,vmult,imesh,tolhv,nmxv,2,binvm1,'VELY',betaz)
                      
                      call dssum  (resv3,lx1,ly1,lz1)
                      call col2   (resv3,v3mask,ntot1)
                      if (istep < 10) call chktcg1 (tolhv,resv3,h1,h2,v3mask,vmult,imesh,3)
-                     call solve_helmholtz_2Dh(dv3,resv3,h1,h2,v3mask,vmult,imesh,tolhv,nmxv,3,binvm1,'VELZ',beta_z)
+                     call solve_helmholtz_2Dh(dv3,resv3,h1,h2,v3mask,vmult,imesh,tolhv,nmxv,3,binvm1,'VELZ',betaz)
                      
                      call opadd2 (vxp(1,jp),vyp(1,jp),vzp(1,jp),dv1,dv2,dv3)
                      call add2   (tp(1,1,jp),dv3,ntot1)
@@ -302,13 +329,13 @@ c-----------------------------------------------------------------------
                   
                call opdiv   (dpr(1,jp),vxp(1,jp),vyp(1,jp),vzp(1,jp))
 
-               call compute_frc_div(frc_div, tp, beta_z)
+               call compute_frc_div(frc_div, tp, betaz)
                call add2(dpr(1,jp),frc_div(1,1,1,1,jp),ntot2)
                   
                call chsign  (dpr(1,jp),ntot2)
                call ortho   (dpr(1,jp))
              
-               call solve_pressure_2Dh(dpr(1,jp),h1,h2,h2inv,beta_z,intype,iter)
+               call solve_pressure_2Dh(dpr(1,jp),h1,h2,h2inv,betaz,intype,iter)
             end do ! jp                
 
             ! Reconstruct pressure and add pressure correction
@@ -322,7 +349,7 @@ c-----------------------------------------------------------------------
             do jp = 1, npert
                call opgradt (w1 ,w2 ,w3 ,dpr(1,jp))
                call opbinv  (dv1,dv2,dv3,w1 ,w2 ,w3 ,h2inv)
-               call compute_dw(dw, dpr, bm1h2inv, beta_z) ! dw
+               call compute_dw(dw, dpr, bm1h2inv, betaz) ! dw
 
                call opadd2 (vxp(1,jp),vyp(1,jp),vzp(1,jp), dv1,dv2,dv3)
                call   add2 (tp(1,1,jp), dw(1,jp), ntot1)

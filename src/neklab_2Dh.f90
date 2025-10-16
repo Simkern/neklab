@@ -1,4 +1,5 @@
       module neklab_2Dh
+         use stdlib_optval, only: optval
          use LightKrylov, only: dp
          use neklab_nek_setup, only: nek_log_debug, nek_log_message, nek_stop_error
          implicit none
@@ -457,19 +458,19 @@
          ! INTYPE= 1  Compute the matrix-vector product    D(B/DT)(-1)DT*p
          ! INTYPE=-1  Compute the matrix-vector product    D(A+B/DT)(-1)DT*p
 
-            real, dimension(lx2,ly2,lz2,lelv), intent(out) :: Ap
-            real, dimension(lx2,ly2,lz2,lelv), intent(in) :: wp
-            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h1
-            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h2
-            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h2inv
+            real(dp), dimension(lx2,ly2,lz2,lelv), intent(out) :: Ap
+            real(dp), dimension(lx2,ly2,lz2,lelv), intent(in) :: wp
+            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: h1
+            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: h2
+            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: h2inv
             !!! add the contribution from the 3rd perturbation component
-            real, intent(in) :: beta_z
+            real(dp), intent(in) :: beta_z
             integer, intent(in) :: intype
             ! internal
-            real, dimension(lx1*ly1*lz1) :: wrk1, wrk2
-            real, dimension(lx1,ly1,lz1,lelv) :: wdivm1
-            real, dimension(lx1,ly1,lz1,lelv) :: h2B
-            real, dimension(lx2,ly2,lz2,lelv) :: wdivm2
+            real(dp), dimension(lx1*ly1*lz1) :: wrk1, wrk2
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: wdivm1
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: h2B
+            real(dp), dimension(lx2,ly2,lz2,lelv) :: wdivm2
 
             integer :: ie, ntot1, ntot2
 
@@ -494,20 +495,21 @@
             call sub2(ap, wdivm2, ntot2)
          end subroutine pressure_matvec_2Dh
 
-         subroutine helmholtz_matvec_2Dh(Au, u, h1, h2, beta_z)
+         subroutine helmholtz_matvec_2Dh(Au, u, h1, h2, beta_z, imesh, isd)
             implicit none
-            real, dimension(lx1,ly1,lz1,1), intent(in) :: Au   
-            real, dimension(lx1,ly1,lz1,1), intent(in) :: u   
-            real, dimension(lx1,ly1,lz1,1), intent(in) :: h1
-            real, dimension(lx1,ly1,lz1,1), intent(in) :: h2
-            real beta_z
+            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: Au   
+            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: u   
+            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h1
+            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h2
+            real(dp), intent(in) :: beta_z
+            integer, optional, intent(in) :: imesh
+            integer, optional, intent(in) :: isd
             ! internal
-            real, dimension(lx1,ly1,lz1,lelv) :: tmp
-            integer :: imesh, ntot1
-            imesh = 1
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: tmp
+            integer :: ntot1
             ntot1 = lx1*ly1*lz1*nelv
             ! regular Ax
-            call axhelm (Au, u, h1, h2, imesh, 1)
+            call axhelm (Au, u, h1, h2, optval(imesh, 1), optval(isd, 1))
             ! added spanwise viscous diffusion term
             call col3 (tmp, u, vdiff(1,1,1,1,1), ntot1)
             call col2c(tmp, bm1, -beta_z**2, ntot1)
@@ -524,28 +526,28 @@
             !     Preconditioner: diag(H).
             !
             !------------------------------------------------------------------------
-            real, intent(out) :: x(1)
-            real, intent(in) :: f(1)
-            real, intent(in) :: h1(1)
-            real, intent(in) :: h2(1)
-            real, intent(in) :: mask(1)
-            real, intent(in) :: mult(1)
-            real, intent(in) :: binv(1)
+            real(dp), intent(out) :: x(1)
+            real(dp), intent(in) :: f(1)
+            real(dp), intent(in) :: h1(1)
+            real(dp), intent(in) :: h2(1)
+            real(dp), intent(in) :: mask(1)
+            real(dp), intent(in) :: mult(1)
+            real(dp), intent(in) :: binv(1)
             integer, intent(in) :: imsh
-            real, intent(in) :: tin
+            real(dp), intent(in) :: tin
             integer, intent(in) :: maxit
             integer, intent(in) :: isd
             character(len=4), intent(in) :: name
-            real, intent(in) :: beta_z
+            real(dp), intent(in) :: beta_z
             ! internal 
             integer :: i, j, iter, krylov, n, nel, niter, nxyz
-            real :: alpha, beta, alphm, fmax, h2max
-            real :: rbn0, rbn2
-            real :: rho, rho0
-            real :: rmean, rtz1, rtz2
-            real :: skmin, smean
-            real :: tol, vol, div0, ratio, divex
-            real :: etime2, etime_p
+            real(dp) :: alpha, beta, alphm, fmax, h2max
+            real(dp) :: rbn0, rbn2
+            real(dp) :: rho, rho0
+            real(dp) :: rmean, rtz1, rtz2
+            real(dp) :: skmin, smean
+            real(dp) :: tol, vol, div0, ratio, divex
+            real(dp) :: etime2, etime_p
             LOGICAL          IFPRINT, IFHZPC
             COMMON  /CPRINT/ IFPRINT, IFHZPC
          
@@ -555,17 +557,17 @@
             logical ifmcor,ifprint_hmh
 
             integer, parameter :: lg = lx1*ly1*lz1*lelt
-            real, dimension(lg) :: d, r, w, p, z
-            real :: scalar(2)
+            real(dp), dimension(lg) :: d, r, w, p, z
+            real(dp) :: scalar(2)
             COMMON /SCRCG/ d, scalar
             common /SCRMG/ r, w, p, z
 
             integer, parameter :: maxcg = 900
-            real, dimension(maxcg) :: diagt, upper
+            real(dp), dimension(maxcg) :: diagt, upper
             common /tdarray/ diagt, upper
             integer :: niterhm
             common /iterhm/ niterhm
-            real, external :: glamax, glmax, glmin, glsum, glsc2, glsc3, vlsc3, vlsc32
+            real(dp), external :: glamax, glmax, glmin, glsum, glsc2, glsc3, vlsc3, vlsc32
 
             ! ** zero out stuff for Lanczos eigenvalue estimator
             call rzero(diagt,maxcg)

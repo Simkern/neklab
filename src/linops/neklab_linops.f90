@@ -10,6 +10,7 @@
          use neklab_nek_setup, only: setup_nonlinear_solver, setup_linear_solver
          use neklab_nek_setup, only: nek_stop_error, nek_log_message, nek_log_debug
          use neklab_helix
+         use neklab_2Dh, only: nek_advance_2Dh
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -58,6 +59,42 @@
                class(exptA_linop), intent(inout) :: self
                class(abstract_vector_rdp), intent(in) :: vec_in
                class(abstract_vector_rdp), intent(out) :: vec_out
+            end subroutine
+         end interface
+
+      !---------------------------------------------
+      !-----     EXPONENTIAL PROPAGATOR 2Dh    -----
+      !---------------------------------------------
+      
+      ! --> Type.
+         type, extends(abstract_linop_cdp), public :: exptA_2Dh_linop
+            real(kind=dp) :: tau
+            real(kind=dp) :: betaz
+            real(kind=dp) :: Lz
+            type(nek_dvector) :: baseflow
+         contains
+            private
+            procedure, pass(self), public :: init => init_exptA_2Dh
+            procedure, pass(self), public :: matvec => exptA_2Dh_matvec
+            procedure, pass(self), public :: rmatvec => exptA_2Dh_rmatvec
+         end type exptA_2Dh_linop
+      
+      ! --> Type-bound procedures: exponential_propagator_2Dh.f90
+         interface
+            module subroutine init_exptA_2Dh(self)
+               class(exptA_2Dh_linop), intent(in) :: self
+            end subroutine
+      
+            module subroutine exptA_2Dh_matvec(self, vec_in, vec_out)
+               class(exptA_2Dh_linop), intent(inout) :: self
+               class(abstract_vector_cdp), intent(in) :: vec_in
+               class(abstract_vector_cdp), intent(out) :: vec_out
+            end subroutine
+      
+            module subroutine exptA_2Dh_rmatvec(self, vec_in, vec_out)
+               class(exptA_2Dh_linop), intent(inout) :: self
+               class(abstract_vector_cdp), intent(in) :: vec_in
+               class(abstract_vector_cdp), intent(out) :: vec_out
             end subroutine
          end interface
       

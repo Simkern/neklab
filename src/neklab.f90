@@ -19,6 +19,8 @@
       !! --> Stability analysis routines
          use neklab_analysis_torus
       !! --> Analysis of the torus
+         use neklab_2Dh
+      !! --> 2.5D solver
       
          private
       
@@ -58,6 +60,7 @@
       
       ! Implementation of the standard linear operators.
          public :: exptA_linop
+         public :: exptA_2Dh_linop
          public :: floquet_linop
          public :: helmholtz_linop
          public :: resolvent_linop
@@ -84,6 +87,9 @@
          public :: mflow_newton
          public :: shift_mflow_phase_torus
          public :: compute_nonlinear_period_torus
+
+      ! 2Dh
+         public :: nek_advance_2Dh
       
       ! OTD exports.
          public :: nek_otd, otd_opts
@@ -104,5 +110,5 @@
          public :: nek2ext_vec, ext_vec2nek
          public :: nek2ext_vec_f, ext_vec_f2nek
          public :: setup_nonlinear_solver, setup_linear_solver
-         public :: outpost_dnek
+         public :: outpost_dnek, outpost_nek, outpost_2Dh
       end module neklab

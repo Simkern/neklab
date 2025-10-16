@@ -380,7 +380,7 @@
             fmt_ = optval(fmt,default_fmt("WARNING:", module, procedure))
             call logger%configuration(level=level)
             call logger%log_warning(msg, module=module, procedure=procedure)
-            if (nid == 0 .and. level == warning_level) print fmt_, trim(msg)
+            if (nid == 0 .and. level <= warning_level) print fmt_, trim(msg)
          end subroutine nek_log_warning
 
          subroutine nek_log_debug(msg, module, procedure, fmt)
@@ -394,7 +394,7 @@
             fmt_ = optval(fmt,default_fmt("DEBUG:", module, procedure))
             call logger%configuration(level=level)
             call logger%log_debug(msg, module=module, procedure=procedure)
-            if (nid == 0 .and. level == debug_level) print fmt_, trim(msg)
+            if (nid == 0 .and. level <= debug_level) print fmt_, trim(msg)
          end subroutine nek_log_debug
 
          subroutine nek_log_information(msg, module, procedure, fmt)
@@ -408,7 +408,7 @@
             fmt_ = optval(fmt,default_fmt("INFO:", module, procedure))
             call logger%configuration(level=level)
             call logger%log_information(msg, module=module, procedure=procedure)
-            if (nid == 0 .and. level == information_level) print fmt_, trim(msg)
+            if (nid == 0 .and. level <= information_level) print fmt_, trim(msg)
          end subroutine nek_log_information
 
          subroutine nek_stop_error(msg, module, procedure, fmt)

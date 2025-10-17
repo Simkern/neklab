@@ -469,7 +469,6 @@
             ! internal
             real(dp), dimension(lx1*ly1*lz1) :: wrk1, wrk2
             real(dp), dimension(lx1,ly1,lz1,lelv) :: wdivm1
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: h2B
             real(dp), dimension(lx2,ly2,lz2,lelv) :: wdivm2
 
             integer :: ie, ntot1, ntot2
@@ -648,7 +647,7 @@
                beta = rtz1/rtz2
                if (iter.eq.1) beta=0.0
                call add2s1 (p,z,beta,n)
-               call helmholtz_matvec_2Dh (w,p,h1,h2,beta)
+               call helmholtz_matvec_2Dh (w,p,h1,h2,beta_z)
                call dssum  (w,lx1,ly1,lz1)
                call col2   (w,mask,n)
             

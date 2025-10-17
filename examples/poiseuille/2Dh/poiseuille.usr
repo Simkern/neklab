@@ -161,7 +161,7 @@ c-----------------------------------------------------------------------
                      call copy   (resv3,gradz_p(1,jp),ntot1)     ! d/dz pr
                      call   add2 (resv3, bqp(1,1,jp), ntot1)
                      ! ophx
-                     call H%init(bf, betaz, -1)
+                     !call H%init(bf, betaz, -1)
                      !call nek2v(v, vxp, v1mask, vmult, 1, jp)
                      !call H%matvec(v,vout)
                      !call copy(w1, vout%v, ntot1)
@@ -182,8 +182,8 @@ c-----------------------------------------------------------------------
                      tolhv = abs(tolhv)
                      ifield = 1 !  velocity
 
-                     prec = jacobi_preconditioner()
-                     call prec%init(h1, h2, 1, 1)
+                     !prec = jacobi_preconditioner()
+                     !call prec%init(h1, h2, 1, 1)
 
                      call dssum  (resv1,lx1,ly1,lz1)
                      call col2   (resv1,v1mask,ntot1)
@@ -227,7 +227,7 @@ c-----------------------------------------------------------------------
                call rzero   (h1,ntot1)
                call cmult2  (h2,vtrans(1,1,1,1,ifield),dtbd,ntot1)
                call invers2 (h2inv,h2,ntot1)
-               call E%init(bf, betaz, h2inv, 1)
+               !call E%init(bf, betaz, h2inv, 1)
                   
                call opdiv   (dpr(1,jp),vxp(1,jp),vyp(1,jp),vzp(1,jp))
 
@@ -243,8 +243,7 @@ c-----------------------------------------------------------------------
                !call E%matvec(p, pout)
                !call gmres(E, p, pout, info, atol=1e-6_dp)
                !call copy(dpr(1,jp), pout%pr, ntot2)
-            end do ! jp
-            STOP 9         
+            end do ! jp       
 
             ! Reconstruct pressure and add pressure correction
 
@@ -271,7 +270,6 @@ c-----------------------------------------------------------------------
          call outpost_nek(prt, 'p__')
          energy = prt%norm()**2*exptA%Lz
          if (nid == 0) print *, 'energy in ', energy
-         STOP 9
          
          call exptA%matvec(prt, prt_out)
          

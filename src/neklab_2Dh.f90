@@ -262,6 +262,70 @@
             ! dssum will be called on the vel residual later
          end
 
+         subroutine pressure_matvec_2Dh(ap,wp,h1,h2,h2inv,beta_z,intype)
+            implicit none
+
+         ! INTYPE= 0  Compute the matrix-vector product    DA(-1)DT*p
+         ! INTYPE= 1  Compute the matrix-vector product    D(B/DT)(-1)DT*p
+         ! INTYPE=-1  Compute the matrix-vector product    D(A+B/DT)(-1)DT*p
+
+            real(dp), dimension(lx2,ly2,lz2,lelv), intent(out) :: Ap
+            real(dp), dimension(lx2,ly2,lz2,lelv), intent(in) :: wp
+            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: h1
+            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: h2
+            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: h2inv
+            !!! add the contribution from the 3rd perturbation component
+            real(dp), intent(in) :: beta_z
+            integer, intent(in) :: intype
+            ! internal
+            real(dp), dimension(lx1*ly1*lz1) :: wrk1, wrk2
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: wdivm1
+            real(dp), dimension(lx2,ly2,lz2,lelv) :: wdivm2
+
+            integer :: ie, ntot1, ntot2
+
+            ! Regular Ax = D (h2*B)^(-1) D^T
+            call cdabdtp(Ap, wp, h1, h2, h2inv, intype)
+            ! add 3rd perturbation component. 
+            ! we want to subtract the contribution
+            !
+            ! B * d/dz (h2*B)^(-1) d/dz wp = (-i beta_z) (h2)^(-1) (-i beta_z) wp = - beta_z^2 (h2)^(-1) wp
+            !
+            ! Note: we are only considering the ifanls = .false. case
+            ntot1 = lx1*ly1*lz1*nelv
+            ntot2 = lx2*ly2*lz2*nelv
+            call mappr  (wdivm1, wp, wrk1, wrk2)                    ! map to vmesh
+            call col2   (wdivm1, v3mask, ntot1)
+            call col2c  (wdivm1, h2inv, -beta_z**2, ntot1)          ! collate -beta_z^2 * (h2)^-1
+            call dssum  (wdivm1, lx1, ly1, lz1)
+            do ie = 1, nelv
+               call map12 (wdivm2(1,1,1,ie), wdivm1(1,1,1,ie), ie)  ! map wdiv to pmesh
+            end do
+            call col2(wdivm2, bm2, ntot2)
+            call sub2(ap, wdivm2, ntot2)
+         end subroutine pressure_matvec_2Dh
+
+         subroutine helmholtz_matvec_2Dh(Au, u, h1, h2, beta_z, imesh, isd)
+            implicit none
+            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: Au   
+            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: u   
+            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h1
+            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h2
+            real(dp), intent(in) :: beta_z
+            integer, optional, intent(in) :: imesh
+            integer, optional, intent(in) :: isd
+            ! internal
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: tmp
+            integer :: ntot1
+            ntot1 = lx1*ly1*lz1*nelv
+            ! regular Ax
+            call axhelm (Au, u, h1, h2, optval(imesh, 1), optval(isd, 1))
+            ! added spanwise viscous diffusion term
+            call col3 (tmp, u, vdiff(1,1,1,1,1), ntot1)
+            call col2c(tmp, bm1, -beta_z**2, ntot1)
+            call add2 (Au, tmp, ntot1)
+         end subroutine helmholtz_matvec_2Dh
+
          subroutine solve_pressure_2Dh(res,h1,h2,h2inv,beta_z,intype,iter)
             implicit none
             include 'GMRES'
@@ -450,70 +514,6 @@
  9999       format(i11,a,I6,1p5e13.4)
          
          end subroutine solve_pressure_2Dh
-
-         subroutine pressure_matvec_2Dh(ap,wp,h1,h2,h2inv,beta_z,intype)
-            implicit none
-
-         ! INTYPE= 0  Compute the matrix-vector product    DA(-1)DT*p
-         ! INTYPE= 1  Compute the matrix-vector product    D(B/DT)(-1)DT*p
-         ! INTYPE=-1  Compute the matrix-vector product    D(A+B/DT)(-1)DT*p
-
-            real(dp), dimension(lx2,ly2,lz2,lelv), intent(out) :: Ap
-            real(dp), dimension(lx2,ly2,lz2,lelv), intent(in) :: wp
-            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: h1
-            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: h2
-            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: h2inv
-            !!! add the contribution from the 3rd perturbation component
-            real(dp), intent(in) :: beta_z
-            integer, intent(in) :: intype
-            ! internal
-            real(dp), dimension(lx1*ly1*lz1) :: wrk1, wrk2
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: wdivm1
-            real(dp), dimension(lx2,ly2,lz2,lelv) :: wdivm2
-
-            integer :: ie, ntot1, ntot2
-
-            ! Regular Ax = D (h2*B)^(-1) D^T
-            call cdabdtp(Ap, wp, h1, h2, h2inv, intype)
-            ! add 3rd perturbation component. 
-            ! we want to subtract the contribution
-            !
-            ! B * d/dz (h2*B)^(-1) d/dz wp = (-i beta_z) (h2)^(-1) (-i beta_z) wp = - beta_z^2 (h2)^(-1) wp
-            !
-            ! Note: we are only considering the ifanls = .false. case
-            ntot1 = lx1*ly1*lz1*nelv
-            ntot2 = lx2*ly2*lz2*nelv
-            call mappr  (wdivm1, wp, wrk1, wrk2)                    ! map to vmesh
-            call col2   (wdivm1, v3mask, ntot1)
-            call col2c  (wdivm1, h2inv, -beta_z**2, ntot1)          ! collate -beta_z^2 * (h2)^-1
-            call dssum  (wdivm1, lx1, ly1, lz1)
-            do ie = 1, nelv
-               call map12 (wdivm2(1,1,1,ie), wdivm1(1,1,1,ie), ie)  ! map wdiv to pmesh
-            end do
-            call col2(wdivm2, bm2, ntot2)
-            call sub2(ap, wdivm2, ntot2)
-         end subroutine pressure_matvec_2Dh
-
-         subroutine helmholtz_matvec_2Dh(Au, u, h1, h2, beta_z, imesh, isd)
-            implicit none
-            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: Au   
-            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: u   
-            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h1
-            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h2
-            real(dp), intent(in) :: beta_z
-            integer, optional, intent(in) :: imesh
-            integer, optional, intent(in) :: isd
-            ! internal
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: tmp
-            integer :: ntot1
-            ntot1 = lx1*ly1*lz1*nelv
-            ! regular Ax
-            call axhelm (Au, u, h1, h2, optval(imesh, 1), optval(isd, 1))
-            ! added spanwise viscous diffusion term
-            call col3 (tmp, u, vdiff(1,1,1,1,1), ntot1)
-            call col2c(tmp, bm1, -beta_z**2, ntot1)
-            call add2 (Au, tmp, ntot1)
-         end subroutine helmholtz_matvec_2Dh
 
          subroutine solve_helmholtz_2Dh(x,f,h1,h2,mask,mult,imsh,tin,maxit,isd,binv,name,beta_z)
             implicit none

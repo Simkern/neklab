@@ -465,7 +465,6 @@
             ! internal
             real, dimension(lx1*ly1*lz1) :: wrk1, wrk2
             real, dimension(lx1,ly1,lz1,lelv) :: wdivm1
-            real, dimension(lx1,ly1,lz1,lelv) :: h2B
             real, dimension(lx2,ly2,lz2,lelv) :: wdivm2
 
             integer :: ie, ntot1, ntot2
@@ -483,7 +482,7 @@
             call mappr  (wdivm1, wp, wrk1, wrk2)                    ! map to vmesh
             call col2   (wdivm1, v3mask, ntot1)
             call col2c  (wdivm1, h2inv, -beta_z**2, ntot1)          ! collate -beta_z^2 * (h2)^-1
-            call dssum  (wdivm1, lx1, ly1, lz1)
+            call dssum  (wdivm1, lx1, ly1, lz1)                     ! make continuous
             do ie = 1, nelv
                call map12 (wdivm2(1,1,1,ie), wdivm1(1,1,1,ie), ie)  ! map wdiv to pmesh
             end do

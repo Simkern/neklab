@@ -425,6 +425,8 @@
                   etime2 = dnekclock()
                                                            !       -1                                  
                   call hsmg_solve(z_gmres(1,j),w_gmres)    ! z  = M   w
+                  !call uzprec(z_gmres(1,j),w_gmres,h1,h2,intype,wp)
+                  
                   etime_p = etime_p + dnekclock()-etime2
                
                   call pressure_matvec_2Dh(w_gmres,z_gmres(1,j),      ! w = A z

@@ -182,7 +182,7 @@ c-----------------------------------------------------------------------
                      tolhv = abs(tolhv)
                      ifield = 1 !  velocity
 
-                     prec = jacobi_preconditioner()poiseuille.usr
+                     prec = jacobi_preconditioner()
                      call prec%init(h1, h2, 1, 1)
 
                      call dssum  (resv1,lx1,ly1,lz1)

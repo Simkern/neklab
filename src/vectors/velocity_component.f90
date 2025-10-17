@@ -90,7 +90,7 @@
          end procedure
       
          module procedure nekv_daxpby
-         integer :: n1, n2
+         integer :: n1
          n1 = nx1*ny1*nz1*nelv
          call self%scal(beta)
          select type (vec)
@@ -107,7 +107,7 @@
          n = nx1*ny1*nz1*nelv
          select type (vec)
          type is (nekv_dvector)
-            alpha = glsc3(self%v, vec%v, bm1, n)
+            alpha = glsc3(self%v, vec%v, vmult, n)
          class default
             call type_error('vec','nekv_dvector','IN',this_module,'nekv_ddot')
          end select

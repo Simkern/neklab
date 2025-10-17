@@ -1,4 +1,289 @@
 c-----------------------------------------------------------------------
+      subroutine userchk
+      use stdlib_logger, only: information_level
+      use LightKrylov_Logger
+      use LightKrylov_IterativeSolvers
+      use neklab
+      use neklab_nek_setup, only: nek_log_debug
+      use neklab_2Dh
+      implicit none
+      include "SIZE"
+      include "FDMH1"
+      include "TOTAL"
+
+      ! State vectors
+      type(nek_dvector) :: bf, prt_r, prt_i
+      type(nek_zvector) :: prt, prt_out
+      type(exptA_2Dh_linop) :: exptA
+      ! HMH
+      type(helmholtz_linop) :: H
+      type(nekv_dvector) :: v, vout
+      type(jacobi_preconditioner) :: prec
+      ! Pproj
+      type(pressure_projection_linop) :: E
+      type(nekp_dvector) :: p, pout
+
+      ! parameters
+      character(len=*), parameter :: this_module = 'userchk'
+      character(len=*), parameter :: this_procedure = 'nek_advance'
+      character(len=*), parameter :: fmt = '(A,I6)'
+      integer, parameter :: nxyz1 = lx1*ly1*lz1
+      integer, parameter :: nxyz2 = lx2*ly2*lz2
+      integer, parameter :: lv    = nxyz1*lelv
+      integer, parameter :: nstp  = 100
+      
+      ! internal
+      character(len=256) :: msg
+      integer :: ntot1, ntot2
+      real(dp) :: energy
+      real(dp) :: betaz
+      real(dp) :: Lz
+
+      real(dp), dimension(lx1,ly1,lz1,lelv) :: w1, w2, w3
+      ! temporary velocity fields
+      real(dp), dimension(lx1,ly1,lz1,lelv) :: resv1, resv2, resv3
+      ! velocity residuals for Helmholtz solve
+      real(dp), dimension(lx1,ly1,lz1,lelv) :: dv1, dv2, dv3
+      ! velocity correction
+      real(dp), dimension(lx1,ly1,lz1,lelv) :: h1, h2
+      ! weights for the Helmholtz operator
+      real(dp), dimension(lx1,ly1,lz1,lelv) :: h2inv
+      ! utility array
+      common /SCRNS/  w1, w2, w3, resv1, resv2, resv3, dv1, dv2, dv3
+      common /SCRVH/  h1
+      common /SCRCH/  h2
+      common /scrhi/ h2inv
+      real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: gradz_p
+      ! spanwise pressure gradient
+      real(dp), dimension(lx2,ly2,lz2,lelv,lpert) :: frc_div
+      ! spanwise divergence
+      real(dp), dimension(lx2*ly2*lz2*lelv) :: prextr
+      ! extrapolated pressure
+      real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: dw
+      ! spanwise velocity correction
+      real(dp), dimension(lx2*ly2*lz2*lelv,lpert) :: dpr
+      ! pressure correction
+      real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: bm1h2inv
+      ! prefactor
+      ! Miscellaneous
+      real(dp) :: dtbd
+      integer :: igeom, iter, intype, info
+      real, external :: glmax, glsc3
+      
+      call logger_setup(nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
+
+      ntot1 = nxyz1*nelv
+      ntot2 = nxyz2*nelv
+
+      betaz = 1.0_dp
+      Lz = 2*pi
+      ! pert 1: real
+      ! pert 2: imag
+
+      if (istep.eq.0) then
+         ! save baseflow
+         call nek2vec(bf, vx, vy, vz, pr, t)
+         exptA = exptA_2Dh_linop(tau=1, betaz=betaz, Lz=Lz, baseflow=bf)
+         ! load prt IC uvw
+         ! real part
+         call load_fld('IC_poiseuille_uv_r.fld')
+         call nek2vec(prt%re, vx, vy, vz, pr, t)
+         call load_fld('IC_poiseuille_uw_r.fld')
+         call copy(prt%re%theta, vy, ntot1)
+         ! imag part
+         call load_fld('IC_poiseuille_uv_i.fld')
+         call nek2vec(prt%im, vx, vy, vz, pr, t)
+         call load_fld('IC_poiseuille_uw_i.fld')
+         call copy(prt%im%theta, vy, ntot1)
+
+         ! reset baseflow
+         call vec2nek(vx, vy, vz, pr, t, bf)
+         ! set perturbations
+         call vec2nek(vxp, vyp, vzp, prp, tp, prt)
+
+         ! diagnositcs
+         !call outpost(vx, vy, vz, pr, t, 'bas')
+         !call outpost(vxp(1,1), vyp(1,1), vzp, prp(1,1), tp(1,1,1), 'p_r')
+         !call outpost(vxp(1,2), vyp(1,2), vzp, prp(1,2), tp(1,1,2), 'p_i')
+         call outpost(vxp(1,1), vyp(1,1), vzp, prp(1,1),tp(1,1,1),'v_1')
+         call outpost(vxp(1,2), vyp(1,2), vzp, prp(1,2),tp(1,1,2),'v_2')
+         
+	      do istep = 1, nstp
+            call nekgsync
+            call setup_convect(2)
+            call settime
+            call setsolv
+            call comment
+            call setprop
+
+            ! compute best estimate for d/dz (p)
+            
+            msg = 'Compute explicit pressure gradient term for w'
+            call nek_log_debug(msg,this_module,this_procedure)
+            ifield = 1
+            do jp = 1, npert
+               ! we need to do this outside of the other jp loop for extrapolation of the correct pressure term
+               call extrapprp(prextr)
+               call compute_gradz_p(gradz_p, prextr, betaz)
+            end do
+
+            ! Compute intermediate velocities
+
+            msg = 'Solve momentum equations for u/v/w'
+            call nek_log_debug(msg,this_module,this_procedure)
+            do jp = 1, npert
+               do igeom = 1,ngeom
+                  if (igeom == 1) then
+                  !
+                  !  Old geometry, old velocity
+                  !
+                     ifield = 1     !  velocity
+                     call makefp
+                     call lagfieldp
+                     ifield = 2     !  temperature (w)
+                     call makeqp
+                     call lagscalp
+                     !
+                  else
+                  !
+                  !  New geometry, new velocity
+                  !
+                     intype = -1
+                     ifield = 1     !  velocity
+                     call sethlm   (h1,h2,intype)
+                     ! cresvipp 
+                     call bcdirvc (vxp(1,jp), vyp(1,jp), vzp(1,jp),v1mask,v2mask,v3mask)
+                     call bcdirvc (tp(1,1,jp),vyp(1,jp), vzp(1,jp),v3mask,v2mask,v3mask)
+
+                     call extrapprp(prextr)
+                     call opgradt(resv1,resv2,resv3,prextr)      ! d/dx pr, d/dy pr
+                     call opadd2 (resv1,resv2,resv3,bfxp(1,jp), bfyp(1,jp),bfzp(1,jp))
+                     call copy   (resv3,gradz_p(1,jp),ntot1)     ! d/dz pr
+                     call   add2 (resv3, bqp(1,1,jp), ntot1)
+                     ! ophx
+                     call H%init(bf, betaz, -1)
+                     !call nek2v(v, vxp, v1mask, vmult, 1, jp)
+                     !call H%matvec(v,vout)
+                     !call copy(w1, vout%v, ntot1)
+                     call helmholtz_matvec_2Dh(w1, vxp(1,jp),h1,h2,betaz)
+                     !call nek2v(v, vyp, v2mask, vmult, 1, jp)
+                     !call H%matvec(v,vout)
+                     !call copy(w1, vout%v, ntot1)
+                     call helmholtz_matvec_2Dh(w2, vyp(1,jp),h1,h2,betaz)
+                     !call nek2v(v, vzp, v1mask, vmult, 1, jp)
+                     !call H%matvec(v,vout)
+                     !call copy(w1, vout%v, ntot1)
+                     call helmholtz_matvec_2Dh(w3,tp(1,1,jp),h1,h2,betaz)
+                     call opsub2(resv1,resv2,resv3,w1,w2,w3)
+                     call   sub2(            resv3,      w3,ntot1)
+                
+                     ! ophinv
+                     kfldfdm = -1
+                     tolhv = abs(tolhv)
+                     ifield = 1 !  velocity
+
+                     prec = jacobi_preconditioner()poiseuille.usr
+                     call prec%init(h1, h2, 1, 1)
+
+                     call dssum  (resv1,lx1,ly1,lz1)
+                     call col2   (resv1,v1mask,ntot1)
+                     if (istep < 10) call chktcg1 (tolhv,resv1,h1,h2,v1mask,vmult,imesh,1)
+                     call solve_helmholtz_2Dh(dv1,resv1,h1,h2,v1mask,vmult,imesh,tolhv,nmxv,1,binvm1,'VELX',betaz)
+                     !call copy(v%v, resv1, ntot1)
+                     !vout = v
+                     !call cg(H, v, vout, info, atol=tolhv, preconditioner=prec)
+                     !call copy(dv1, vout%v, ntot1)
+         
+                     call dssum  (resv2,lx1,ly1,lz1)
+                     call col2   (resv2,v2mask,ntot1)
+                     if (istep < 10) call chktcg1 (tolhv,resv2,h1,h2,v2mask,vmult,imesh,2)
+                     call solve_helmholtz_2Dh(dv2,resv2,h1,h2,v2mask,vmult,imesh,tolhv,nmxv,2,binvm1,'VELY',betaz)
+                     !call copy(v%v, resv2, ntot1)
+                     !call cg(H, v, vout, info, atol=tolhv, preconditioner=prec)
+                     !call copy(dv2, vout%v, ntot1)
+                     
+                     call dssum  (resv3,lx1,ly1,lz1)
+                     call col2   (resv3,v3mask,ntot1)
+                     if (istep < 10) call chktcg1 (tolhv,resv3,h1,h2,v3mask,vmult,imesh,3)
+                     call solve_helmholtz_2Dh(dv3,resv3,h1,h2,v3mask,vmult,imesh,tolhv,nmxv,3,binvm1,'VELZ',betaz)
+                     !call copy(v%v, resv3, ntot1)
+                     !call cg(H, v, vout, info, atol=tolhv, preconditioner=prec)
+                     !call copy(dv3, vout%v, ntot1)
+                     
+                     call opadd2 (vxp(1,jp),vyp(1,jp),vzp(1,jp),dv1,dv2,dv3)
+                     call add2   (tp(1,1,jp),dv3,ntot1)
+                  end if
+               end do ! igeom
+            end do ! jp
+                  
+            msg = 'Compute pressure correction to enforce mass balance'
+            call nek_log_debug(msg,this_module,this_procedure)
+            do jp = 1, npert
+               ! incomprp
+               ifield = 1 ! velocity
+               intype = 1
+               dtbd   = bd(1)/dt
+               
+               call rzero   (h1,ntot1)
+               call cmult2  (h2,vtrans(1,1,1,1,ifield),dtbd,ntot1)
+               call invers2 (h2inv,h2,ntot1)
+               call E%init(bf, betaz, h2inv, 1)
+                  
+               call opdiv   (dpr(1,jp),vxp(1,jp),vyp(1,jp),vzp(1,jp))
+
+               call compute_frc_div(frc_div, tp, betaz)
+               call add2(dpr(1,jp),frc_div(1,1,1,1,jp),ntot2)
+                  
+               call chsign  (dpr(1,jp),ntot2)
+               call ortho   (dpr(1,jp))
+               call solve_pressure_2Dh(dpr(1,jp),h1,h2,h2inv,betaz,intype,iter)
+             
+               !call copy(p%pr, dpr(1,jp), ntot2)
+               !call pout%zero()
+               !call E%matvec(p, pout)
+               !call gmres(E, p, pout, info, atol=1e-6_dp)
+               !call copy(dpr(1,jp), pout%pr, ntot2)
+            end do ! jp
+            STOP 9         
+
+            ! Reconstruct pressure and add pressure correction
+
+            msg = 'Compute velocity correction based on pressure correction'
+            call nek_log_debug(msg,this_module,this_procedure)
+            ! prepare
+            call invcol3 (bm1h2inv,bm1,h2inv,ntot1)    ! = bm1/h2inv = B*h2
+            call dssum   (bm1h2inv,lx1,ly1,lz1)
+
+            do jp = 1, npert
+               call opgradt (w1 ,w2 ,w3 ,dpr(1,jp))
+               call opbinv  (dv1,dv2,dv3,w1 ,w2 ,w3 ,h2inv)
+               call compute_dw(dw, dpr, bm1h2inv, betaz) ! dw
+
+               call opadd2 (vxp(1,jp),vyp(1,jp),vzp(1,jp), dv1,dv2,dv3)
+               call   add2 (tp(1,1,jp), dw(1,jp), ntot1)
+             
+               call extrapprp(prextr)
+               call lagpresp
+               call add3(prp(1,jp),prextr,dpr(1,jp), ntot2)
+            end do ! jp
+         enddo
+         
+         call outpost_nek(prt, 'p__')
+         energy = prt%norm()**2*exptA%Lz
+         if (nid == 0) print *, 'energy in ', energy
+         STOP 9
+         
+         call exptA%matvec(prt, prt_out)
+         
+         call outpost_nek(prt_out, 'p__')
+         energy = prt_out%norm()**2*exptA%Lz
+         if (nid == 0) print *, 'energy out', energy
+
+	      call nek_end()
+      end if
+      return
+      end
+c-----------------------------------------------------------------------
       subroutine uservp (ix,iy,iz,ieg)
 
       implicit none
@@ -113,265 +398,6 @@ c     perturbation
         temp = 0.d00
       endif
 
-      return
-      end
-c-----------------------------------------------------------------------
-      subroutine userchk
-      use stdlib_logger, only: information_level
-      use LightKrylov_Logger
-      use neklab
-      use neklab_nek_setup, only: nek_log_debug
-      use neklab_2Dh
-      implicit none
-      include "SIZE"
-      include "FDMH1"
-      include "TOTAL"
-
-      ! State vectors
-      type(nek_dvector) :: bf, prt_r, prt_i
-      type(nek_zvector) :: prt, prt_out
-      type(exptA_2Dh_linop) :: exptA
-      ! HMH
-      type(helmholtz_linop) :: H
-      type(nekv_dvector) :: v, vout
-
-      ! parameters
-      character(len=*), parameter :: this_module = 'userchk'
-      character(len=*), parameter :: this_procedure = 'nek_advance'
-      character(len=*), parameter :: fmt = '(A,I6)'
-      integer, parameter :: nxyz1 = lx1*ly1*lz1
-      integer, parameter :: nxyz2 = lx2*ly2*lz2
-      integer, parameter :: lv    = nxyz1*lelv
-      integer, parameter :: nstp  = 5
-      
-      ! internal
-      character(len=256) :: msg
-      integer :: ntot1, ntot2
-      real(dp) :: energy
-      real(dp) :: betaz
-      real(dp) :: Lz
-
-      real(dp), dimension(lx1,ly1,lz1,lelv) :: w1, w2, w3
-      ! temporary velocity fields
-      real(dp), dimension(lx1,ly1,lz1,lelv) :: resv1, resv2, resv3
-      ! velocity residuals for Helmholtz solve
-      real(dp), dimension(lx1,ly1,lz1,lelv) :: dv1, dv2, dv3
-      ! velocity correction
-      real(dp), dimension(lx1,ly1,lz1,lelv) :: h1, h2
-      ! weights for the Helmholtz operator
-      real(dp), dimension(lx1,ly1,lz1,lelv) :: h2inv
-      ! utility array
-      common /SCRNS/  w1, w2, w3, resv1, resv2, resv3, dv1, dv2, dv3
-      common /SCRVH/  h1
-      common /SCRCH/  h2
-      common /scrhi/ h2inv
-      real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: gradz_p
-      ! spanwise pressure gradient
-      real(dp), dimension(lx2,ly2,lz2,lelv,lpert) :: frc_div
-      ! spanwise divergence
-      real(dp), dimension(lx2*ly2*lz2*lelv) :: prextr
-      ! extrapolated pressure
-      real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: dw
-      ! spanwise velocity correction
-      real(dp), dimension(lx2*ly2*lz2*lelv,lpert) :: dpr
-      ! pressure correction
-      real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: bm1h2inv
-      ! prefactor
-      ! Miscellaneous
-      real(dp) :: dtbd
-      integer :: igeom, iter, intype
-      real, external :: glmax
-      
-      call logger_setup(nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
-
-      ntot1 = nxyz1*nelv
-      ntot2 = nxyz2*nelv
-
-      betaz = 1.0_dp
-      Lz = 2*pi
-      ! pert 1: real
-      ! pert 2: imag
-
-      if (istep.eq.0) then
-         ! save baseflow
-         call nek2vec(bf, vx, vy, vz, pr, t)
-         exptA = exptA_2Dh_linop(tau=1, betaz=betaz, Lz=Lz, baseflow=bf)
-         ! load prt IC uvw
-         ! real part
-         call load_fld('IC_poiseuille_uv_r.fld')
-         call nek2vec(prt%re, vx, vy, vz, pr, t)
-         call load_fld('IC_poiseuille_uw_r.fld')
-         call copy(prt%re%theta, vy, ntot1)
-         ! imag part
-         call load_fld('IC_poiseuille_uv_i.fld')
-         call nek2vec(prt%im, vx, vy, vz, pr, t)
-         call load_fld('IC_poiseuille_uw_i.fld')
-         call copy(prt%im%theta, vy, ntot1)
-
-         ! reset baseflow
-         call vec2nek(vx, vy, vz, pr, t, bf)
-         ! set perturbations
-         call vec2nek(vxp, vyp, vzp, prp, tp, prt)
-
-         ! diagnositcs
-         !call outpost(vx, vy, vz, pr, t, 'bas')
-         !call outpost(vxp(1,1), vyp(1,1), vzp, prp(1,1), tp(1,1,1), 'p_r')
-         !call outpost(vxp(1,2), vyp(1,2), vzp, prp(1,2), tp(1,1,2), 'p_i')
-         call outpost(vxp(1,1), vyp(1,1), vzp, prp(1,1),tp(1,1,1),'v_1')
-         call outpost(vxp(1,2), vyp(1,2), vzp, prp(1,2),tp(1,1,2),'v_2')
-         
-	      do istep = 1, nstp
-            call nekgsync
-            call setup_convect(2)
-            call settime
-            call setsolv
-            call comment
-            call setprop
-
-            ! compute best estimate for d/dz (p)
-            
-            msg = 'Compute explicit pressure gradient term for w'
-            call nek_log_debug(msg,this_module,this_procedure)
-            ifield = 1
-            do jp = 1, npert
-               ! we need to do this outside of the other jp loop for extrapolation of the correct pressure term
-               call extrapprp(prextr)
-               call compute_gradz_p(gradz_p, prextr, betaz)
-            end do
-
-            ! Compute intermediate velocities
-
-            msg = 'Solve momentum equations for u/v/w'
-            call nek_log_debug(msg,this_module,this_procedure)
-            do jp = 1, npert
-               do igeom = 1,ngeom
-                  if (igeom == 1) then
-                  !
-                  !  Old geometry, old velocity
-                  !
-                     ifield = 1     !  velocity
-                     call makefp
-                     call lagfieldp
-                     ifield = 2     !  temperature (w)
-                     call makeqp
-                     call lagscalp
-                     !
-                  else
-                  !
-                  !  New geometry, new velocity
-                  !
-                     intype = -1
-                     ifield = 1     !  velocity
-                     call sethlm   (h1,h2,intype)
-                     ! cresvipp 
-                     call bcdirvc (vxp(1,jp), vyp(1,jp), vzp(1,jp),v1mask,v2mask,v3mask)
-                     call bcdirvc (tp(1,1,jp),vyp(1,jp), vzp(1,jp),v3mask,v2mask,v3mask)
-
-                     call extrapprp(prextr)
-                     call opgradt(resv1,resv2,resv3,prextr)      ! d/dx pr, d/dy pr
-                     call opadd2 (resv1,resv2,resv3,bfxp(1,jp), bfyp(1,jp),bfzp(1,jp))
-                     call copy   (resv3,gradz_p(1,jp),ntot1)     ! d/dz pr
-                     call   add2 (resv3, bqp(1,1,jp), ntot1)
-                     ! ophx
-                     call H%init(bf, betaz, -1)
-                     call nek2v(v, vxp, v1mask, vmult, 1, jp)
-                     call H%matvec(v,vout)
-                     call copy(w1, vout%v, ntot1)
-                     !call helmholtz_matvec_2Dh(w1, vxp(1,jp),h1,h2,betaz)
-                     call nek2v(v, vyp, v2mask, vmult, 1, jp)
-                     call H%matvec(v,vout)
-                     call copy(w1, vout%v, ntot1)
-                     !call helmholtz_matvec_2Dh(w2, vyp(1,jp),h1,h2,betaz)
-                     call nek2v(v, vzp, v1mask, vmult, 1, jp)
-                     call H%matvec(v,vout)
-                     call copy(w1, vout%v, ntot1)
-                     !call helmholtz_matvec_2Dh(w3,tp(1,1,jp),h1,h2,betaz)
-                     call opsub2(resv1,resv2,resv3,w1,w2,w3)
-                     call   sub2(            resv3,      w3,ntot1)
-                
-                     ! ophinv
-                     kfldfdm = -1
-                     tolhv = abs(tolhv)
-                     ifield = 1 !  velocity
-
-                     call dssum  (resv1,lx1,ly1,lz1)
-                     call col2   (resv1,v1mask,ntot1)
-                     if (istep < 10) call chktcg1 (tolhv,resv1,h1,h2,v1mask,vmult,imesh,1)
-                     call solve_helmholtz_2Dh(dv1,resv1,h1,h2,v1mask,vmult,imesh,tolhv,nmxv,1,binvm1,'VELX',betaz)
-
-                     call dssum  (resv2,lx1,ly1,lz1)
-                     call col2   (resv2,v2mask,ntot1)
-                     if (istep < 10) call chktcg1 (tolhv,resv2,h1,h2,v2mask,vmult,imesh,2)
-                     call solve_helmholtz_2Dh(dv2,resv2,h1,h2,v2mask,vmult,imesh,tolhv,nmxv,2,binvm1,'VELY',betaz)
-                     
-                     call dssum  (resv3,lx1,ly1,lz1)
-                     call col2   (resv3,v3mask,ntot1)
-                     if (istep < 10) call chktcg1 (tolhv,resv3,h1,h2,v3mask,vmult,imesh,3)
-                     call solve_helmholtz_2Dh(dv3,resv3,h1,h2,v3mask,vmult,imesh,tolhv,nmxv,3,binvm1,'VELZ',betaz)
-                     
-                     call opadd2 (vxp(1,jp),vyp(1,jp),vzp(1,jp),dv1,dv2,dv3)
-                     call add2   (tp(1,1,jp),dv3,ntot1)
-                  end if
-               end do ! igeom
-            end do ! jp
-                  
-            msg = 'Compute pressure correction to enforce mass balance'
-            call nek_log_debug(msg,this_module,this_procedure)
-            do jp = 1, npert
-               ! incomprp
-               ifield = 1 ! velocity
-               intype = 1
-               dtbd   = bd(1)/dt
-               
-               call rzero   (h1,ntot1)
-               call cmult2  (h2,vtrans(1,1,1,1,ifield),dtbd,ntot1)
-               call invers2 (h2inv,h2,ntot1)
-                  
-               call opdiv   (dpr(1,jp),vxp(1,jp),vyp(1,jp),vzp(1,jp))
-
-               call compute_frc_div(frc_div, tp, betaz)
-               call add2(dpr(1,jp),frc_div(1,1,1,1,jp),ntot2)
-                  
-               call chsign  (dpr(1,jp),ntot2)
-               call ortho   (dpr(1,jp))
-             
-               call solve_pressure_2Dh(dpr(1,jp),h1,h2,h2inv,betaz,intype,iter)
-            end do ! jp                
-
-            ! Reconstruct pressure and add pressure correction
-
-            msg = 'Compute velocity correction based on pressure correction'
-            call nek_log_debug(msg,this_module,this_procedure)
-            ! prepare
-            call invcol3 (bm1h2inv,bm1,h2inv,ntot1)    ! = bm1/h2inv = B*h2
-            call dssum   (bm1h2inv,lx1,ly1,lz1)
-
-            do jp = 1, npert
-               call opgradt (w1 ,w2 ,w3 ,dpr(1,jp))
-               call opbinv  (dv1,dv2,dv3,w1 ,w2 ,w3 ,h2inv)
-               call compute_dw(dw, dpr, bm1h2inv, betaz) ! dw
-
-               call opadd2 (vxp(1,jp),vyp(1,jp),vzp(1,jp), dv1,dv2,dv3)
-               call   add2 (tp(1,1,jp), dw(1,jp), ntot1)
-             
-               call extrapprp(prextr)
-               call lagpresp
-               call add3(prp(1,jp),prextr,dpr(1,jp), ntot2)
-            end do ! jp
-         enddo
-
-         call outpost_nek(prt, 'p__')
-         energy = prt%norm()**2*exptA%Lz
-         if (nid == 0) print *, 'energy in ', energy
-         
-         call exptA%matvec(prt, prt_out)
-         
-         call outpost_nek(prt_out, 'p__')
-         energy = prt_out%norm()**2*exptA%Lz
-         if (nid == 0) print *, 'energy out', energy
-
-	      call nek_end()
-      end if
       return
       end
 

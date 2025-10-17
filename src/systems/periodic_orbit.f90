@@ -9,7 +9,7 @@
             select type (vec_out)
             type is (nek_ext_dvector)
       ! Set the initial condition
-               call ext_vec2nek(vx, vy, vz, pr, t, vec_in)
+               call vec2nek(vx, vy, vz, pr, t, vec_in)
       ! Set appropriate tolerances and Nek status
                call setup_nonlinear_solver(recompute_dt = .true., 
      &                                     endtime      = vec_in%T,
@@ -24,7 +24,7 @@
                   call nek_advance()
                end do
       ! Copy the final solution to vector.
-               call nek2ext_vec(vec_out, vx, vy, vz, pr, t)
+               call nek2vec(vec_out, vx, vy, vz, pr, t)
                vec_out%T = vec_in%T
       ! Evaluate residual F(X) - X.
                call vec_out%sub(vec_in)
@@ -48,7 +48,7 @@
             type is (nek_ext_dvector)
                atol = param(22)
       ! Set the baseflow initial condition
-               call abs_ext_vec2nek(vx, vy, vz, pr, t, self%X)
+               call abs_vec2nek(vx, vy, vz, pr, t, self%X)
       ! Ensure correct nek status -> set end time
                call setup_linear_solver(solve_baseflow = .true.,
      &                                  transpose      = .false.,
@@ -65,7 +65,7 @@
                   call nek_advance()
                end do
       ! Copy the final solution to vector.
-               call nek2ext_vec(vec_out, vxp, vyp, vzp, prp, tp)
+               call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
       ! Evaluate [ exp(tau*J) - I ] @ dx.
                call vec_out%sub(vec_in)
       ! Evaluate f'(X(T), T) * dT and add it to the position residual
@@ -74,7 +74,7 @@
                call vec_out%axpby(vec_in%T, vec, 1.0_dp)
       ! Evaluate f'(X(0), 0).T @ dx and add phase condition
       ! Set the initial point of the nonlinear trajectory
-               call abs_ext_vec2nek(vx, vy, vz, pr, t, self%X)
+               call abs_vec2nek(vx, vy, vz, pr, t, self%X)
                call compute_fdot(vec)
                vec_out%T = vec_in%dot(vec)
                param(22) = atol
@@ -99,7 +99,7 @@
             type is (nek_ext_dvector)
                atol = param(22)
       ! Set the baseflow initial condition
-               call abs_ext_vec2nek(vx, vy, vz, pr, t, self%X)
+               call abs_vec2nek(vx, vy, vz, pr, t, self%X)
       ! Ensure correct nek status -> set end time
                call setup_linear_solver(solve_baseflow = .true.,
      &                                  transpose      = .true.,
@@ -109,7 +109,7 @@
      &                                  vtol           = atol*0.1,
      &                                  ptol           = atol*0.1)
       ! Set the perturbation initial condition
-               call ext_vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
+               call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
       ! Integrate the equations forward in time.
                time = 0.0_dp
                do istep = 1, nsteps
@@ -124,7 +124,7 @@
                call vec_out%axpby(vec_in%T, vec, 1.0_dp)
       ! Evaluate f'(X(0), 0).T @ dx and add phase condition
       ! Set the initial point of the orbit
-               call abs_ext_vec2nek(vx, vy, vz, pr, t, self%X)
+               call abs_vec2nek(vx, vy, vz, pr, t, self%X)
                call compute_fdot(vec)
                vec_out%T = vec_in%dot(vec)
                param(22) = atol

@@ -13,7 +13,7 @@
          use LightKrylov_NewtonKrylov, only: newton_dp_metadata
          use neklab_vectors
          use neklab_linops
-         use neklab_utils
+         use neklab_utils, only: outpost_nek
          use neklab_nek_setup
          use neklab_otd
          use neklab_systems
@@ -62,11 +62,7 @@
             call logger_setup(nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
       
       ! Optional parameters.
-            if (present(adjoint)) then
-               adjoint_ = adjoint
-            else
-               adjoint_ = .false.
-            end if
+            adjoint_ = optval(adjoint, .false.)
       
       ! Allocate eigenvectors and initialize Krylov basis.
             allocate (eigvecs(nev)); call zero_basis(eigvecs)
@@ -85,7 +81,7 @@
             call save_eigenspectrum(eigvals, residuals, trim(file_prefix)//"_eigenspectrum.npy")
       
       ! Export eigenfunctions to disk.
-            call outpost_dnek(eigvecs(:nev), file_prefix)
+            call outpost_nek(eigvecs(:nev), file_prefix)
 
 		call nek_log_message('Exiting eigenvalue computation.', this_module, this_procedure)
 
@@ -133,8 +129,8 @@
             end if
       
       ! Export optimal perturbations and optimal responses.
-            file_prefix = "prt"; call outpost_dnek(V(:nsv), file_prefix)
-            file_prefix = "rsp"; call outpost_dnek(U(:nsv), file_prefix)
+            file_prefix = "prt"; call outpost_nek(V(:nsv), file_prefix)
+            file_prefix = "rsp"; call outpost_nek(U(:nsv), file_prefix)
       
          end subroutine transient_growth_analysis_fixed_point
       
@@ -174,15 +170,7 @@
       ! Outpost initial condition.
             file_prefix = 'nwt'
             call set_fldindex(file_prefix, 1)
-            select type (bf)
-            type is (nek_dvector)
-               call outpost_dnek(bf, file_prefix)
-            type is (nek_ext_dvector)
-               call outpost_ext_dnek(bf, file_prefix)
-            class default
-               call nek_stop_error('bf is of unrecognized type!', this_module, this_procedure)
-            end select
-
+            call outpost_nek(bf, file_prefix)
             if (present(input_is_fixed_point)) then
                input_is_fixed_point = meta%input_is_fixed_point
             end if

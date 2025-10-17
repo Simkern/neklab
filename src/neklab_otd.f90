@@ -17,7 +17,7 @@
       ! Extensions of the abstract vector types to nek data format.
          use neklab_vectors
          use neklab_linops, only: apply_L
-         use neklab_utils, only: nek2vec, vec2nek, outpost_dnek
+         use neklab_utils, only: nek2vec, vec2nek, outpost_nek
          use neklab_nek_forcing, only: neklab_forcing, set_neklab_forcing
          use neklab_nek_setup, only: setup_linear_solver, setup_nonlinear_solver
          use neklab_nek_setup, only: nek_log_debug, nek_log_message, nek_stop_error
@@ -383,7 +383,7 @@
             do i = 1, self%r
                write (file_prefix, '(A,I2.2)') 'r', i
                associate (bvec => self%basis(i))
-                  call outpost_dnek(bvec, file_prefix)
+                  call outpost_nek(bvec, file_prefix)
                end associate
             end do
             return
@@ -487,13 +487,13 @@
                   call self%spectral_analysis(ifprint=.false.)
                end if
                call self%outpost_OTDmodes()
-               if (opts%solve_baseflow) call outpost_dnek(self%baseflow, 'bf_')
+               if (opts%solve_baseflow) call outpost_nek(self%baseflow, 'bf_')
             end if
             
       ! output basis vectors for restart
             if (mod(istp, opts%iorststep) == 0) then
                call self%outpost_basis()
-               if (opts%solve_baseflow) call outpost_dnek(self%baseflow, 'rbf')
+               if (opts%solve_baseflow) call outpost_nek(self%baseflow, 'rbf')
             end if
                
       ! set the forcing

@@ -202,14 +202,14 @@
       ! internal
             type(nek_ext_dvector) :: vec_in
       ! copy initial condition
-            call nek2ext_vec(vec_in, vx, vy, vz, pr, t)
+            call nekvec(vec_in, vx, vy, vz, pr, t)
       ! Integrate the nonlinear equations forward in time.
             time = 0.0_dp
             do istep = 1, 1
                call nek_advance()
             end do
       ! Extract f(X(t0+dt))
-            call nek2ext_vec(vec, vx, vy, vz, pr, t)
+            call nek2vec(vec, vx, vy, vz, pr, t)
       ! Approximate derivative at t = t0:
       !
       !    f'(X(t0)) ~ ( f(X(t0+dt)) - f(X(t0)) ) / dt

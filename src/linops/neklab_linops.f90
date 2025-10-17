@@ -176,7 +176,7 @@
             integer :: imesh = 1
             integer :: isd = 1
             integer :: integration_type = 0
-            logical :: is_initialized = .false.
+            logical, private :: is_initialized = .false.
          contains
             private
             procedure, pass(self), public :: init    => helmholtz_init
@@ -202,6 +202,7 @@
             end subroutine
          end interface
 
+      ! --> Jacobi preconditioner for the Helmholtz operator
          type, extends(abstract_precond_rdp), public :: jacobi_preconditioner
             real(dp), dimension(lx1,ly1,lz1,lelv) :: D = 0.0_dp
             logical :: is_initialized = .false.
@@ -211,14 +212,13 @@
             procedure, pass(self), public :: apply => apply_jacobi_preconditioner
          end type
 
-      ! --> Type-bound procedures: helmholtz_operator.f90
          interface
             module subroutine construct_jacobi_preconditioner(self, h1, h2, imsh, isd)
                class(jacobi_preconditioner), intent(inout) :: self
                real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: h1
                real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: h2
-               integer, intent(in) :: imsh
-               integer, intent(in) :: isd
+               integer, optional, intent(in) :: imsh
+               integer, optional, intent(in) :: isd
             end subroutine
 
             module subroutine apply_jacobi_preconditioner(self, vec, iter, current_residual, target_residual)
@@ -229,6 +229,70 @@
                real(dp), optional, intent(in) :: target_residual
             end subroutine
          end interface
+
+      !------------------------------------------------
+      !-----     PRESSURE PROJECTION OPERATOR     -----
+      !------------------------------------------------
+      
+      ! --> Type.
+         type, extends(abstract_linop_rdp), public :: pressure_projection_linop
+            type(nek_dvector) :: baseflow
+            real(dp) :: betaz
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: h1 = 0.0_dp
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: h2 = 0.0_dp
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: h2inv = 0.0_dp
+            integer :: integration_type = 0
+            logical, private :: is_initialized = .false.
+         contains
+            private
+            procedure, pass(self), public :: init    => pressure_projection_init
+            procedure, pass(self), public :: matvec  => pressure_projection_matvec
+            procedure, pass(self), public :: rmatvec => pressure_projection_matvec
+         end type
+      
+      ! --> Type-bound procedures: pressure_projection_operator.f90
+         interface
+            module subroutine pressure_projection_init(self, bf, betaz, h2inv, integration_type)
+               class(pressure_projection_linop), intent(inout) :: self
+               type(nek_dvector), intent(in) :: bf
+               real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: h2inv
+               real(dp), intent(in) :: betaz
+               integer, intent(in) :: integration_type
+            end subroutine
+
+            module subroutine pressure_projection_matvec(self, vec_in, vec_out)
+               class(pressure_projection_linop), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+            end subroutine
+         end interface
+
+         !type, extends(abstract_precond_rdp), public :: jacobi_preconditioner
+         !   real(dp), dimension(lx1,ly1,lz1,lelv) :: D = 0.0_dp
+         !   logical :: is_initialized = .false.
+         !contains
+         !   private
+         !   procedure, pass(self), public :: init  => construct_jacobi_preconditioner
+         !   procedure, pass(self), public :: apply => apply_jacobi_preconditioner
+         !end type
+
+         !interface
+         !   module subroutine construct_jacobi_preconditioner(self, h1, h2, imsh, isd)
+         !      class(jacobi_preconditioner), intent(inout) :: self
+         !      real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: h1
+         !      real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: h2
+         !      integer, optional, intent(in) :: imsh
+         !      integer, optional, intent(in) :: isd
+         !   end subroutine
+!
+         !   module subroutine apply_jacobi_preconditioner(self, vec, iter, current_residual, target_residual)
+         !      class(jacobi_preconditioner), intent(inout) :: self
+         !      class(abstract_vector_rdp), intent(inout) :: vec
+         !      integer, optional, intent(in) :: iter
+         !      real(dp), optional, intent(in) :: current_residual
+         !      real(dp), optional, intent(in) :: target_residual
+         !   end subroutine
+         !end interface
       
       contains
       

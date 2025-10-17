@@ -271,6 +271,64 @@
                class(nekv_dvector), intent(in) :: self
             end function
          end interface
+
+      !----------------------------------------------------
+      !-----     NEK REAL PRESSURE COMPONENT TYPE     -----
+      !----------------------------------------------------
+      
+      ! --> Type.
+         type, extends(abstract_vector_rdp), public :: nekp_dvector
+            real(kind=dp), dimension(lp) :: pr
+         contains
+            private
+            procedure, pass(self), public :: zero => nekp_dzero
+            procedure, pass(self), public :: rand => nekp_drand
+            procedure, pass(self), public :: scal => nekp_dscal
+            procedure, pass(self), public :: axpby => nekp_daxpby
+            procedure, pass(self), public :: dot => nekp_ddot
+            procedure, pass(self), public :: get_size => nekp_dsize
+         end type nekp_dvector
+      
+      ! --> Constructor.
+         interface nekp_dvector
+            pure module function construct_nekp_dvector(pr) result(out)
+               real(kind=dp), dimension(lp), intent(in) :: pr
+               type(nekp_dvector) :: out
+            end function
+         end interface
+      
+      ! --> Type-bound procedures.
+         interface
+            module subroutine nekp_dzero(self)
+               class(nekp_dvector), intent(inout) :: self
+            end subroutine
+      
+            module subroutine nekp_drand(self, ifnorm)
+               class(nekp_dvector), intent(inout) :: self
+               logical, optional, intent(in) :: ifnorm
+            end subroutine
+      
+            module subroutine nekp_dscal(self, alpha)
+               class(nekp_dvector), intent(inout) :: self
+               real(kind=dp), intent(in) :: alpha
+            end subroutine
+      
+            module subroutine nekp_daxpby(alpha, vec, beta, self)
+               class(nekp_dvector), intent(inout) :: self
+               real(kind=dp), intent(in) :: alpha
+               class(abstract_vector_rdp), intent(in) :: vec
+               real(kind=dp), intent(in) :: beta
+            end subroutine
+      
+            real(kind=dp) module function nekp_ddot(self, vec) result(alpha)
+               class(nekp_dvector), intent(in) :: self
+               class(abstract_vector_rdp), intent(in) :: vec
+            end function
+      
+            integer pure module function nekp_dsize(self) result(n)
+               class(nekp_dvector), intent(in) :: self
+            end function
+         end interface
       
       contains
       

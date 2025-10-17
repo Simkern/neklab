@@ -1,6 +1,7 @@
 $(OBJDIR)/neklab_vectors.o		:$(NEKLAB_SOURCE_ROOT)/src/vectors/neklab_vectors.f90		;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/real_vectors.o		:$(NEKLAB_SOURCE_ROOT)/src/vectors/real_vectors.f90		;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/velocity_component.o		:$(NEKLAB_SOURCE_ROOT)/src/vectors/velocity_component.f90		;$(FC) -c $(FL2) $< -o $@
+$(OBJDIR)/pressure_component.o		:$(NEKLAB_SOURCE_ROOT)/src/vectors/pressure_component.f90		;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/real_extended_vectors.o	:$(NEKLAB_SOURCE_ROOT)/src/vectors/real_extended_vectors.f90	;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/complex_vectors.o		:$(NEKLAB_SOURCE_ROOT)/src/vectors/complex_vectors.f90		;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_nek_setup.o		:$(NEKLAB_SOURCE_ROOT)/src/neklab_nek_setup.f90			;$(FC) -c $(FL2) $< -o $@
@@ -12,6 +13,7 @@ $(OBJDIR)/exponential_propagator.o	:$(NEKLAB_SOURCE_ROOT)/src/linops/exponential
 $(OBJDIR)/exponential_propagator_2Dh.o	:$(NEKLAB_SOURCE_ROOT)/src/linops/exponential_propagator_2Dh.f90	;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/floquet_operator_torus.o	:$(NEKLAB_SOURCE_ROOT)/src/linops/floquet_operator_torus.f90	;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/helmholtz_operator.o	:$(NEKLAB_SOURCE_ROOT)/src/linops/helmholtz_operator.f90	;$(FC) -c $(FL2) $< -o $@
+$(OBJDIR)/pressure_projection_operator.o	:$(NEKLAB_SOURCE_ROOT)/src/linops/pressure_projection_operator.f90	;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/resolvent.o	:$(NEKLAB_SOURCE_ROOT)/src/linops/resolvent.f90	;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_systems.o		:$(NEKLAB_SOURCE_ROOT)/src/systems/neklab_systems.f90		;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/fixed_point.o			:$(NEKLAB_SOURCE_ROOT)/src/systems/fixed_point.f90		;$(FC) -c $(FL2) $< -o $@

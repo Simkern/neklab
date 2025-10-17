@@ -33,6 +33,8 @@
          public :: get_period, get_period_abs
       ! Utilities for velocity components
          public :: nek2v, v2nek
+      ! Utilities for pressure components
+         public :: nek2p, p2nek
       ! utility for outposting
          public :: outpost_nek, outpost_2Dh
       ! miscellaneous
@@ -40,10 +42,10 @@
       
       ! Nek vector utilities
          interface nek2vec
-            module procedure nek2vec_std
-            module procedure nek2vec_prt
-            module procedure nek2vec_prt_single
-            module procedure nek2vec_2Dh
+            module procedure nek2vec_std           ! vx, vy, vz, pr, t -> nek_dvector
+            module procedure nek2vec_prt           
+            module procedure nek2vec_prt_single    ! vxp(1,1), vyp(1,1), vzp(1,1), prp(1,1), tp(1,1,1) -> nek_dvector
+            module procedure nek2vec_2Dh           ! vxp(1,:2), vyp(1,:2), vzp(1,:2), prp(1,:2), tp(1,1,:2) -> nek_zvector
          end interface
       
          interface vec2nek
@@ -105,6 +107,18 @@
          interface v2nek
             module procedure vcomp2nek_std
             module procedure vcomp2nek_prt
+         end interface
+
+      ! P component utilities
+         interface nek2p
+            module procedure nek2pcomp_std
+            module procedure nek2pcomp_prt
+            module procedure nek2pcomp_prt_single
+         end interface
+      
+         interface p2nek
+            module procedure pcomp2nek_std
+            module procedure pcomp2nek_prt
          end interface
       
       contains
@@ -345,6 +359,23 @@
             end select
          end subroutine abstract_ext_vec2nek_prt
 
+         real(dp) function get_period_abs(vec) result(period)
+            class(abstract_vector_rdp), intent(in) :: vec
+            select type (vec)
+            type is (nek_ext_dvector)
+               
+               period = vec%T
+
+            class default
+               call type_error('vec','nek_ext_dvector','IN',this_module,'get_period_abs')
+            end select
+         end function get_period_abs
+      
+         pure real(dp) function get_period(vec) result(period)
+            class(nek_ext_dvector), intent(in) :: vec
+            period = vec%T
+         end function get_period
+
       ! V component
 
          subroutine nek2vcomp_prt(vec, v_, mask_, vmult_, isd_)
@@ -420,23 +451,64 @@
             call copy(v_,        vec%v,    n)
       
          end subroutine vcomp2nek_prt
-      
-         real(dp) function get_period_abs(vec) result(period)
-            class(abstract_vector_rdp), intent(in) :: vec
-            select type (vec)
-            type is (nek_ext_dvector)
-               
-               period = vec%T
 
-            class default
-               call type_error('vec','nek_ext_dvector','IN',this_module,'get_period_abs')
-            end select
-         end function get_period_abs
+      ! P component
+
+         subroutine nek2pcomp_prt(vec, pr_)
+            include "SIZE"
+            type(nekp_dvector), intent(out) :: vec
+            real(kind=dp), dimension(lp, lpert), intent(in) :: pr_
+            ! internal
+            integer :: n
+            n = lx2*ly2*lz2*nelv
+            call copy(vec%pr, pr_(:, 1), n)
       
-         pure real(dp) function get_period(vec) result(period)
-            class(nek_ext_dvector), intent(in) :: vec
-            period = vec%T
-         end function get_period
+         end subroutine nek2pcomp_prt
+
+         subroutine nek2pcomp_prt_single(vec, pr_, ipert)
+            include "SIZE"
+            type(nekp_dvector), intent(out) :: vec
+            real(kind=dp), dimension(lp, lpert), intent(in) :: pr_
+            integer, intent(in) :: ipert
+            ! internal
+            integer :: n
+            n = lx2*ly2*lz2*nelv
+            call copy(vec%pr, pr_(:, ipert), n)
+      
+         end subroutine nek2pcomp_prt_single
+      
+         subroutine nek2pcomp_std(vec, pr_)
+            include "SIZE"
+            type(nekp_dvector), intent(out) :: vec
+            real(kind=dp), dimension(lx2, ly2, lz2, lelv), intent(in) :: pr_
+            ! internal
+            integer :: n
+            n = lx2*ly2*lz2*nelv
+            call copy(vec%pr, pr_, n)
+      
+         end subroutine nek2pcomp_std
+      
+         subroutine pcomp2nek_std(pr_, vec)
+            include "SIZE"
+            type(nekp_dvector), intent(in) :: vec
+            real(kind=dp), dimension(lx2, ly2, lz2, lelv), intent(out) :: pr_
+            ! internal
+            integer :: n
+            n = lx2*ly2*lz2*nelv
+            call copy(pr_, vec%pr, n)
+      
+         end subroutine pcomp2nek_std
+      
+         subroutine pcomp2nek_prt(pr_, vec)
+            include "SIZE"
+            type(nekp_dvector), intent(in) :: vec
+            real(kind=dp), dimension(lp, 1), intent(out) :: pr_
+            ! internal
+            integer :: n
+            n = lx2*ly2*lz2*nelv
+            call copy(pr_, vec%pr, n)
+      
+         end subroutine pcomp2nek_prt
    
          subroutine nopcopy(a1, a2, a3, a4, a5, b1, b2, b3, b4, b5)
             implicit none

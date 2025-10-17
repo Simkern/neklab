@@ -1,4 +1,83 @@
 c-----------------------------------------------------------------------
+      subroutine userchk
+
+      use neklab
+      implicit none
+      include "SIZE"
+      include "FDMH1"
+      include "TOTAL"
+
+      ! State vectors
+      type(nek_dvector) :: bf, prt_r, prt_i
+      type(nek_zvector) :: prt, prt_out
+      type(exptA_2Dh_linop) :: exptA
+
+      ! parameters
+      integer, parameter :: nxyz1 = lx1*ly1*lz1
+      integer, parameter :: nxyz2 = lx2*ly2*lz2
+      integer, parameter :: lv    = nxyz1*lelv
+      
+      ! internal
+      integer :: ntot1, ntot2
+      real(dp) :: energy
+      real(dp) :: betaz
+      real(dp) :: Lz
+
+      character(len=*), parameter :: fmt = '(A4,I6,A)'
+
+      integer, parameter :: nstp  = 100
+
+      ntot1 = nxyz1*nelv
+      ntot2 = nxyz2*nelv
+
+      betaz = 1.0_dp
+      Lz = 2*pi
+      ! pert 1: real
+      ! pert 2: imag
+
+      if (istep.eq.0) then
+         ! save baseflow
+         call nek2vec(bf, vx, vy, vz, pr, t)
+         exptA = exptA_2Dh_linop(tau=1, betaz=betaz, Lz=Lz, baseflow=bf)
+         ! load prt IC uvw
+         ! real part
+         call load_fld('IC_poiseuille_uv_r.fld')
+         call nek2vec(prt%re, vx, vy, vz, pr, t)
+         call load_fld('IC_poiseuille_uw_r.fld')
+         call copy(prt%re%theta, vy, ntot1)
+         ! imag part
+         call load_fld('IC_poiseuille_uv_i.fld')
+         call nek2vec(prt%im, vx, vy, vz, pr, t)
+         call load_fld('IC_poiseuille_uw_i.fld')
+         call copy(prt%im%theta, vy, ntot1)
+
+         ! reset baseflow
+         call vec2nek(vx, vy, vz, pr, t, bf)
+         ! set perturbations
+         call vec2nek(vxp, vyp, vzp, prp, tp, prt)
+
+	      do istep = 1, nstp
+            call nek_advance_2Dh(betaz)
+            call nek2vec(prt_out, vxp, vyp, vzp, prp, tp)
+            energy = prt_out%norm()**2*exptA%Lz
+            if (nid == 0) print *, 'time', time, 'energy', energy
+         enddo
+
+         call outpost_nek(prt, 'p__')
+         energy = prt%norm()**2*exptA%Lz
+         if (nid == 0) print *, 'energy in ', energy
+         
+         call exptA%matvec(prt, prt_out)
+         
+         call outpost_nek(prt_out, 'p__')
+         energy = prt_out%norm()**2*exptA%Lz
+         if (nid == 0) print *, 'energy out', energy
+
+	      call nek_end()
+      end if
+      return
+      end
+c-----------------------------------------------------------------------
       subroutine uservp (ix,iy,iz,ieg)
 
       implicit none
@@ -115,86 +194,6 @@ c     perturbation
 
       return
       end
-c-----------------------------------------------------------------------
-      subroutine userchk
-
-      use neklab
-      implicit none
-      include "SIZE"
-      include "FDMH1"
-      include "TOTAL"
-
-      ! State vectors
-      type(nek_dvector) :: bf, prt_r, prt_i
-      type(nek_zvector) :: prt, prt_out
-      type(exptA_2Dh_linop) :: exptA
-
-      ! parameters
-      integer, parameter :: nxyz1 = lx1*ly1*lz1
-      integer, parameter :: nxyz2 = lx2*ly2*lz2
-      integer, parameter :: lv    = nxyz1*lelv
-      
-      ! internal
-      integer :: ntot1, ntot2
-      real(dp) :: energy
-      real(dp) :: betaz
-      real(dp) :: Lz
-
-      character(len=*), parameter :: fmt = '(A4,I6,A)'
-
-      integer, parameter :: nstp  = 100
-
-      ntot1 = nxyz1*nelv
-      ntot2 = nxyz2*nelv
-
-      betaz = 1.0_dp
-      Lz = 2*pi
-      ! pert 1: real
-      ! pert 2: imag
-
-      if (istep.eq.0) then
-         ! save baseflow
-         call nek2vec(bf, vx, vy, vz, pr, t)
-         exptA = exptA_2Dh_linop(tau=1, betaz=betaz, Lz=Lz, baseflow=bf)
-         ! load prt IC uvw
-         ! real part
-         call load_fld('IC_poiseuille_uv_r.fld')
-         call nek2vec(prt%re, vx, vy, vz, pr, t)
-         call load_fld('IC_poiseuille_uw_r.fld')
-         call copy(prt%re%theta, vy, ntot1)
-         ! imag part
-         call load_fld('IC_poiseuille_uv_i.fld')
-         call nek2vec(prt%im, vx, vy, vz, pr, t)
-         call load_fld('IC_poiseuille_uw_i.fld')
-         call copy(prt%im%theta, vy, ntot1)
-
-         ! reset baseflow
-         call vec2nek(vx, vy, vz, pr, t, bf)
-         ! set perturbations
-         call vec2nek(vxp, vyp, vzp, prp, tp, prt)
-
-	      do istep = 1, nstp
-            call nek_advance_2Dh(betaz)
-            call nek2vec(prt_out, vxp, vyp, vzp, prp, tp)
-            energy = prt_out%norm()**2*exptA%Lz
-            if (nid == 0) print *, 'time', time, 'energy', energy
-         enddo
-
-         call outpost_nek(prt, 'p__')
-         energy = prt%norm()**2*exptA%Lz
-         if (nid == 0) print *, 'energy in ', energy
-         
-         call exptA%matvec(prt, prt_out)
-         
-         call outpost_nek(prt_out, 'p__')
-         energy = prt_out%norm()**2*exptA%Lz
-         if (nid == 0) print *, 'energy out', energy
-
-	      call nek_end()
-      end if
-      return
-      end
-
 c-----------------------------------------------------------------------
 c     This routine to modify element vertices
       subroutine usrdat

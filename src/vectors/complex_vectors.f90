@@ -34,6 +34,8 @@
       
          module procedure nek_zzero
          call self%scal(zero_cdp)
+      ! clear restart fields if present
+         self%nrst = 0
          end procedure
       
          module procedure nek_zrand
@@ -42,28 +44,41 @@
          if (optval(ifnorm, .false.)) then
             alpha = self%norm(); call self%scal(one_cdp/alpha)
          end if
+      ! clear restart fields already cleared in nek_drand
          end procedure
       
          module procedure nek_zscal
+         integer :: i
          type(nek_zvector) :: wrk
       ! Scratch array.
          wrk = self
       ! Scale complex vector.
          call nek_daxpby(alpha%re, wrk%im, -alpha%im, self%re)
          call nek_daxpby(alpha%re, wrk%re,  alpha%im, self%im)
+         do i = 1, self%nrst
+            call nek_daxpby(alpha%re, wrk%im_rst(i), -alpha%im, self%re_rst(i))
+            call nek_daxpby(alpha%re, wrk%re_rst(i),  alpha%im, self%im_rst(i))
+         end do
          end procedure
       
          module procedure nek_zaxpby
+         integer :: i
          type(nek_zvector) :: wrk
       ! Scratch array.
          select type (vec)
          type is (nek_zvector)
+         
             wrk = vec
       ! Scale vectors before addition.
             call self%scal(beta); call wrk%scal(alpha)
       ! Vector addition.
             call nek_daxpby(1.0_dp, wrk%re, 1.0_dp, self%re)
             call nek_daxpby(1.0_dp, wrk%im, 1.0_dp, self%im)
+
+            do i = 1, self%nrst
+               call nek_daxpby(1.0_dp, wrk%re, 1.0_dp, self%re_rst(i))
+               call nek_daxpby(1.0_dp, wrk%im, 1.0_dp, self%im_rst(i))
+            end do
          class default
             call type_error('vec','nek_zvector','IN',this_module,'nek_zaxpby')
          end select
@@ -82,16 +97,129 @@
          end procedure
       
          module procedure nek_zsize
-         integer :: i, n1
-         n1 = nx1*ny1*nz1*nelv
-         n = 2*n1 + nx2*ny2*nz2*nelv
-         if (if3d) n = n + n1
-         if (ifto) n = n + n1
+         integer :: lv, m
+         lv = nx1*ny1*nz1*nelv
+         n = 2*lv + nx2*ny2*nz2*nelv
+         if (if3d) n = n + lv
+         if (ifto) n = n + lv
          if (ldimt > 1) then
-         do i = 2, ldimt
-            if (ifpsco(i - 1)) n = n + n1
-         end do
+            do m = 2, ldimt
+               if (ifpsco(m - 1)) n = n + lv
+            end do
          end if
+         end procedure
+
+         module procedure zsave_rst
+         integer :: m, lv, lp, torder
+         character(len=*), parameter :: this_procedure = 'zsave_rst'
+         character(len=128) :: msg
+
+         lv = nx1*ny1*nz1*nelv
+         lp = nx2*ny2*nz2*nelv
+         torder = abs(param(27)) ! integration order in time
+
+         ! sanity checks
+         if (irst == torder) then
+            write(msg,'(2(A,I0),A)') 'Cannot save rst fields ', torder, ' for a simulation of temporal order ', torder, '.'
+            call log_error(msg, this_module, this_procedure)
+         else
+            write(msg,'(A,I0)') 'Saving rst fields: ', irst
+            call log_debug(msg, this_module, this_procedure)
+         end if
+
+         select type (vec_rst)
+         type is (nek_zvector)
+            ! associate?
+            call copy(self%re_rst(irst)%vx, vec_rst%re%vx, lv)
+            call copy(self%im_rst(irst)%vx, vec_rst%im%vx, lv)
+            call copy(self%re_rst(irst)%vy, vec_rst%re%vy, lv)
+            call copy(self%im_rst(irst)%vy, vec_rst%im%vy, lv)
+            if (if3d) then
+               call copy(self%re_rst(irst)%vz, vec_rst%re%vz, lv)
+               call copy(self%im_rst(irst)%vz, vec_rst%im%vz, lv)
+            end if
+            call copy(self%re_rst(irst)%pr, vec_rst%re%pr, lp)
+            call copy(self%im_rst(irst)%pr, vec_rst%im%pr, lp)
+
+            if (ifto) then
+               call copy(self%re_rst(irst)%theta(:, 1), vec_rst%re%theta(:, 1), lv)
+               call copy(self%im_rst(irst)%theta(:, 1), vec_rst%im%theta(:, 1), lv)
+            end if
+            if (ldimt > 1) then
+               do m = 2, ldimt
+                  if (ifpsco(m - 1)) then
+                     call copy(self%re_rst(irst)%theta(:, m), vec_rst%re%theta(:, m), lv)
+                     call copy(self%im_rst(irst)%theta(:, m), vec_rst%im%theta(:, m), lv)
+                  end if
+               end do
+            end if
+
+         class default
+            call type_error('vec_rst','nek_zvector','IN', this_module, this_procedure)
+         end select
+         end procedure
+   
+         module procedure zget_rst
+         integer :: m, lv, lp
+         character(len=*), parameter :: this_procedure = 'zget_rst'
+         character(len=128) :: msg
+
+         lv = nx1*ny1*nz1*nelv
+         lp = nx2*ny2*nz2*nelv
+
+         ! sanity checks
+         if (irst < 1) then
+            write(msg,'(A,I0)') 'Invalid input for irst: ', irst
+            call log_error(msg, this_module, this_procedure)
+         else if (irst > self%nrst) then
+            write(msg,'(A,I0)') 'No rst field to retrieve: ', irst
+            call log_warning(msg, this_module, this_procedure)
+         else
+            write(msg,'(A,I0)') 'Retrieving rst fields: ', irst
+            call log_information(msg, this_module, this_procedure)
+         end if
+
+         select type (vec_rst)
+         type is (nek_zvector)
+
+            call copy(vec_rst%re%vx, self%re_rst(irst)%vx, lv)
+            call copy(vec_rst%im%vx, self%im_rst(irst)%vx, lv)
+            call copy(vec_rst%re%vy, self%re_rst(irst)%vy, lv)
+            call copy(vec_rst%im%vy, self%im_rst(irst)%vy, lv)
+            if (if3d) then
+               call copy(vec_rst%re%vz, self%re_rst(irst)%vz, lv)
+               call copy(vec_rst%im%vz, self%im_rst(irst)%vz, lv)
+            end if
+            call copy(vec_rst%re%pr, self%re_rst(irst)%pr, lp)
+            call copy(vec_rst%im%pr, self%im_rst(irst)%pr, lp)
+            if (ifto) then
+               call copy(vec_rst%re%theta(:, 1), self%re_rst(irst)%theta(:, 1), lv)
+               call copy(vec_rst%im%theta(:, 1), self%im_rst(irst)%theta(:, 1), lv)
+            end if
+            if (ldimt > 1) then
+               do m = 2, ldimt
+                  if (ifpsco(m - 1)) then
+                     call copy(vec_rst%re%theta(:, m), self%re_rst(irst)%theta(:, m), lv)
+                     call copy(vec_rst%im%theta(:, m), self%im_rst(irst)%theta(:, m), lv)
+                  end if
+               end do
+            end if
+
+         class default
+            call type_error('vec_rst','nek_zvector','OUT',this_module, this_procedure)
+         end select
+         end procedure
+
+         module procedure zhas_rst_fields
+         has_rst_fields = .false.
+         if (self%nrst > 0) has_rst_fields = .true.
+         end procedure 
+
+         module procedure zclear_rst_fields
+         if (self%nrst == 0) then
+            call log_debug('No rst fields to clear', this_module, 'zclear_rst_fields')
+         end if
+         self%nrst = 0
          end procedure
       
       end submodule

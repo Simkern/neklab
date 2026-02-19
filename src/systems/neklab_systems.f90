@@ -52,6 +52,8 @@
             private
             procedure, pass(self), public :: matvec => jac_exptA_matvec
             procedure, pass(self), public :: rmatvec => jac_exptA_rmatvec
+            procedure, pass(self), public :: compute_rst => jac_exptA_compute_rst
+            procedure, pass(self), public :: get_rst => jac_exptA_get_rst
          end type nek_jacobian
       
       ! --> Type-bound procedures for nek_system & nek_jacobian
@@ -74,45 +76,126 @@
                class(abstract_vector_rdp), intent(in) :: vec_in
                class(abstract_vector_rdp), intent(out) :: vec_out
             end subroutine jac_exptA_rmatvec
+
+            module subroutine jac_exptA_compute_rst(self, vec_out, nrst)
+               class(nek_jacobian), intent(inout) :: self
+               class(abstract_vector_rdp), intent(out) :: vec_out
+               integer, intent(in) :: nrst
+            end subroutine
+
+            module subroutine jac_exptA_get_rst(self, vec_in, istep)
+               class(nek_jacobian), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               integer, intent(in) :: istep
+            end subroutine
+         end interface
+
+      !--------------------------------------------------------------------
+      !-----     NEKLAB SYSTEM FOR FIXED-POINTS with TEMP field     -------
+      !--------------------------------------------------------------------
+      
+      ! --> Type: nek_system
+         type, extends(abstract_system_rdp), public :: nek_temp_system
+         contains
+            private
+            procedure, pass(self), public :: response => nonlinear_map_temp
+         end type nek_temp_system
+      
+      ! --> Type: nek_jacobian
+         type, extends(abstract_jacobian_linop_rdp), public :: nek_temp_jacobian
+         contains
+            private
+            procedure, pass(self), public :: matvec => jac_exptA_temp_matvec
+            procedure, pass(self), public :: rmatvec => jac_exptA_temp_rmatvec
+            procedure, pass(self), public :: compute_rst => jac_exptA_temp_compute_rst
+            procedure, pass(self), public :: get_rst => jac_exptA_temp_get_rst
+         end type nek_temp_jacobian
+      
+      ! --> Type-bound procedures for nek_system & nek_jacobian
+         interface
+            module subroutine nonlinear_map_temp(self, vec_in, vec_out, atol)
+               class(nek_temp_system), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+               real(dp), intent(in) :: atol
+            end subroutine nonlinear_map_temp
+      
+            module subroutine jac_exptA_temp_matvec(self, vec_in, vec_out)
+               class(nek_temp_jacobian), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+            end subroutine jac_exptA_temp_matvec
+      
+            module subroutine jac_exptA_temp_rmatvec(self, vec_in, vec_out)
+               class(nek_temp_jacobian), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+            end subroutine jac_exptA_temp_rmatvec
+
+            module subroutine jac_exptA_temp_compute_rst(self, vec_out, nrst)
+               class(nek_temp_jacobian), intent(inout) :: self
+               class(abstract_vector_rdp), intent(out) :: vec_out
+               integer, intent(in) :: nrst
+            end subroutine
+
+            module subroutine jac_exptA_temp_get_rst(self, vec_in, istep)
+               class(nek_temp_jacobian), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               integer, intent(in) :: istep
+            end subroutine
          end interface
       
       !-----------------------------------------------------
       !-----     NEKLAB SYSTEM FOR PERIODIC ORBITS   -------
       !-----------------------------------------------------
       
-         type, extends(abstract_system_rdp), public :: nek_system_upo
+         type, extends(abstract_system_rdp), public :: nek_upo_system
          contains
             private
             procedure, pass(self), public :: response => nonlinear_map_upo
-         end type nek_system_upo
+         end type nek_upo_system
       
-         type, extends(abstract_jacobian_linop_rdp), public :: nek_jacobian_upo
+         type, extends(abstract_jacobian_linop_rdp), public :: nek_upo_jacobian
          contains
             private
             procedure, pass(self), public :: matvec => jac_direct_map
             procedure, pass(self), public :: rmatvec => jac_adjoint_map
-         end type nek_jacobian_upo
+            procedure, pass(self), public :: compute_rst => jac_compute_rst
+            procedure, pass(self), public :: get_rst => jac_get_rst
+         end type nek_upo_jacobian
       
-      ! --> Type-bound procedures for nek_system_upo & nek_jacobian_upo
+      ! --> Type-bound procedures for nek_upo_system & nek_upo_jacobian
          interface
             module subroutine nonlinear_map_upo(self, vec_in, vec_out, atol)
-               class(nek_system_upo), intent(inout) :: self
+               class(nek_upo_system), intent(inout) :: self
                class(abstract_vector_rdp), intent(in) :: vec_in
                class(abstract_vector_rdp), intent(out) :: vec_out
                real(dp), intent(in) :: atol
             end subroutine nonlinear_map_upo
       
             module subroutine jac_direct_map(self, vec_in, vec_out)
-               class(nek_jacobian_upo), intent(inout) :: self
+               class(nek_upo_jacobian), intent(inout) :: self
                class(abstract_vector_rdp), intent(in) :: vec_in
                class(abstract_vector_rdp), intent(out) :: vec_out
             end subroutine jac_direct_map
       
             module subroutine jac_adjoint_map(self, vec_in, vec_out)
-               class(nek_jacobian_upo), intent(inout) :: self
+               class(nek_upo_jacobian), intent(inout) :: self
                class(abstract_vector_rdp), intent(in) :: vec_in
                class(abstract_vector_rdp), intent(out) :: vec_out
             end subroutine jac_adjoint_map
+         
+            module subroutine jac_compute_rst(self, vec_out, nrst)
+               class(nek_upo_jacobian), intent(inout) :: self
+               class(abstract_vector_rdp), intent(out) :: vec_out
+               integer, intent(in) :: nrst
+            end subroutine
+
+            module subroutine jac_get_rst(self, vec_in, istep)
+               class(nek_upo_jacobian), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               integer, intent(in) :: istep
+            end subroutine
          end interface
 
       !-----------------------------------------------------------
@@ -130,6 +213,8 @@
             private
             procedure, pass(self), public :: matvec => jac_direct_map_torus
             procedure, pass(self), public :: rmatvec => jac_adjoint_map_torus
+            procedure, pass(self), public :: compute_rst => jac_compute_rst_torus
+            procedure, pass(self), public :: get_rst => jac_get_rst_torus
          end type nek_jacobian_torus
 
          ! --> Type-bound procedures for nek_system_torus & nek_jacobian_torus
@@ -153,6 +238,18 @@
                class(abstract_vector_rdp), intent(in) :: vec_in
                class(abstract_vector_rdp), intent(out) :: vec_out
             end Subroutine jac_adjoint_map_torus
+
+            module subroutine jac_compute_rst_torus(self, vec_out, nrst)
+               class(nek_jacobian_torus), intent(inout) :: self
+               class(abstract_vector_rdp), intent(out) :: vec_out
+               integer, intent(in) :: nrst
+            end subroutine jac_compute_rst_torus
+
+            module subroutine jac_get_rst_torus(self, vec_in, istep)
+               class(nek_jacobian_torus), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               integer, intent(in) :: istep
+            end subroutine jac_get_rst_torus
          end interface
 
       !--------------------------------------------------------------
@@ -170,6 +267,8 @@
             private
             procedure, pass(self), public :: matvec => jac_direct_map_torus_upo
             procedure, pass(self), public :: rmatvec => jac_adjoint_map_torus_upo
+            procedure, pass(self), public :: compute_rst => jac_compute_rst_torus_upo
+            procedure, pass(self), public :: get_rst => jac_get_rst_torus_upo
          end type nek_jacobian_torus_upo
 
          ! --> Type-bound procedures for nek_system_torus & nek_jacobian_torus
@@ -193,6 +292,18 @@
                class(abstract_vector_rdp), intent(in) :: vec_in
                class(abstract_vector_rdp), intent(out) :: vec_out
             end Subroutine jac_adjoint_map_torus_upo
+
+            module subroutine jac_compute_rst_torus_upo(self, vec_out, nrst)
+               class(nek_jacobian_torus_upo), intent(inout) :: self
+               class(abstract_vector_rdp), intent(out) :: vec_out
+               integer, intent(in) :: nrst
+            end subroutine jac_compute_rst_torus_upo
+
+            module subroutine jac_get_rst_torus_upo(self, vec_in, istep)
+               class(nek_jacobian_torus_upo), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               integer, intent(in) :: istep
+            end subroutine jac_get_rst_torus_upo
          end interface
       
       contains
@@ -236,23 +347,30 @@
             !! Newton iteration count
             integer,  intent(out)  :: info
             !! Information flag
+
+            ! internals
+            character(len=*), parameter :: this_procedure = 'nek_constant_tol'
             character(len=256) :: msg
             real(dp), parameter :: mintol = 10.0*atol_dp! minimum acceptable solver tolerance
+
+            ! Sanity checks for the target tolerance
             if (target_tol < mintol) then
+               ! Ensure target is above mintol
                tol = mintol
                write(msg,'(A,E11.4)') 'Input tolerance below minimum tolerance! Resetting solver tolerance to mintol= ', tol
-               call logger%log_warning(msg, module=this_module, procedure='nek_constant_tol')
+               call nek_log_warning(msg, this_module, this_procedure)
             else
+               ! Ensure target is below maxtol
                tol = target_tol
                write(msg,'(A,E11.4)') 'Nek velocity and pressure tolerances set to tol= ', tol
-               call logger%log_information(msg, module=this_module, procedure='nek_constant_tol')
+               call nek_log_information(msg, this_module, this_procedure)
             end if
+
+            ! Update nek status (in case they have changed in between calls)
             param(21) = tol; TOLPDF = param(21); call bcast(TOLPDF,wdsize)
             param(22) = tol; TOLHDF = param(22); call bcast(TOLHDF,wdsize)
             restol(:) = param(22); call bcast(restol, (ldimt1+1)*wdsize)
             atol(:) = param(22); call bcast(atol, (ldimt1+1)*wdsize)
-            if (nid == 0) print '(A)', trim(msg)
-            return
          end subroutine nek_constant_tol
       
          subroutine nek_dynamic_tol(tol, target_tol, rnorm, iter, info)
@@ -267,53 +385,62 @@
             !! Newton iteration count
             integer,  intent(out)  :: info
             !! Information flag
+
             ! internals
-            real(dp), parameter :: maxtol = 1.0e-04_dp ! maximum acceptable solver tolerance
-            real(dp), parameter :: mintol = 10.0*atol_dp! minimum acceptable solver tolerance
+            character(len=*), parameter :: this_procedure = 'nek_dynamic_tol'
+            real(dp), parameter :: maxtol = 1.0e-04_dp   ! maximum acceptable solver tolerance
+            real(dp), parameter :: mintol = 10.0*atol_dp ! minimum acceptable solver tolerance
             real(dp) :: tol_old, target_tol_
             character(len=256) :: msg
 
+            ! Sanity checks for the target tolerance
             if (target_tol < mintol) then
+               ! Ensure target is above mintol
                write(msg,'(A,E11.4)') 'Input target tolerance below minimum tolerance! Resetting target to mintol= ', mintol
-               call nek_log_warning(msg, module=this_module, procedure='nek_dynamic_tol')
+               call nek_log_warning(msg, this_module, this_procedure)
             end if
             target_tol_ = max(target_tol, mintol)
-
             if (target_tol > maxtol) then
+               ! Ensure target is below maxtol
                write(msg,'(A,E11.4)') 'Input target tolerance above maximum tolerance! Resetting target to maxtol= ', maxtol
-               call nek_log_warning(msg, module=this_module, procedure='nek_dynamic_tol')
+               call nek_log_warning(msg, this_module, this_procedure)
             end if
             target_tol_ = min(target_tol_, maxtol)
 
+            ! Compute new tolerance based on residual and target
             tol_old = tol
             tol = max(0.1_dp*rnorm, target_tol_)
+
             if (tol < 10*target_tol_) then
+               ! If tolerance is close to target, make a single larger reduction step
                write(msg,'(A,E11.4)') 'Residual is close to target. Setting tolerance to input target= ', target_tol_
-               call nek_log_information(msg, module=this_module, procedure='nek_dynamic_tol')
+               call nek_log_information(msg, this_module, this_procedure)
                tol = target_tol_
             end if
             if (tol > maxtol) then
+               ! If tolerance is too large, cap it at maxtol
                write(msg,'(A,E11.4)') 'Residual is large. Setting tolerance to tol= ', maxtol
-               call nek_log_information(msg, module=this_module, procedure='nek_dynamic_tol')
+               call nek_log_information(msg, this_module, this_procedure)
             end if
             tol = min(tol, maxtol)
       
             if (tol /= tol_old) then
+               ! If tolerance is changed, stamp logs and update nek status
                if (tol == target_tol_) then
                   write(msg,'(A,E11.4)') 'Nek solver tolerance set to input target. tol= ', tol
                else
                   write(msg,'(A,E11.4)') 'Nek solver tolerance set to tol= ', tol
                end if
-               call nek_log_information(msg, module=this_module, procedure='nek_dynamic_tol')
+               call nek_log_information(msg, this_module, this_procedure)
                param(21) = tol; TOLPDF = param(21); call bcast(TOLPDF,wdsize)
                param(22) = tol; TOLHDF = param(22); call bcast(TOLHDF,wdsize)
                restol(:) = param(22); call bcast(restol, (ldimt1+1)*wdsize)
                atol(:) = param(22); call bcast(atol, (ldimt1+1)*wdsize)
             else
+               ! Do nothing
                write(msg,'(A,E11.4)') 'Nek solver tolerances unchanged at tol= ', tol_old
-               call nek_log_information(msg, module=this_module, procedure='nek_dynamic_tol')
+               call nek_log_information(msg, this_module, this_procedure)
             end if
-            return
          end subroutine nek_dynamic_tol
       
       end module neklab_systems

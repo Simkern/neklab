@@ -11,6 +11,7 @@
          use LightKrylov, only: abstract_vector_rdp
       ! Neklab vectors
          use neklab_vectors
+         use neklab_nek_setup
       
          implicit none
          include "SIZE"
@@ -31,6 +32,8 @@
       ! utilities for extended nek vectors
          public :: nek2ext_vec, ext_vec2nek, abs_ext_vec2nek, outpost_ext_dnek
          public :: get_period, get_period_abs
+      ! combined utility for outposting nek vectors
+         public :: outpost_nek
       ! miscellaneous
          public :: nopcopy
       
@@ -86,9 +89,9 @@
             real(kind=dp), dimension(lv, lpert), intent(in) :: vz_
             real(kind=dp), dimension(lp, lpert), intent(in) :: pr_
             real(kind=dp), dimension(lx1*ly1*lz1*lelt, ldimt, lpert), intent(in) :: t_
-      
+
             call nopcopy(vec%vx, vec%vy, vec%vz, vec%pr, vec%theta, vx_(:, 1), vy_(:, 1), vz_(:, 1), pr_(:, 1), t_(:, :, 1))
-      
+
          end subroutine nek2vec_prt
       
          subroutine nek2vec_std(vec, vx_, vy_, vz_, pr_, t_)
@@ -99,9 +102,9 @@
             real(kind=dp), dimension(lx1, ly1, lz1, lelv), intent(in) :: vz_
             real(kind=dp), dimension(lx2, ly2, lz2, lelv), intent(in) :: pr_
             real(kind=dp), dimension(lx1, ly1, lz1, lelt, ldimt), intent(in) :: t_
-      
+
             call nopcopy(vec%vx, vec%vy, vec%vz, vec%pr, vec%theta, vx_, vy_, vz_, pr_, t_)
-      
+
          end subroutine nek2vec_std
       
          subroutine vec2nek_std(vx_, vy_, vz_, pr_, t_, vec)
@@ -140,12 +143,11 @@
             real(kind=dp), dimension(lx1, ly1, lz1, lelt, ldimt), intent(out) :: t_
             select type (vec)
             type is (nek_dvector)
-               
+
                call nopcopy(vx_, vy_, vz_, pr_, t_, vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
 
             class default
-               call stop_error("The intent [IN] argument 'vec' must be of type 'nek_dvector'",
-     & this_module, 'abstract_vec2nek_std')
+               call type_error('vec','nek_dvector','IN',this_module,'abstract_vec2nek_std')
             end select
          end subroutine abstract_vec2nek_std
       
@@ -159,12 +161,11 @@
             real(kind=dp), dimension(lt, ldimt, 1), intent(out) :: t_
             select type (vec)
             type is (nek_dvector)
-               
+
                call nopcopy(vx_(:, 1), vy_(:, 1), vz_(:, 1), pr_(:, 1), t_(:, :, 1), vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
 
             class default
-               call stop_error("The intent [IN] argument 'vec' must be of type 'nek_dvector'",
-     & this_module, 'abstract_vec2nek_prt')
+               call type_error('vec','nek_dvector','IN',this_module,'abstract_vec2nek_prt')
             end select
          end subroutine abstract_vec2nek_prt
       
@@ -232,12 +233,11 @@
             real(kind=dp), dimension(lx1, ly1, lz1, lelt, ldimt), intent(out) :: t_
             select type (vec)
             type is (nek_ext_dvector)
-               
+
                call nopcopy(vx_, vy_, vz_, pr_, t_, vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
 
             class default
-               call stop_error("The intent [IN] argument 'vec' must be of type 'nek_ext_dvector'",
-     & this_module, 'abstract_ext_vec2nek_std')
+               call type_error('vec','nek_ext_dvector','IN',this_module,'abstract_ext_vec2nek_std')
             end select
          end subroutine abstract_ext_vec2nek_std
       
@@ -251,12 +251,11 @@
             real(kind=dp), dimension(lt, ldimt, 1), intent(out) :: t_
             select type (vec)
             type is (nek_ext_dvector)
-               
+
                call nopcopy(vx_(:, 1), vy_(:, 1), vz_(:, 1), pr_(:, 1), t_(:, :, 1), vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
 
             class default
-               call stop_error("The intent [IN] argument 'vec' must be of type 'nek_ext_dvector'",
-     & this_module, 'abstract_ext_vec2nek_prt')
+               call type_error('vec','nek_ext_dvector','IN',this_module,'abstract_ext_vec2nek_prt')
             end select
          end subroutine abstract_ext_vec2nek_prt
       
@@ -264,12 +263,11 @@
             class(abstract_vector_rdp), intent(in) :: vec
             select type (vec)
             type is (nek_ext_dvector)
-               
+
                period = vec%T
 
             class default
-               call stop_error("The intent [IN] argument 'vec' must be of type 'nek_ext_dvector'",
-     & this_module, 'get_period_abs')
+               call type_error('vec','nek_ext_dvector','IN',this_module,'get_period_abs')
             end select
          end function get_period_abs
       
@@ -286,22 +284,30 @@
             real(kind=dp), intent(inout) :: a1(1), a2(1), a3(1), a4(1), a5(lx1*ly1*lz1*lelt, 1)
             real(kind=dp), intent(in) :: b1(1), b2(1), b3(1), b4(1), b5(lx1*ly1*lz1*lelt, 1)
             n = nx1*ny1*nz1*nelv
+
             call copy(a1, b1, n)
             call copy(a2, b2, n)
             if (if3D) call copy(a3, b3, n)
+
             if (ifpo) call copy(a4, b4, nx2*ny2*nz2*nelv)
+
             if (ifto) call copy(a5(1, 1), b5(1, 1), lx1*ly1*lz1*nelfld(2))
+
             if (ldimt > 1) then
             do k = 1, npscal
                if (ifpsco(k)) call copy(a5(1, k + 1), b5(1, k + 1), lx1*ly1*lz1*nelfld(k + 2))
             end do
             end if
          end subroutine nopcopy
+
+      ! OUTPOSTING
       
          subroutine outpost_dnek_vector(vec, prefix)
             type(nek_dvector), intent(in) :: vec
             character(len=3), intent(in) :: prefix
+
             call outpost(vec%vx, vec%vy, vec%vz, vec%pr, vec%theta, prefix)
+
          end subroutine outpost_dnek_vector
       
          subroutine outpost_dnek_abs_vector(vec, prefix)
@@ -309,12 +315,11 @@
             character(len=3), intent(in) :: prefix
             select type (vec)
             type is (nek_dvector)
-               
-               call outpost(vec%vx, vec%vy, vec%vz, vec%pr, vec%theta, prefix)
 
+               call outpost(vec%vx, vec%vy, vec%vz, vec%pr, vec%theta, prefix)
+               
             class default
-               call stop_error("The intent [IN] argument 'vec' must be of type 'nek_dvector'",
-     & this_module, 'outpost_dnek_abs_vector')
+               call type_error('vec','nek_dvector','IN',this_module,'outpost_dnek_abs_vector')
             end select
          end subroutine outpost_dnek_abs_vector
       
@@ -341,5 +346,18 @@
                call outpost_ext_dnek_vector(vec(i), prefix)
             end do
          end subroutine outpost_ext_dnek_basis
+
+         subroutine outpost_nek(vec, prefix)
+            class(abstract_vector_rdp), intent(in) :: vec
+            character(len=3), intent(in) :: prefix
+            select type (vec)
+            type is (nek_dvector)
+               call outpost_dnek    (vec, prefix)
+            type is (nek_ext_dvector)
+               call outpost_ext_dnek(vec, prefix)
+            class default
+               call type_error('vec','nek_dvector/nek_ext_dvector','IN',this_module,'outpost_nek')
+            end select
+         end subroutine outpost_nek
 
       end module neklab_utils

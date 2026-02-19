@@ -89,61 +89,6 @@
                integer, intent(in) :: istep
             end subroutine
          end interface
-
-      !--------------------------------------------------------------------
-      !-----     NEKLAB SYSTEM FOR FIXED-POINTS with TEMP field     -------
-      !--------------------------------------------------------------------
-      
-      ! --> Type: nek_system
-         type, extends(abstract_system_rdp), public :: nek_temp_system
-         contains
-            private
-            procedure, pass(self), public :: response => nonlinear_map_temp
-         end type nek_temp_system
-      
-      ! --> Type: nek_jacobian
-         type, extends(abstract_jacobian_linop_rdp), public :: nek_temp_jacobian
-         contains
-            private
-            procedure, pass(self), public :: matvec => jac_exptA_temp_matvec
-            procedure, pass(self), public :: rmatvec => jac_exptA_temp_rmatvec
-            procedure, pass(self), public :: compute_rst => jac_exptA_temp_compute_rst
-            procedure, pass(self), public :: get_rst => jac_exptA_temp_get_rst
-         end type nek_temp_jacobian
-      
-      ! --> Type-bound procedures for nek_system & nek_jacobian
-         interface
-            module subroutine nonlinear_map_temp(self, vec_in, vec_out, atol)
-               class(nek_temp_system), intent(inout) :: self
-               class(abstract_vector_rdp), intent(in) :: vec_in
-               class(abstract_vector_rdp), intent(out) :: vec_out
-               real(dp), intent(in) :: atol
-            end subroutine nonlinear_map_temp
-      
-            module subroutine jac_exptA_temp_matvec(self, vec_in, vec_out)
-               class(nek_temp_jacobian), intent(inout) :: self
-               class(abstract_vector_rdp), intent(in) :: vec_in
-               class(abstract_vector_rdp), intent(out) :: vec_out
-            end subroutine jac_exptA_temp_matvec
-      
-            module subroutine jac_exptA_temp_rmatvec(self, vec_in, vec_out)
-               class(nek_temp_jacobian), intent(inout) :: self
-               class(abstract_vector_rdp), intent(in) :: vec_in
-               class(abstract_vector_rdp), intent(out) :: vec_out
-            end subroutine jac_exptA_temp_rmatvec
-
-            module subroutine jac_exptA_temp_compute_rst(self, vec_out, nrst)
-               class(nek_temp_jacobian), intent(inout) :: self
-               class(abstract_vector_rdp), intent(out) :: vec_out
-               integer, intent(in) :: nrst
-            end subroutine
-
-            module subroutine jac_exptA_temp_get_rst(self, vec_in, istep)
-               class(nek_temp_jacobian), intent(inout) :: self
-               class(abstract_vector_rdp), intent(in) :: vec_in
-               integer, intent(in) :: istep
-            end subroutine
-         end interface
       
       !-----------------------------------------------------
       !-----     NEKLAB SYSTEM FOR PERIODIC ORBITS   -------

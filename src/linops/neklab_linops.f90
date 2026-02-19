@@ -8,7 +8,7 @@
          use neklab_vectors
          use neklab_utils, only: nek2vec, vec2nek
          use neklab_nek_setup, only: setup_nonlinear_solver, setup_linear_solver
-         use neklab_nek_setup, only: nek_stop_error, nek_log_message
+         use neklab_nek_setup, only: nek_stop_error, nek_log_message, nek_log_information
          use neklab_helix
          implicit none
          include "SIZE"
@@ -40,6 +40,8 @@
             procedure, pass(self), public :: init => init_exptA
             procedure, pass(self), public :: matvec => exptA_matvec
             procedure, pass(self), public :: rmatvec => exptA_rmatvec
+            procedure, pass(self), public :: compute_rst => exptA_compute_rst
+            procedure, pass(self), public :: get_rst => exptA_get_rst
          end type exptA_linop
       
       ! --> Type-bound procedures: exponential_propagator.f90
@@ -58,6 +60,18 @@
                class(exptA_linop), intent(inout) :: self
                class(abstract_vector_rdp), intent(in) :: vec_in
                class(abstract_vector_rdp), intent(out) :: vec_out
+            end subroutine
+
+            module subroutine exptA_compute_rst(self, vec_out, nrst)
+               class(exptA_linop), intent(inout) :: self
+               class(abstract_vector_rdp), intent(out) :: vec_out
+               integer, intent(in) :: nrst
+            end subroutine
+
+            module subroutine exptA_get_rst(self, vec_in, istep)
+               class(exptA_linop), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               integer, intent(in) :: istep
             end subroutine
          end interface
       
@@ -105,6 +119,8 @@
             procedure, pass(self), public :: init => floquet_init
             procedure, pass(self), public :: matvec => floquet_matvec
             procedure, pass(self), public :: rmatvec => floquet_rmatvec
+            procedure, pass(self), public :: compute_rst => floquet_compute_rst
+            procedure, pass(self), public :: get_rst => floquet_get_rst            
          end type
       
       ! --> Type-bound procedures: floquet_operator.f90
@@ -123,6 +139,18 @@
                class(floquet_linop), intent(inout) :: self
                class(abstract_vector_rdp), intent(in) :: vec_in
                class(abstract_vector_rdp), intent(out) :: vec_out
+            end subroutine
+
+            module subroutine floquet_compute_rst(self, vec_out, nrst)
+               class(floquet_linop), intent(inout) :: self
+               class(abstract_vector_rdp), intent(out) :: vec_out
+               integer, intent(in) :: nrst
+            end subroutine
+
+            module subroutine floquet_get_rst(self, vec_in, istep)
+               class(floquet_linop), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               integer, intent(in) :: istep
             end subroutine
          end interface
       

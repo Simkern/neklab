@@ -167,8 +167,8 @@
          end select
          end procedure jac_adjoint_map_torus_upo
 
-         module procedure jac_exptA_compute_rst_torus_upo
-            character(len=*), parameter :: this_procedure = 'jac_exptA_compute_rst_torus_upo'
+         module procedure jac_compute_rst_torus_upo
+            character(len=*), parameter :: this_procedure = 'jac_compute_rst_torus_upo'
             type(nek_dvector) :: vec_rst
             character(len=128) :: msg
             select type(vec_out)
@@ -187,10 +187,10 @@
             class default
                call type_error('vec_out','nek_dvector','OUT',this_module, this_procedure)
             end select
-         end procedure jac_exptA_compute_rst_torus_upo
+         end procedure jac_compute_rst_torus_upo
 
-         module procedure jac_exptA_get_rst_torus_upo
-            character(len=*), parameter :: this_procedure = 'jac_exptA_get_rst_torus_upo'
+         module procedure jac_get_rst_torus_upo
+            character(len=*), parameter :: this_procedure = 'jac_get_rst_torus_upo'
             type(nek_dvector) :: vec_rst
             select type(vec_in)
             type is (nek_dvector)
@@ -201,5 +201,5 @@
             class default
                call type_error('vec_in','nek_dvector','IN',this_module, this_procedure)
             end select
-         end procedure jac_exptA_get_rst_torus_upo
+         end procedure jac_get_rst_torus_upo
       end submodule

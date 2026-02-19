@@ -151,9 +151,22 @@ echo ""
 set +a -e
 $NEK_SOURCE_ROOT/bin/nekconfig $@
 if [[ $1 != "clean" ]]; then
- $NEK_SOURCE_ROOT/bin/nekconfig -build-dep
- set -o pipefail
- touch $1.usr 
- make -j4 2>&1 | tee -a build.log
- set +o pipefail
+   $NEK_SOURCE_ROOT/bin/nekconfig -build-dep
+   set -o pipefail
+   touch $1.usr 
+   
+   # First try with 4 procs (default for nek5000)
+   set +e  # Don't exit on error (otherwise we can't retry)
+   make -j4 2>&1 | tee -a build.log
+   BUILD_RESULT=$?
+   
+   if [ $BUILD_RESULT -ne 0 ]; then
+      make -j1 2>&1 | tee -a build.log
+   fi
+   
+   set +o pipefail
+   if [ $(ls *.mod 2>/dev/null | wc -l) -gt 0 ]; then
+      mv *.mod obj
+      mv *.smod obj 2>/dev/null || true
+   fi
 fi

@@ -100,5 +100,5 @@
          public :: nek2ext_vec, ext_vec2nek
          public :: nek2ext_vec_f, ext_vec_f2nek
          public :: setup_nonlinear_solver, setup_linear_solver
-         public :: outpost_dnek
+         public :: outpost_dnek, outpost_ext_dnek, outpost_nek
       end module neklab

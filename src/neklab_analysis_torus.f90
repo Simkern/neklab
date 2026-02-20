@@ -10,6 +10,7 @@
          use LightKrylov, only: linear_combination, innerprod
          use LightKrylov, only: newton, newton_dp_opts
          use LightKrylov_Logger
+         use LightKrylov_Constants, only: io_rank
          use LightKrylov_Timing, only: timer => global_lightkrylov_timer
          use LightKrylov_AbstractSystems, only: abstract_system_rdp
          use neklab_vectors
@@ -46,8 +47,8 @@
       !! Desired number of eigenpairs to converge.
             logical, intent(in), optional :: adjoint
       !! Whether direct or adjoint analysis should be conducted.
-		type(nek_dvector), optional, intent(in) :: X0
-	!! Initial guess for the eigenvectors
+		   type(nek_dvector), optional, intent(in) :: X0
+	   !! Initial guess for the eigenvectors
             real(dp), optional, intent(in) :: tol
       !! Tolerance for the eigenvalue convergence
       
@@ -120,7 +121,7 @@
       !! Maximum number of newton steps to converge the mass flow rate
       ! internal
             character(len=*), parameter :: this_procedure = 'mflow_newton_main'
-            type(nek_dvector) :: ref
+            type(nek_dvector), allocatable :: ref
             logical :: is_fp
             integer :: tol_mode_, maxiter_newton_
             integer :: nmf, nf, inwt, i, j, icnt
@@ -186,7 +187,7 @@
             call newton_fixed_point_iteration(sys, bf, tol, tol_mode)
       ! extract reference values for mass flow rate, initial mass flow error and flow solution
             call pipe%get_mflow_fft(mflow_old, if_amplitude=.true.)
-            call nek2vec(ref, vx, vy, vz, pr, t)
+            allocate(ref); call nek2vec(ref, vx, vy, vz, pr, t)
             call nek_log_message('Reference solution set.', this_module, this_procedure)
             mf_err = mflow_old(:nmf) - mflow_target
 		! determine an approximation of the integration error for the mass flux
@@ -264,8 +265,8 @@
 
       ! get difference, compute gradient for current component and update mass flow Jacobian
                   dmf = mflow_new(:nmf) - mflow_old(:nmf)
-			write(msg,'(A,A,A,*(1X,F16.10))') step_id, coef_id, padl('dmflow:',pad), dmf
-			call nek_log_message(msg, this_module, this_procedure)
+                  write(msg,'(A,A,A,*(1X,F16.10))') step_id, coef_id, padl('dmflow:',pad), dmf
+                  call nek_log_message(msg, this_module, this_procedure)
                   do j = 1, nmf
                      jac(i,j) = dmf(j)/fpert(i)
                   end do
@@ -586,7 +587,7 @@
                FTLE = FTLE + gr*dt
                tper = tper + dt
                         tpern = tper/pd
-               if (nid == 0 .and. .not. istep == ns) then
+               if (io_rank() .and. .not. istep == ns) then
                   write(msg,fmt) 'istep', istep, 't', time, tper, tpern, 'P', i,
      &                          'norm', norm, 'gr', gr, 'FTLE', FTLE/tper
                   call nek_log_message(msg, this_module, this_procedure)
@@ -600,9 +601,9 @@
                   call outpost_dnek(pert_in, 'prt')
                end if
                end do
-               if (nid == 0) then
-               write(msg,'(A,I3,A,E15.8)') 'Period ', i, ' FTLE ', FTLE/tper
-               call nek_log_message(msg, this_module, this_procedure)
+               if (io_rank()) then
+                  write(msg,'(A,I3,A,E15.8)') 'Period ', i, ' FTLE ', FTLE/tper
+                  call nek_log_message(msg, this_module, this_procedure)
                end if
             end do
 

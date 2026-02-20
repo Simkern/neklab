@@ -7,6 +7,7 @@
       !---------------------------------------
       ! Default real kind.
          use LightKrylov, only: dp
+         use LightKrylov_Constants, only: io_rank
          use LightKrylov_Logger
       ! Abstract types for real-valued vectors.
          use LightKrylov, only: abstract_vector_rdp
@@ -86,7 +87,7 @@
       
             call nekgsync()
       
-            if (nid == 0 .and. .not. silent_) then
+            if (io_rank() .and. .not. silent_) then
                print *, ''
                print '("neklab ",A)', '################## SETUP NEK ###################'
                print *, ''
@@ -141,7 +142,7 @@
             end if
             param(10) = endtime_
             write (msg, '(A,F15.8)') padl('Set integration time: ', 30), param(10)
-            if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
+            if (io_rank() .and. .not. silent_) print nekfmt, trim(msg)
       
       ! Force CFL to chosen limit
             if (cfl_limit_ < 0.0_dp .or. cfl_limit_ > 0.5_dp) then
@@ -153,7 +154,7 @@
             end if
             param(26) = cfl_limit_
             write (msg, '(A,F15.8)') padl('Set CFL limit: ', 30), param(26)
-            if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
+            if (io_rank() .and. .not. silent_) print nekfmt, trim(msg)
               
       ! Force constant timestep if requested
             if (variable_dt_) then
@@ -182,12 +183,12 @@
                nsteps = 0
                if (LNS) then
                   write (msg, '(A,A)') padl('Set timestep: ', 30), 'read from baseflow'
-                  if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
+                  if (io_rank() .and. .not. silent_) print nekfmt, trim(msg)
                else
                   write (msg, '(A,A)') padl('Set timestep: ', 30), 'variable dt' 
-                  if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
+                  if (io_rank() .and. .not. silent_) print nekfmt, trim(msg)
                   write (msg, '(A,E15.8)') padl('Set fintim: ', 30), fintim
-                  if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
+                  if (io_rank() .and. .not. silent_) print nekfmt, trim(msg)
                end if
             else
                iffxdt = .true.
@@ -216,11 +217,11 @@
                fintim = nsteps*dt
                param(12) = -abs(param(12))
                write (msg, '(A,E15.8)') padl('Force constant timestep: ', 30), -param(12)
-               if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
+               if (io_rank() .and. .not. silent_) print nekfmt, trim(msg)
                write (msg, '(A,E15.8)') padl('Set fintim: ', 30), fintim
-               if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
+               if (io_rank() .and. .not. silent_) print nekfmt, trim(msg)
                write (msg, '(A,I15)') padl('Set nsteps: ', 30), nsteps
-               if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
+               if (io_rank() .and. .not. silent_) print nekfmt, trim(msg)
             end if
       
       ! Set tolerances if requested
@@ -229,14 +230,14 @@
             restol(:) = param(22); call bcast(restol, (ldimt1+1)*wdsize)
             atol(:) = param(22); call bcast(atol, (ldimt1+1)*wdsize)
             write (msg, '(A,E15.8)') padl('Set pressure tol: ', 30), param(21)
-            if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
+            if (io_rank() .and. .not. silent_) print nekfmt, trim(msg)
             write (msg, '(A,E15.8)') padl('Set velocity tol: ', 30), param(22)
-            if (nid == 0 .and. .not. silent_) print nekfmt, trim(msg)
+            if (io_rank() .and. .not. silent_) print nekfmt, trim(msg)
       
       ! Broadcast parameters
             call bcast(param, 200*wdsize)
       
-            if (nid == 0 .and. .not. silent_) then
+            if (io_rank() .and. .not. silent_) then
                print *, ''
                print '("neklab ",A)', '############### SETUP COMPLETED ################'
                print *, ''
@@ -281,7 +282,7 @@
             character(len=*), parameter :: nekfmt = '(5X,A)'
             full_summary_ = optval(full_summary, .false.)
       ! overview
-            if (nid == 0) then
+            if (io_rank()) then
                print *, ''
                print '("neklab ",A)', '################## NEK STATUS ##################'
                print *, ''
@@ -342,7 +343,7 @@
                write (msg, '(A,E15.4)') padl('velocity tol: ', 20), param(22)
                call nek_log_message(msg, this_module, this_procedure, nekfmt)
             end if
-            if (nid == 0) then
+            if (io_rank()) then
                print *, ''
                print '("neklab ",A)', '################## NEK STATUS ##################'
                print *, ''
@@ -358,7 +359,7 @@
             character(len=128) :: fmt_
             fmt_ = optval(fmt,default_fmt('', module, procedure))
             call log_message(msg, module, procedure, .true.)
-            if (nid == 0) print fmt_, trim(msg)
+            if (io_rank()) print fmt_, trim(msg)
          end subroutine nek_log_message
 
          subroutine nek_log_warning(msg, module, procedure, fmt)
@@ -372,7 +373,7 @@
             fmt_ = optval(fmt,default_fmt("WARNING:", module, procedure))
             call logger%configuration(level=level)
             call log_warning(msg, module, procedure)
-            if (nid == 0 .and. level == warning_level) print fmt_, trim(msg)
+            if (io_rank() .and. level == warning_level) print fmt_, trim(msg)
          end subroutine nek_log_warning
 
          subroutine nek_log_debug(msg, module, procedure, fmt)
@@ -386,7 +387,7 @@
             fmt_ = optval(fmt,default_fmt("DEBUG:", module, procedure))
             call logger%configuration(level=level)
             call log_debug(msg, module, procedure)
-            if (nid == 0 .and. level == debug_level) print fmt_, trim(msg)
+            if (io_rank() .and. level == debug_level) print fmt_, trim(msg)
          end subroutine nek_log_debug
 
          subroutine nek_log_information(msg, module, procedure, fmt)
@@ -400,7 +401,7 @@
             fmt_ = optval(fmt,default_fmt("INFO:", module, procedure))
             call logger%configuration(level=level)
             call log_information(msg, module, procedure, .true.)
-            if (nid == 0 .and. level == information_level) print fmt_, trim(msg)
+            if (io_rank() .and. level == information_level) print fmt_, trim(msg)
          end subroutine nek_log_information
 
          subroutine nek_stop_error(msg, module, procedure, fmt)
@@ -412,7 +413,7 @@
             character(len=128) :: fmt_
             fmt_ = optval(fmt,default_fmt("ERROR:", module, procedure))
             call nekgsync()
-            if (nid == 0) print fmt_, trim(msg)
+            if (io_rank()) print fmt_, trim(msg)
             call stop_error(msg, module, procedure)
          end subroutine nek_stop_error
 

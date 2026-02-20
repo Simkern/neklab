@@ -12,6 +12,7 @@
          use LightKrylov, only: orthonormalize_basis, zero_basis, rand_basis
          use LightKrylov_Utils, only: abstract_opts
       ! Logging
+         use LightKrylov_Constants, only: io_rank
          use LightKrylov_Logger
       ! Extensions of the abstract vector types to nek data format.
          use neklab_vectors
@@ -136,12 +137,12 @@
             if (opts%n_usrIC < 0) then
                write (msg, *) 'Incorrect number of IC fields to load. nIC=', opts%n_usrIC
                call nek_log_message(msg, this_module, 'init_OTD')
-               if (nid == 0) print *, trim(msg)
+               if (io_rank()) print *, trim(msg)
                call nek_end()
             else if (opts%n_usrIC > r) then
                write (msg, *) 'Inconsistent number of IC fields to load. nIC=', opts%n_usrIC, ' r=', self%r
                call nek_log_message(msg, this_module, 'init_OTD')
-               if (nid == 0) print *, trim(msg)
+               if (io_rank()) print *, trim(msg)
                call nek_end()
             else
                loadIC = .true.
@@ -161,7 +162,7 @@
                else
                   write (msg, *) 'Cannot find IC file: ', trim(ifile)
                   call nek_log_message(msg, this_module, 'init_OTD')
-                  if (nid == 0) print *, trim(msg)
+                  if (io_rank()) print *, trim(msg)
                   call nek_end()
                end if
             end do

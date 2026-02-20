@@ -191,17 +191,18 @@
 
          module procedure floquet_compute_rst
             character(len=*), parameter :: this_procedure = 'floquet_compute_rst'
-            type(nek_dvector) :: vec_rst
+            type(nek_dvector), allocatable :: vec_rst
             character(len=128) :: msg
             integer :: nstp
             select type(vec_out)
             type is (nek_dvector)
                nstp = pipe%get_nsteps()
                write(msg,'(A,I0,A)') 'Run ', nrst, ' extra step(s) to fill up restart arrays.'
-               call nek_log_information(msg, this_module, this_procedure)
+               call nek_log_debug(msg, this_module, this_procedure)
                ! reset output counter to load baseflow files in order
                call pipe%set_2d_mode('floquet')
                fintim = fintim + nrst*dt
+               allocate(vec_rst)
                do istep = nstp + 1, nstp + nrst
                   ! sets the baseflow field and the appropriate timestep
                   call pipe%set_baseflow(vx, vy, vz, istep - nstp)
@@ -216,11 +217,12 @@
 
          module procedure floquet_get_rst
             character(len=*), parameter :: this_procedure = 'floquet_get_rst'
-            type(nek_dvector) :: vec_rst
+            type(nek_dvector), allocatable :: vec_rst
             character(len=128) :: msg
             select type(vec_in)
             type is (nek_dvector)
                if (vec_in%has_rst_fields()) then
+                  allocate(vec_rst)
                   call vec_in%get_rst(vec_rst, istep)
                   call vec2nek(vxp, vyp, vzp, prp, tp, vec_rst)
                end if

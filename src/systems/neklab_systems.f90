@@ -256,8 +256,9 @@
          subroutine compute_fdot(vec)
             class(nek_ext_dvector), intent(out) :: vec
       ! internal
-            type(nek_ext_dvector) :: vec_in
+            type(nek_ext_dvector), allocatable :: vec_in
       ! copy initial condition
+            allocate(vec_in)
             call nek2ext_vec(vec_in, vx, vy, vz, pr, t)
       ! Integrate the nonlinear equations forward in time.
             time = 0.0_dp

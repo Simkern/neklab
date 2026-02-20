@@ -8,6 +8,7 @@
          use LightKrylov, only: linear_combination, innerprod
          use LightKrylov, only: newton, newton_dp_opts
          use LightKrylov_Logger
+         use LightKrylov_Constants, only: io_rank
          use LightKrylov_Timing, only: timer => global_lightkrylov_timer
          use LightKrylov_AbstractVectors, only: abstract_vector_rdp
          use LightKrylov_AbstractLinops, only: abstract_exptA_linop_rdp
@@ -136,7 +137,7 @@
             call svds(exptA, U, S, V, residuals, info, kdim=kdim, write_intermediate=.true.)
       
       ! Save singular spectrum to disk.
-            if (nid == 0) then
+            if (io_rank()) then
                open (unit=1234, file="singular_spectrum.dat")
                write (1234, *) S
                close (1234)
@@ -155,7 +156,7 @@
       
          end subroutine transient_growth_analysis_fixed_point
       
-         subroutine newton_fixed_point_iteration(sys, bf, tol, tol_mode, input_is_fixed_point)
+         subroutine newton_fixed_point_iteration(sys, bf, tol, tol_mode, input_is_fixed_point, standalone)
             class(abstract_system_rdp), intent(inout) :: sys
       !! System for which a fixed point is sought
             class(abstract_vector_rdp), intent(inout) :: bf
@@ -166,6 +167,8 @@
       !! constant or dynamic tolerances?
             logical, optional, intent(out) :: input_is_fixed_point
       !! optional flag to return whether the intial condition is a fixed point (and no new solution is computed)
+            logical, optional, intent(in) :: standalone
+      !! optional flag to toggle between standalone call or substep
       
       ! Misc
             character(len=*), parameter :: this_procedure = 'newton_main'
@@ -173,15 +176,19 @@
             type(newton_dp_opts) :: opts
             character(len=3) :: file_prefix
             integer :: info, tol_mode_
+            logical :: stdalone
       
       ! Optional arguments
 		      tol_mode_ = optval(tol_mode, 1)
+            stdalone  = optval(standalone, .false.)
 
-      ! Set up logging
-            call logger_setup(nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
-            ! Initialize timers
-            call timer%initialize()
-            call timer%add_timer('Newton Fixed-Point Iteration', start=.true.)
+            if (stdalone) then
+               ! Set up logging
+               call logger_setup(nio=0, log_level=information_level, log_stdout=.false., log_timestamp=.true.)
+               ! Initialize timers
+               call timer%initialize()
+               call timer%add_timer('Newton Fixed-Point Iteration', start=.true.)
+            end if
       
       ! Define options for the Newton solver
             opts = newton_dp_opts(maxiter=40, ifbisect=.false.)
@@ -201,11 +208,13 @@
                input_is_fixed_point = meta%input_is_fixed_point
             end if
 
-      ! Finalize sys & jacobian timings
-            call sys%finalize_timer()
-            call sys%jacobian%finalize_timer()
-      ! Finalize timing
-            call timer%finalize()
+            if (stdalone) then
+               ! Finalize sys & jacobian timings
+               call sys%finalize_timer()
+               call sys%jacobian%finalize_timer()
+               ! Finalize timing
+               call timer%finalize()
+            end if
 
 		      call nek_log_message('Exiting newton iteration.', this_module, this_procedure)
       

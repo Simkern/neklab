@@ -268,11 +268,11 @@
          ! sanity checks
          if (irst == torder) then
             write(msg,'(2(A,I0),A)') 'Cannot save rst fields ', torder, ' for a simulation of temporal order ', torder, '.'
-            if (nid == 0) print "('ERROR: ',A)", msg
+            if (io_rank()) print "('ERROR: ',A)", msg
             call log_error(msg, this_module, this_procedure)
          else
             write(msg,'(A,I0)') 'Saving rst fields: ', irst
-            if (nid == 0) print "('INFO: ',A)", msg
+            if (io_rank()) print "('INFO: ',A)", msg
             call log_debug(msg, this_module, this_procedure)
          end if
 
@@ -311,15 +311,15 @@
          ! sanity checks
          if (irst < 1) then
             write(msg,'(A,I0)') 'Invalid input for irst: ', irst
-            if (nid == 0) print "('ERROR: ',A)", msg
+            if (io_rank()) print "('ERROR: ',A)", msg
             call log_error(msg, this_module, this_procedure)
          else if (irst > self%nrst) then
             write(msg,'(A,I0)') 'No rst field to retrieve: ', irst
-            if (nid == 0) print "('WARN: ',A)", msg
+            if (io_rank()) print "('WARN: ',A)", msg
             call log_warning(msg, this_module, this_procedure)
          else
             write(msg,'(A,I0)') 'Retrieving rst fields: ', irst
-            if (nid == 0) print "('INFO: ',A)", msg
+            if (io_rank()) print "('INFO: ',A)", msg
             call log_debug(msg, this_module, this_procedure)
          end if
 
@@ -349,7 +349,7 @@
 
          module procedure dclear_rst_fields
          if (self%nrst == 0) then
-            if (nid == 0) print "('INFO: ',A)", 'No rst fields to clear'
+            if (io_rank()) print "('INFO: ',A)", 'No rst fields to clear'
             call log_debug('No rst fields to clear', this_module, 'dclear_rst_fields')
          end if
          self%nrst = 0

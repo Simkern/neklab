@@ -15,8 +15,8 @@
       contains
       
          module procedure resolvent_matvec
-         type(exptA_linop) :: exptA
-         type(nek_dvector) :: b
+         type(exptA_linop), allocatable :: exptA
+         type(nek_dvector), allocatable :: b
          real(kind=dp) :: tau
          character(len=*), parameter :: this_procedure = 'resolvent_matvec'
       ! Integration time.
@@ -28,6 +28,7 @@
          type is (nek_zvector)
             select type (vec_out)
             type is (nek_zvector)
+               allocate(exptA, b)
       ! Compute forced-response with zero initial condition.
                b = evaluate_rhs(vec_in, self%omega, ifadj)
       ! Solve the linear system for the real part.
@@ -44,8 +45,8 @@
          end procedure
       
          module procedure resolvent_rmatvec
-         type(exptA_linop) :: exptA
-         type(nek_dvector) :: b
+         type(exptA_linop), allocatable :: exptA
+         type(nek_dvector), allocatable :: b
          real(kind=dp) :: tau
          character(len=*), parameter :: this_procedure = 'resolvent_rmatvec'
       ! Force adjoint mode.
@@ -58,6 +59,7 @@
          type is (nek_zvector)
             select type (vec_out)
             type is (nek_zvector)
+               allocate(exptA, b)
       ! Compute forced-response with zero initial condition.
                b = evaluate_rhs(vec_in, self%omega, .true.)
       ! Solve the linear system for the real part.
@@ -116,11 +118,12 @@
             logical, intent(in) :: adjoint
             type(nek_dvector) :: x
       ! Local variables.
+            type(axpby_linop_rdp), allocatable :: S
             type(gmres_dp_opts) :: opts
             integer :: info
-            type(axpby_linop_rdp) :: S
             real(dp), parameter :: tol = 1.0e-6_dp
             real(dp) :: alpha
+            allocate(S)
       ! Initialize S = I - exptA.
             S = axpby_linop_rdp(Id_rdp(), exptA, 1.0_dp, -1.0_dp)
             call x%zero()

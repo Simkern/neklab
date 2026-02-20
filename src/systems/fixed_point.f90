@@ -154,13 +154,14 @@
 
          module procedure jac_exptA_compute_rst
             character(len=*), parameter :: this_procedure = 'jac_exptA_compute_rst'
-            type(nek_dvector) :: vec_rst
+            type(nek_dvector), allocatable :: vec_rst
             character(len=128) :: msg
             select type(vec_out)
             type is (nek_dvector)
                write(msg,'(A,I0,A)') 'Run ', nrst, ' extra step(s) to fill up restart arrays.'
                call nek_log_information(msg, this_module, this_procedure)
                fintim = fintim + nrst*dt
+               allocate(vec_rst)
                do istep = nsteps + 1, nsteps + nrst
                   call nek_advance()
                   call nek2vec(vec_rst, vxp, vyp, vzp, prp, tp)
@@ -173,10 +174,11 @@
 
          module procedure jac_exptA_get_rst
             character(len=*), parameter :: this_procedure = 'jac_exptA_get_rst'
-            type(nek_dvector) :: vec_rst
+            type(nek_dvector), allocatable :: vec_rst
             select type(vec_in)
             type is (nek_dvector)
                if (vec_in%has_rst_fields()) then
+                  allocate(vec_rst)
                   call vec_in%get_rst(vec_rst, istep)
                   call vec2nek(vxp, vyp, vzp, prp, tp, vec_rst)
                end if

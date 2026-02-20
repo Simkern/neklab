@@ -75,7 +75,7 @@
                end if
                ! increment integration time
                self%fft_time = self%fft_time + dt
-               if (nid == 0) print '(A,2(F18.12),F12.6)', 'neklab_helix: Compute mflow fft ', self%fft_time, pd, self%fft_time/pd
+               if (io_rank()) print '(A,2(F18.12),F12.6)', 'neklab_helix: Compute mflow fft ', self%fft_time, pd, self%fft_time/pd
                call lk_timer%stop('neklab_helix_'//this_procedure)
             end if
          end procedure compute_mflow_fft

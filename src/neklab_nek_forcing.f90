@@ -1,5 +1,6 @@
       module neklab_nek_forcing
          use LightKrylov, only: dp
+         use LightKrylov_Constants, only: io_rank
          use LightKrylov_Logger
          use neklab_nek_setup, only: nek_log_message, nek_log_debug
          implicit none
@@ -43,7 +44,7 @@
             if (ipert < 0 .or. ipert > lpert) then
                write (msg, '(A,I0)') 'Invalid value for ipert specified! ipert = ', ipert
                call nek_log_message(msg, this_module, 'get_neklab_forcing')
-               if (nid == 0) print *, trim(msg)
+               if (io_rank()) print *, trim(msg)
                call nek_end()
             else
                write (msg, '(A,I0)') 'Retrieving value of the neklab forcing. ipert = ', ipert
@@ -64,7 +65,7 @@
             if (ipert < 0 .or. ipert > lpert) then
                write (msg, '(A,I0)') 'Invalid value for ipert specified! ipert = ', ipert
                call nek_log_message(msg, this_module, 'set_neklab_forcing')
-               if (nid == 0) print *, trim(msg)
+               if (io_rank()) print *, trim(msg)
                call nek_end()
             else
                write (msg, '(A,I0)') 'Setting value of the neklab forcing. ipert = ', ipert
@@ -82,7 +83,7 @@
             if (ipert < 0 .or. ipert > lpert) then
                write (msg, '(A,I0)') 'Invalid value for ipert specified! ipert = ', ipert
                call nek_log_message(msg, this_module, 'zero_neklab_forcing_ipert')
-               if (nid == 0) print *, trim(msg)
+               if (io_rank()) print *, trim(msg)
                call nek_end()
             else
                write (msg, '(A,I0)') 'Setting value of the neklab forcing to zero. ipert = ', ipert

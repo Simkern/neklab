@@ -36,6 +36,11 @@
          public :: outpost_nek
       ! miscellaneous
          public :: nopcopy
+      ! restarts
+         public :: compute_rst_dnek
+         public :: compute_rst_ext_dnek
+         public :: get_rst_dnek
+         public :: get_rst_ext_dnek
       
       ! Nek vector utilities
          interface nek2vec
@@ -359,5 +364,91 @@
                call type_error('vec','nek_dvector/nek_ext_dvector','IN',this_module,'outpost_nek')
             end select
          end subroutine outpost_nek
+
+         subroutine compute_rst_dnek(vec_out, nrst)
+            class(abstract_vector_rdp), intent(inout) :: vec_out
+            integer, intent(in) :: nrst
+            ! internal
+            character(len=*), parameter :: this_procedure = 'compute_rst_dnek'
+            type(nek_dvector), allocatable :: vec_rst
+            character(len=128) :: msg
+            real(dp) :: rtmp
+            select type(vec_out)
+            type is (nek_dvector)
+               write(msg,'(A,I0,A)') 'Run ', nrst, ' extra step(s) to fill up restart arrays.'
+               call nek_log_debug(msg, this_module, this_procedure)
+               fintim = fintim + nrst*dt
+               allocate(vec_rst)
+               do istep = nsteps + 1, nsteps + nrst
+                  call nek_advance()
+                  call nek2vec(vec_rst, vxp, vyp, vzp, prp, tp)
+                  call vec_out%save_rst(vec_rst, istep - nsteps)
+               end do
+            class default
+               call type_error('vec_out','nek_dvector','OUT',this_module, this_procedure)
+            end select
+         end subroutine compute_rst_dnek
+
+         subroutine compute_rst_ext_dnek(vec_out, nrst)
+            class(abstract_vector_rdp), intent(inout) :: vec_out
+            integer, intent(in) :: nrst
+            ! internal
+            character(len=*), parameter :: this_procedure = 'compute_rst_ext_dnek'
+            type(nek_ext_dvector), allocatable :: vec_rst
+            character(len=128) :: msg
+            real(dp) :: rtmp
+            select type(vec_out)
+            type is (nek_ext_dvector)
+               write(msg,'(A,I0,A)') 'Run ', nrst, ' extra step(s) to fill up restart arrays.'
+               call nek_log_debug(msg, this_module, this_procedure)
+               fintim = fintim + nrst*dt
+               allocate(vec_rst)
+               do istep = nsteps + 1, nsteps + nrst
+                  call nek_advance()
+                  call nek2ext_vec(vec_rst, vxp, vyp, vzp, prp, tp)
+                  call vec_out%save_rst(vec_rst, istep - nsteps)
+               end do
+            class default
+               call type_error('vec_out','nek_dvector','OUT',this_module, this_procedure)
+            end select
+         end subroutine compute_rst_ext_dnek
+ 
+         subroutine get_rst_dnek(vec_in, istep)
+            class(abstract_vector_rdp), intent(in) :: vec_in
+            integer, intent(in) :: istep
+            ! internal
+            character(len=*), parameter :: this_procedure = 'get_rst_dnek'
+            type(nek_dvector), allocatable :: vec_rst
+            character(len=128) :: msg
+            select type(vec_in)
+            type is (nek_dvector)
+               if (vec_in%has_rst_fields()) then
+                  allocate(vec_rst)
+                  call vec_in%get_rst(vec_rst, istep)
+                  call vec2nek(vxp, vyp, vzp, prp, tp, vec_rst)
+               end if
+            class default
+               call type_error('vec_in','nek_dvector','IN',this_module, this_procedure)
+            end select
+         end subroutine get_rst_dnek
+ 
+         subroutine get_rst_ext_dnek(vec_in, istep)
+            class(abstract_vector_rdp), intent(in) :: vec_in
+            integer, intent(in) :: istep
+            ! internal
+            character(len=*), parameter :: this_procedure = 'get_rst_ext_dnek'
+            type(nek_ext_dvector), allocatable :: vec_rst
+            character(len=128) :: msg
+            select type(vec_in)
+            type is (nek_ext_dvector)
+               if (vec_in%has_rst_fields()) then
+                  allocate(vec_rst)
+                  call vec_in%get_rst(vec_rst, istep)
+                  call ext_vec2nek(vxp, vyp, vzp, prp, tp, vec_rst)
+               end if
+            class default
+               call type_error('vec_in','nek_dvector','IN',this_module, this_procedure)
+            end select
+         end subroutine get_rst_ext_dnek
 
       end module neklab_utils

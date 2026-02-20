@@ -52,8 +52,6 @@
             private
             procedure, pass(self), public :: matvec => jac_exptA_matvec
             procedure, pass(self), public :: rmatvec => jac_exptA_rmatvec
-            procedure, pass(self), public :: compute_rst => jac_exptA_compute_rst
-            procedure, pass(self), public :: get_rst => jac_exptA_get_rst
          end type nek_jacobian
       
       ! --> Type-bound procedures for nek_system & nek_jacobian
@@ -76,18 +74,6 @@
                class(abstract_vector_rdp), intent(in) :: vec_in
                class(abstract_vector_rdp), intent(out) :: vec_out
             end subroutine jac_exptA_rmatvec
-
-            module subroutine jac_exptA_compute_rst(self, vec_out, nrst)
-               class(nek_jacobian), intent(inout) :: self
-               class(abstract_vector_rdp), intent(out) :: vec_out
-               integer, intent(in) :: nrst
-            end subroutine
-
-            module subroutine jac_exptA_get_rst(self, vec_in, istep)
-               class(nek_jacobian), intent(inout) :: self
-               class(abstract_vector_rdp), intent(in) :: vec_in
-               integer, intent(in) :: istep
-            end subroutine
          end interface
       
       !-----------------------------------------------------
@@ -105,8 +91,6 @@
             private
             procedure, pass(self), public :: matvec => jac_direct_map
             procedure, pass(self), public :: rmatvec => jac_adjoint_map
-            procedure, pass(self), public :: compute_rst => jac_compute_rst
-            procedure, pass(self), public :: get_rst => jac_get_rst
          end type nek_upo_jacobian
       
       ! --> Type-bound procedures for nek_upo_system & nek_upo_jacobian
@@ -129,18 +113,6 @@
                class(abstract_vector_rdp), intent(in) :: vec_in
                class(abstract_vector_rdp), intent(out) :: vec_out
             end subroutine jac_adjoint_map
-         
-            module subroutine jac_compute_rst(self, vec_out, nrst)
-               class(nek_upo_jacobian), intent(inout) :: self
-               class(abstract_vector_rdp), intent(out) :: vec_out
-               integer, intent(in) :: nrst
-            end subroutine
-
-            module subroutine jac_get_rst(self, vec_in, istep)
-               class(nek_upo_jacobian), intent(inout) :: self
-               class(abstract_vector_rdp), intent(in) :: vec_in
-               integer, intent(in) :: istep
-            end subroutine
          end interface
 
       !-----------------------------------------------------------
@@ -158,8 +130,6 @@
             private
             procedure, pass(self), public :: matvec => jac_direct_map_torus
             procedure, pass(self), public :: rmatvec => jac_adjoint_map_torus
-            procedure, pass(self), public :: compute_rst => jac_compute_rst_torus
-            procedure, pass(self), public :: get_rst => jac_get_rst_torus
          end type nek_jacobian_torus
 
          ! --> Type-bound procedures for nek_system_torus & nek_jacobian_torus
@@ -183,18 +153,6 @@
                class(abstract_vector_rdp), intent(in) :: vec_in
                class(abstract_vector_rdp), intent(out) :: vec_out
             end Subroutine jac_adjoint_map_torus
-
-            module subroutine jac_compute_rst_torus(self, vec_out, nrst)
-               class(nek_jacobian_torus), intent(inout) :: self
-               class(abstract_vector_rdp), intent(out) :: vec_out
-               integer, intent(in) :: nrst
-            end subroutine jac_compute_rst_torus
-
-            module subroutine jac_get_rst_torus(self, vec_in, istep)
-               class(nek_jacobian_torus), intent(inout) :: self
-               class(abstract_vector_rdp), intent(in) :: vec_in
-               integer, intent(in) :: istep
-            end subroutine jac_get_rst_torus
          end interface
 
       !--------------------------------------------------------------
@@ -212,8 +170,6 @@
             private
             procedure, pass(self), public :: matvec => jac_direct_map_torus_upo
             procedure, pass(self), public :: rmatvec => jac_adjoint_map_torus_upo
-            procedure, pass(self), public :: compute_rst => jac_compute_rst_torus_upo
-            procedure, pass(self), public :: get_rst => jac_get_rst_torus_upo
          end type nek_jacobian_torus_upo
 
          ! --> Type-bound procedures for nek_system_torus & nek_jacobian_torus
@@ -237,18 +193,6 @@
                class(abstract_vector_rdp), intent(in) :: vec_in
                class(abstract_vector_rdp), intent(out) :: vec_out
             end Subroutine jac_adjoint_map_torus_upo
-
-            module subroutine jac_compute_rst_torus_upo(self, vec_out, nrst)
-               class(nek_jacobian_torus_upo), intent(inout) :: self
-               class(abstract_vector_rdp), intent(out) :: vec_out
-               integer, intent(in) :: nrst
-            end subroutine jac_compute_rst_torus_upo
-
-            module subroutine jac_get_rst_torus_upo(self, vec_in, istep)
-               class(nek_jacobian_torus_upo), intent(inout) :: self
-               class(abstract_vector_rdp), intent(in) :: vec_in
-               integer, intent(in) :: istep
-            end subroutine jac_get_rst_torus_upo
          end interface
       
       contains

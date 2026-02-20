@@ -41,7 +41,7 @@
                   call nek_advance()
                   
                   ! Set restart fields if present.
-                  if (istep <= nrst) call self%get_rst(vec_in, istep)
+                  if (istep <= nrst) call get_rst_dnek(vec_in, istep)
 
                end do
       
@@ -49,7 +49,7 @@
                call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
       
       ! Compute restart fields.
-               call self%compute_rst(vec_out, nrst)
+               call compute_rst_dnek(vec_out, nrst)
 
             class default
                call type_error('vec_out','nek_dvector','OUT',this_module, this_procedure)
@@ -88,7 +88,7 @@
                   call nek_advance()
                   
                   ! Set restart fields if present.
-                  if (istep <= nrst) call self%get_rst(vec_in, istep)
+                  if (istep <= nrst) call get_rst_dnek(vec_in, istep)
 
                end do
       
@@ -96,7 +96,7 @@
                call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
       
       ! Compute restart fields.
-               call self%compute_rst(vec_out, nrst)
+               call compute_rst_dnek(vec_out, nrst)
        
             class default
                call type_error('vec_out','nek_dvector','OUT',this_module, this_procedure)
@@ -104,42 +104,5 @@
          class default
             call type_error('vec_in','nek_dvector','IN',this_module, this_procedure)
          end select
-         end procedure
-
-         module procedure exptA_compute_rst
-            character(len=*), parameter :: this_procedure = 'exptA_compute_rst'
-            type(nek_dvector), allocatable :: vec_rst
-            character(len=128) :: msg
-            real(dp) :: rtmp
-            select type(vec_out)
-            type is (nek_dvector)
-               write(msg,'(A,I0,A)') 'Run ', nrst, ' extra step(s) to fill up restart arrays.'
-               call nek_log_debug(msg, this_module, this_procedure)
-               fintim = fintim + nrst*dt
-               allocate(vec_rst)
-               do istep = nsteps + 1, nsteps + nrst
-                  call nek_advance()
-                  call nek2vec(vec_rst, vxp, vyp, vzp, prp, tp)
-                  call vec_out%save_rst(vec_rst, istep - nsteps)
-               end do
-            class default
-               call type_error('vec_out','nek_dvector','OUT',this_module, this_procedure)
-            end select
-         end procedure
-
-         module procedure exptA_get_rst
-            character(len=*), parameter :: this_procedure = 'exptA_get_rst'
-            type(nek_dvector), allocatable :: vec_rst
-            character(len=128) :: msg
-            select type(vec_in)
-            type is (nek_dvector)
-               if (vec_in%has_rst_fields()) then
-                  allocate(vec_rst)
-                  call vec_in%get_rst(vec_rst, istep)
-                  call vec2nek(vxp, vyp, vzp, prp, tp, vec_rst)
-               end if
-            class default
-               call type_error('vec_in','nek_dvector','IN',this_module, this_procedure)
-            end select
          end procedure
       end submodule

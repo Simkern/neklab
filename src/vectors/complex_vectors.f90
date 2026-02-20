@@ -49,9 +49,9 @@
       
          module procedure nek_zscal
          integer :: i
-         type(nek_zvector), allocatable :: wrk
+         type(nek_zvector) :: wrk
       ! Scratch array.
-         allocate(wrk, mold=self)
+         wrk = self
       ! Scale complex vector.
          call nek_daxpby(alpha%re, wrk%im, -alpha%im, self%re)
          call nek_daxpby(alpha%re, wrk%re,  alpha%im, self%im)
@@ -63,12 +63,12 @@
       
          module procedure nek_zaxpby
          integer :: i
-         type(nek_zvector), allocatable :: wrk
+         type(nek_zvector) :: wrk
       ! Scratch array.
          select type (vec)
          type is (nek_zvector)
          
-            allocate(wrk, mold=vec)
+            wrk = vec
       ! Scale vectors before addition.
             call self%scal(beta); call wrk%scal(alpha)
       ! Vector addition.

@@ -385,7 +385,7 @@
                   call vec_out%save_rst(vec_rst, istep - nsteps)
                end do
             class default
-               call type_error('vec_out','nek_dvector','OUT',this_module, this_procedure)
+               call type_error('vec_out','nek_dvector','INOUT',this_module, this_procedure)
             end select
          end subroutine compute_rst_dnek
 
@@ -409,7 +409,7 @@
                   call vec_out%save_rst(vec_rst, istep - nsteps)
                end do
             class default
-               call type_error('vec_out','nek_dvector','OUT',this_module, this_procedure)
+               call type_error('vec_out','nek_ext_dvector','INOUT',this_module, this_procedure)
             end select
          end subroutine compute_rst_ext_dnek
  
@@ -447,7 +447,7 @@
                   call ext_vec2nek(vxp, vyp, vzp, prp, tp, vec_rst)
                end if
             class default
-               call type_error('vec_in','nek_dvector','IN',this_module, this_procedure)
+               call type_error('vec_in','nek_ext_dvector','IN',this_module, this_procedure)
             end select
          end subroutine get_rst_ext_dnek
 

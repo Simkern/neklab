@@ -85,7 +85,7 @@
                   call nek_advance()
 
                   ! Set restart fields if present.
-                  if (istep <= nrst) call get_rst_ext_dnek(vec_in, istep)
+                  if (istep <= nrst) call get_rst_dnek(vec_in, istep)
 
                end do
 
@@ -93,7 +93,7 @@
                call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
 
       ! Compute restart fields.
-               call compute_rst_ext_dnek(vec_out, nrst)
+               call self%compute_rst(vec_out, nrst)
 
       ! Evaluate [ exp(tau*J) - I ] @ dx.
                call vec_out%sub(vec_in)
@@ -144,7 +144,7 @@
                   call nek_advance()
 
                   ! Set restart fields if present.
-                  if (istep <= nrst) call get_rst_ext_dnek(vec_in, istep)
+                  if (istep <= nrst) call get_rst_dnek(vec_in, istep)
 
                end do
 
@@ -152,7 +152,7 @@
                call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
 
       ! Compute restart fields.
-               call compute_rst_ext_dnek(vec_out, nrst)
+               call self%compute_rst(vec_out, nrst)
 
       ! Evaluate [ exp(tau*J) - I ] @ dx.
                call vec_out%sub(vec_in)
@@ -166,4 +166,28 @@
             call type_error('vec_in','nek_dvector','IN',this_module, this_procedure)
          end select
          end procedure jac_adjoint_map_torus_upo
+
+         module procedure compute_rst_torus_upo
+            character(len=*), parameter :: this_procedure = 'compute_rst_torus_upo'
+            type(nek_dvector), allocatable :: vec_rst
+            character(len=128) :: msg
+            real(dp) :: rtmp
+            select type(vec_out)
+            type is (nek_dvector)
+               write(msg,'(A,I0,A)') 'Run ', nrst, ' extra step(s) to fill up restart arrays.'
+               call nek_log_debug(msg, this_module, this_procedure)
+               fintim = fintim + nrst*dt
+               allocate(vec_rst)
+               ! reset output counter to overwrite output files, compute ubar_lag
+               call pipe%set_2d_mode('newton')
+               do istep = nsteps + 1, nsteps + nrst
+                  call pipe%set_baseflow(vx, vy, vz, istep) ! sets the baseflow field and the appropriate timestep
+                  call nek_advance()
+                  call nek2vec(vec_rst, vxp, vyp, vzp, prp, tp)
+                  call vec_out%save_rst(vec_rst, istep - nsteps)
+               end do
+            class default
+               call type_error('vec_out','nek_dvector','INOUT',this_module, this_procedure)
+            end select
+         end procedure compute_rst_torus_upo
       end submodule

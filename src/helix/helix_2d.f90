@@ -40,6 +40,7 @@
             end do
             ! gather info from all procs
             nelf = iglsum(nelf, 1)
+            if (nelf == 0) call nek_stop_error('No elements found in the yz plane.', this_module, this_procedure)
             ! deduce number of slices
             nslices = nelgv/nelf
             ! stamp logs

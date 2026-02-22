@@ -35,6 +35,7 @@
          public :: shift_mflow_phase_torus
          public :: compute_nonlinear_period_torus
          public :: compute_monodromy_period_torus
+         public :: compute_energy_budgets_period_torus
       
       contains
 
@@ -608,5 +609,179 @@
             end do
 
          end subroutine compute_monodromy_period_torus
+            
+         subroutine compute_energy_budgets_period_torus(pert_out, pert_in, nout)
+            type(nek_dvector), intent(out) :: pert_out
+      !! Output of the linear solver after a period of the monodromy operator
+            type(nek_dvector), intent(inout) :: pert_in
+      !! Initial condition for the linear solver
+            integer, optional, intent(in) :: nout
+      !! Number of output fields per period (default = 1)
+		! internal
+            character(len=*), parameter :: this_procedure = 'energy_budgets_period'
+            integer :: nout_, nperiod_
+            integer :: i, j, k, e, ijke, lv
+            integer :: idx, ns, outstep, nsaver
+            real(dp) :: norm, gr, FTLE, tper, pd, t_
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: dUdx_g, dUdy_g, dUdz_g
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: dVdx_g, dVdy_g, dVdz_g
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: dWdx_g, dWdy_g, dWdz_g
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: prod_g, diss_g, tmpfld
+            real(dp) :: dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwdz
+            real(dp) :: ux, uy, uz
+            real(dp) :: prod_i, diss_i
+            real(dp) :: prod, diss
+            type(helix), allocatable :: prtpipe
+            logical :: existfile
+            character(len=256) :: msg
+            character(len=132) :: fname
+            character(len=*), parameter :: fmt = '(A,1X,I4,1X,A,1X,2(F11.6),6(1X,A,1X,E15.8))'
+            nout_ = optval(nout, 1)
+            ns = 0
+            idx = 1
+            write(fname,'("f2dtorus",I3.3,".fld")') idx
+            inquire(file=fname, exist=existfile)
+            if (existfile) then
+               do while (existfile)
+                  ! read first file and get nsteps
+                  call pipe%get_nsteps_from_header(fname, nsaver)
+                  ns = ns + nsaver              
+                  idx = idx + 1
+                  write(fname,'("f2dtorus",I3.3,".fld")') idx
+                  inquire(file=fname, exist=existfile)
+               end do
+               call bcast(ns, isize)          ! broadcast number of saved snapshots
+               call pipe%set_nsteps(ns)
+               write(msg,'(A,I0,A,I0,A)') 'Found ', idx-1, ' baseflow files: ', ns, ' timesteps per period.'
+               call nek_log_message(msg, this_module, this_procedure)
+            else
+               msg = "No 2d baseflow files in the format f2dtorus???.fld found. Abort."
+               call nek_stop_error(msg, this_module, this_procedure)
+            end if
+
+            ! run a period to get GR and FTLE data
+            ns = pipe%get_nsteps()
+            pd = pipe%get_period()
+            outstep = floor(1.0*ns/nout_)
+
+            ! Initial perturbation
+            norm = pert_in%norm()
+            call pert_in%scal(1.0/norm)
+            norm = pert_in%norm()
+            call vec2nek(vxp, vyp, vzp, prp, tp, pert_in)
+
+            time = 0.0_dp
+            t_ = 0.0_dp ! lagged time
+            call pipe%set_2d_mode('floquet') ! reset output counter to load baseflow files in order
+            call setup_linear_solver(variable_dt = .true.,
+     &                               endtime     = pd,
+     &                               cfl_limit   = 0.5_dp)
+
+            allocate(prtpipe, source=pipe)
+            call prtpipe%set_newton(.false.)  ! in case we save 2d fields
+            call prtpipe%set_floquet(.false.) ! in case we save 2d fields
+            lv = lx1*ly1*lz1*nelv
+            call rzero(prod_g, lv); prod = 0.0_dp
+            call rzero(diss_g, lv); diss = 0.0_dp
+            do istep = 1, ns
+               ! update baseflow
+               call pipe%set_baseflow(vx, vy, vz, istep)
+               
+               ! compute linear step
+               call nek_advance()
+               
+               ! compute growth rate
+               call nek2vec(pert_in, vxp, vyp, vzp, prp, tp)
+
+               ! compute baseflow gradients
+               call gradm1(dUdx_g, dUdy_g, dUdz_g, vx)
+               call gradm1(dVdx_g, dVdy_g, dVdz_g, vy)
+               call gradm1(dWdx_g, dWdy_g, dWdz_g, vz)
+
+               ! compute turbulent kinetic energy production
+               call rzero(tmpfld, lv); prod_i = 0.0_dp
+               do e = 1, nelv
+                  do i = 1, lz1
+                     do j = 1, ly1
+                        do k = 1, lx1
+                           ijke = i+lx1*((j-1)+ly1*((k-1) + lz1*(e-1)))
+                           ux = vxp(ijke,1)
+                           uy = vyp(ijke,1)
+                           uz = vzp(ijke,1)
+                           dUdx = dUdx_g(i,j,k,e)
+                           dUdy = dUdy_g(i,j,k,e)
+                           dUdz = dUdz_g(i,j,k,e)
+                           dVdx = dVdx_g(i,j,k,e)
+                           dVdy = dVdy_g(i,j,k,e)
+                           dVdz = dVdz_g(i,j,k,e)
+                           dWdx = dWdx_g(i,j,k,e)
+                           dWdy = dWdy_g(i,j,k,e)
+                           dWdz = dWdz_g(i,j,k,e)
+                           tmpfld(i, j, k, e) = - ux*(ux*dUdx + uy*dUdy + uz*dUdz)
+     &                                          - uy*(ux*dVdx + uy*dVdy + uz*dVdz)
+     &                                          - uz*(ux*dWdx + uy*dWdy + uz*dWdz)
+                           prod_i = tmpfld(i, j, k, e)*bm1(i, j, k, e)
+                           prod_g(i, j, k, e) = (prod_g(i, j, k, e)*t_ + prod_i*dt)/time
+                        end do
+                     end do
+                  end do
+               end do
+               
+               ! compute perturbation gradients
+               call gradm1(dUdx_g, dUdy_g, dUdz_g, vxp)
+               call gradm1(dVdx_g, dVdy_g, dVdz_g, vyp)
+               call gradm1(dWdx_g, dWdy_g, dWdz_g, vzp)
+
+               ! compute turbulent kinetic energy dissipation
+               call rzero(tmpfld, lx1*ly1*lz1*lelv); diss_i = 0.0_dp
+               do e = 1, nelv
+                  do i = 1, lz1
+                     do j = 1, ly1
+                        do k = 1, lx1
+                           ijke = i+lx1*((j-1)+ly1*((k-1) + lz1*(e-1)))
+                           dUdx = dUdx_g(i,j,k,e)
+                           dUdy = dUdy_g(i,j,k,e)
+                           dUdz = dUdz_g(i,j,k,e)
+                           dVdx = dVdx_g(i,j,k,e)
+                           dVdy = dVdy_g(i,j,k,e)
+                           dVdz = dVdz_g(i,j,k,e)
+                           dWdx = dWdx_g(i,j,k,e)
+                           dWdy = dWdy_g(i,j,k,e)
+                           dWdz = dWdz_g(i,j,k,e)
+                           tmpfld(i, j, k, e) = vdiff(i, j, k, e,1)*(
+     &                                        + dUdx**2 + dUdy**2 + dUdz**2
+     &                                        + dVdx**2 + dVdy**2 + dVdz**2
+     &                                        + dWdx**2 + dWdy**2 + dWdz**2)
+                           diss_i = tmpfld(i, j, k, e)*bm1(i, j, k, e)
+                           diss_g(i, j, k, e) = (diss_g(i, j, k, e)*t_ + diss_i*dt)/time
+                        end do
+                     end do
+                  end do
+               end do
+
+               call prtpipe%save_2d_fields(prod_g, diss_g, vxp)
+
+               gr = (pert_in%norm() - norm)/(norm*dt)
+               
+               ! FTLE
+               FTLE = FTLE + gr*dt
+               tper = time/pd
+               if (io_rank() .and. .not. istep == ns) then
+                  write(msg,fmt) 'istep', istep, 't', time, tper,
+     &                           'norm', norm, 'E', norm**2,
+     &                           'gr', gr, 'FTLE', FTLE/tper,
+     &                           'P', prod_i, 'D', diss_i
+                  call nek_log_message(msg, this_module, this_procedure)
+               end if
+
+               ! update norm and lagged time
+               norm = pert_in%norm()
+               t_ = time
+            end do
+            if (io_rank()) then
+               write(msg,'(A,E15.8)') 'FTLE ', FTLE/tper
+               call nek_log_message(msg, this_module, this_procedure)
+            end if
+         end subroutine compute_energy_budgets_period_torus
       
          end module neklab_analysis_torus

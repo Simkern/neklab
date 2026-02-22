@@ -1,8 +1,8 @@
       module neklab_linops
          use stdlib_optval, only: optval
          use LightKrylov, only: dp, atol_dp, rtol_dp
-         use LightKrylov, only: abstract_linop_rdp, abstract_vector_rdp
-         use LightKrylov, only: abstract_linop_cdp, abstract_vector_cdp
+         use LightKrylov, only: abstract_linop_rdp, abstract_exptA_linop_rdp, abstract_vector_rdp
+         use LightKrylov, only: abstract_linop_cdp, abstract_exptA_linop_cdp, abstract_vector_cdp
          use LightKrylov, only: cg, cg_dp_opts, cg_dp_metadata
          use LightKrylov_Logger
          use neklab_vectors
@@ -34,8 +34,7 @@
       !------------------------------------------
       
       ! --> Type.
-         type, extends(abstract_linop_rdp), public :: exptA_linop
-            real(kind=dp) :: tau
+         type, extends(abstract_exptA_linop_rdp), public :: exptA_linop
             type(nek_dvector) :: baseflow
          contains
             private
@@ -97,9 +96,8 @@
       !-----------------------------------------
       
       ! --> Type.
-         type, extends(abstract_linop_rdp), public :: floquet_linop
+         type, extends(abstract_exptA_linop_rdp), public :: floquet_linop
             type(nek_dvector) :: baseflow
-            real(dp) :: tau = 0.0_dp
             logical :: baseflow_computed = .false.
             logical :: is_initialized = .false.
          contains

@@ -81,6 +81,7 @@
          public :: mflow_newton
          public :: shift_mflow_phase_torus
          public :: compute_nonlinear_period_torus
+         public :: compute_energy_budgets_period_torus
       
       ! OTD exports.
          public :: nek_otd, otd_opts

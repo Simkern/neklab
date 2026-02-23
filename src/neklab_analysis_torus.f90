@@ -610,9 +610,7 @@
 
          end subroutine compute_monodromy_period_torus
             
-         subroutine compute_energy_budgets_period_torus(pert_out, pert_in, nout)
-            type(nek_dvector), intent(out) :: pert_out
-      !! Output of the linear solver after a period of the monodromy operator
+         subroutine compute_energy_budgets_period_torus(pert_in, nout)
             type(nek_dvector), intent(inout) :: pert_in
       !! Initial condition for the linear solver
             integer, optional, intent(in) :: nout
@@ -781,6 +779,7 @@
             if (io_rank()) then
                write(msg,'(A,E15.8)') 'FTLE ', FTLE/tper
                call nek_log_message(msg, this_module, this_procedure)
+               call outpost(prod_g, diss_g, vx, pr, t, 'bdg')
             end if
          end subroutine compute_energy_budgets_period_torus
       

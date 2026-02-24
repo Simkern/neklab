@@ -521,7 +521,7 @@
 		! internal
             character(len=*), parameter :: this_procedure = 'monodromy_period'
             integer :: nout_, nperiod_
-            integer :: i, idx, ns, outstep, nsaver
+            integer :: i, n, idx, ns, outstep, nsaver
             real(dp) :: norm, gr, Tend, FTLE, tper, tpern, pd
             logical :: existfile
             character(len=128) :: msg
@@ -572,39 +572,36 @@
                tper = 0.0_dp
                FTLE = 0.0_dp
                call pipe%set_2d_mode('floquet') ! reset output counter to load baseflow files in order
-               do istep = 1, ns
-               ! update baseflow
-               call pipe%set_baseflow(vx, vy, vz, istep)
-               
-               ! compute linear step
-               call nek_advance()
-               
-               ! compute growth rate
-               call nek2vec(pert_in, vxp, vyp, vzp, prp, tp)
-               gr = (pert_in%norm() - norm)/(norm*dt)
-               
-                        ! FTLE
-               FTLE = FTLE + gr*dt
-               tper = tper + dt
-               tpern = tper/pd
-               if (io_rank() .and. .not. istep == ns) then
+               do istep = (i-1)*ns+1, i*ns
+                  ! update baseflow
+                  n = istep - (i-1)*ns
+                  call pipe%set_baseflow(vx, vy, vz, istep)
+                  
+                  ! compute linear step
+                  call nek_advance()
+                  
+                  ! compute growth rate
+                  call nek2vec(pert_in, vxp, vyp, vzp, prp, tp)
+                  gr = (pert_in%norm() - norm)/(norm*dt)
+                  
+                           ! FTLE
+                  FTLE = FTLE + gr*dt
+                  tper = tper + dt
+                  tpern = tper/pd
                   write(msg,fmt) 'istep', istep, 't', time, tper, tpern, 'P', i,
-     &                          'norm', norm, 'gr', gr, 'FTLE', FTLE/tper
+     &                              'norm', norm, 'gr', gr, 'FTLE', FTLE/tper
                   call nek_log_message(msg, this_module, this_procedure)
-               end if
 
-               ! update norm
-               norm = pert_in%norm()
+                  ! update norm
+                  norm = pert_in%norm()
 
-               ! outpost
-               if (istep == 1 .or. mod(istep,outstep) == 0) then
-                  call outpost_dnek(pert_in, 'prt')
-               end if
+                  ! outpost
+                  if (istep == 1 .or. mod(istep,outstep) == 0) then
+                     call outpost_dnek(pert_in, 'prt')
+                  end if
                end do
-               if (io_rank()) then
-                  write(msg,'(A,I3,A,E15.8)') 'Period ', i, ' FTLE ', FTLE/tper
-                  call nek_log_message(msg, this_module, this_procedure)
-               end if
+               write(msg,'(A,I3,A,E15.8)') 'Period ', i, ' FTLE ', FTLE/tper
+               call nek_log_message(msg, this_module, this_procedure)
             end do
 
          end subroutine compute_monodromy_period_torus
@@ -618,7 +615,7 @@
 		! internal
             character(len=*), parameter :: this_procedure = 'energy_budgets_period'
             integer :: nperiod_, i, lv
-            integer :: idx, ns, nsaver
+            integer :: idx, ns, n, nsaver
             real(dp) :: norm, gr, FTLE, tper, tpern, pd, Tend
             real(dp), dimension(lx1,ly1,lz1,lelv) :: ddx, ddy, ddz
             real(dp), dimension(lx1,ly1,lz1,lelv) :: nu_ddx, nu_ddy, nu_ddz
@@ -673,9 +670,10 @@
                tper = 0.0_dp
                FTLE = 0.0_dp
                call pipe%set_2d_mode('floquet') ! reset output counter to load baseflow files in order
-               do istep = 1, ns
+               do istep = (i-1)*ns+1, i*ns
                   ! update baseflow
-                  call pipe%set_baseflow(vx, vy, vz, istep)
+                  n = istep - (i-1)*ns
+                  call pipe%set_baseflow(vx, vy, vz, n)
                   
                   ! compute linear step
                   call nek_advance()

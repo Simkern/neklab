@@ -558,8 +558,7 @@
 
             ! Initial perturbation
             norm = pert_in%norm()
-            call pert_in%scal(1.0/norm)
-            norm = pert_in%norm()
+            call pert_in%scal(1.0/norm); norm = 1.0_dp
             call vec2nek(vxp, vyp, vzp, prp, tp, pert_in)
 
             do i = 1, nperiod_
@@ -577,17 +576,17 @@
                ! update baseflow
                call pipe%set_baseflow(vx, vy, vz, istep)
                
-                        ! compute linear step
+               ! compute linear step
                call nek_advance()
                
-                        ! compute growth rate
+               ! compute growth rate
                call nek2vec(pert_in, vxp, vyp, vzp, prp, tp)
                gr = (pert_in%norm() - norm)/(norm*dt)
                
                         ! FTLE
                FTLE = FTLE + gr*dt
                tper = tper + dt
-                        tpern = tper/pd
+               tpern = tper/pd
                if (io_rank() .and. .not. istep == ns) then
                   write(msg,fmt) 'istep', istep, 't', time, tper, tpern, 'P', i,
      &                          'norm', norm, 'gr', gr, 'FTLE', FTLE/tper
@@ -610,31 +609,28 @@
 
          end subroutine compute_monodromy_period_torus
             
-         subroutine compute_energy_budgets_period_torus(pert_in, nout)
+         subroutine compute_energy_budgets_period_torus(pert_in, nperiod)
+            implicit none
             type(nek_dvector), intent(inout) :: pert_in
       !! Initial condition for the linear solver
-            integer, optional, intent(in) :: nout
-      !! Number of output fields per period (default = 1)
+            integer, optional, intent(in) :: nperiod
+      !! Number of periods to compute the linear solution across (default = 2)
 		! internal
             character(len=*), parameter :: this_procedure = 'energy_budgets_period'
-            integer :: nout_, nperiod_
-            integer :: i, j, k, e, ijke, lv
-            integer :: idx, ns, outstep, nsaver
-            real(dp) :: norm, gr, FTLE, tper, pd, t_
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: dUdx_g, dUdy_g, dUdz_g
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: dVdx_g, dVdy_g, dVdz_g
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: dWdx_g, dWdy_g, dWdz_g
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: prod_g, diss_g, tmpfld
-            real(dp) :: dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwdz
-            real(dp) :: ux, uy, uz
-            real(dp) :: prod_i, diss_i
+            integer :: nperiod_, i, lv
+            integer :: idx, ns, nsaver
+            real(dp) :: norm, gr, FTLE, tper, tpern, pd, Tend
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: ddx, ddy, ddz
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: nu_ddx, nu_ddy, nu_ddz
             real(dp) :: prod, diss
-            type(helix), allocatable :: prtpipe
             logical :: existfile
             character(len=256) :: msg
             character(len=132) :: fname
-            character(len=*), parameter :: fmt = '(A,1X,I4,1X,A,1X,2(F11.6),6(1X,A,1X,E15.8))'
-            nout_ = optval(nout, 1)
+            character(len=*), parameter :: fmt = '(A,I4,A,3(F11.6),A,I3,6(A,E15.8))'
+            ! external function
+            real(dp) :: op_glsc2_wt
+
+            nperiod_ = optval(nperiod, 2)
             ns = 0
             idx = 1
             write(fname,'("f2dtorus",I3.3,".fld")') idx
@@ -656,131 +652,95 @@
                msg = "No 2d baseflow files in the format f2dtorus???.fld found. Abort."
                call nek_stop_error(msg, this_module, this_procedure)
             end if
-
-            ! run a period to get GR and FTLE data
             ns = pipe%get_nsteps()
             pd = pipe%get_period()
-            outstep = floor(1.0*ns/nout_)
+            lv = lx1*ly1*lz1*nelv
 
             ! Initial perturbation
             norm = pert_in%norm()
-            call pert_in%scal(1.0/norm)
-            norm = pert_in%norm()
+            call pert_in%scal(1.0/norm); norm = 1.0_dp
             call vec2nek(vxp, vyp, vzp, prp, tp, pert_in)
 
-            time = 0.0_dp
-            t_ = 0.0_dp ! lagged time
-            call pipe%set_2d_mode('floquet') ! reset output counter to load baseflow files in order
-            call setup_linear_solver(variable_dt = .true.,
-     &                               endtime     = pd,
-     &                               cfl_limit   = 0.5_dp)
+            do i = 1, nperiod_
+               ! Set endtime and set integrator
+               Tend = i*pd
+               call setup_linear_solver(variable_dt = .true.,
+     &                                  endtime     = Tend,
+     &                                  cfl_limit   = 0.5_dp)
 
-            allocate(prtpipe, source=pipe)
-            call prtpipe%set_newton(.false.)  ! in case we save 2d fields
-            call prtpipe%set_floquet(.false.) ! in case we save 2d fields
-            lv = lx1*ly1*lz1*nelv
-            call rzero(prod_g, lv); prod = 0.0_dp
-            call rzero(diss_g, lv); diss = 0.0_dp
-            do istep = 1, ns
-               ! update baseflow
-               call pipe%set_baseflow(vx, vy, vz, istep)
-               
-               ! compute linear step
-               call nek_advance()
-               
-               ! compute growth rate
-               call nek2vec(pert_in, vxp, vyp, vzp, prp, tp)
+               time = (i-1)*pd
 
-               ! compute baseflow gradients
-               call gradm1(dUdx_g, dUdy_g, dUdz_g, vx)
-               call gradm1(dVdx_g, dVdy_g, dVdz_g, vy)
-               call gradm1(dWdx_g, dWdy_g, dWdz_g, vz)
+               tper = 0.0_dp
+               FTLE = 0.0_dp
+               call pipe%set_2d_mode('floquet') ! reset output counter to load baseflow files in order
+               do istep = 1, ns
+                  ! update baseflow
+                  call pipe%set_baseflow(vx, vy, vz, istep)
+                  
+                  ! compute linear step
+                  call nek_advance()
+                  
+                  ! compute growth rate
+                  call nek2vec(pert_in, vxp, vyp, vzp, prp, tp)
 
-               ! compute turbulent kinetic energy production
-               call rzero(tmpfld, lv); prod_i = 0.0_dp
-               do e = 1, nelv
-                  do i = 1, lz1
-                     do j = 1, ly1
-                        do k = 1, lx1
-                           ijke = i+lx1*((j-1)+ly1*((k-1) + lz1*(e-1)))
-                           ux = vxp(ijke,1)
-                           uy = vyp(ijke,1)
-                           uz = vzp(ijke,1)
-                           dUdx = dUdx_g(i,j,k,e)
-                           dUdy = dUdy_g(i,j,k,e)
-                           dUdz = dUdz_g(i,j,k,e)
-                           dVdx = dVdx_g(i,j,k,e)
-                           dVdy = dVdy_g(i,j,k,e)
-                           dVdz = dVdz_g(i,j,k,e)
-                           dWdx = dWdx_g(i,j,k,e)
-                           dWdy = dWdy_g(i,j,k,e)
-                           dWdz = dWdz_g(i,j,k,e)
-                           tmpfld(i, j, k, e) = - ux*(ux*dUdx + uy*dUdy + uz*dUdz)
-     &                                          - uy*(ux*dVdx + uy*dVdy + uz*dVdz)
-     &                                          - uz*(ux*dWdx + uy*dWdy + uz*dWdz)
-                           prod_i = tmpfld(i, j, k, e)*bm1(i, j, k, e)
-                           prod_g(i, j, k, e) = (prod_g(i, j, k, e)*t_ + prod_i*dt)/time
-                        end do
-                     end do
-                  end do
-               end do
-               
-               ! compute perturbation gradients
-               call gradm1(dUdx_g, dUdy_g, dUdz_g, vxp)
-               call gradm1(dVdx_g, dVdy_g, dVdz_g, vyp)
-               call gradm1(dWdx_g, dWdy_g, dWdz_g, vzp)
+                  ! production rate
+                  prod = 0.0_dp
+                  call gradm1(ddx, ddy, ddz, vx)          ! dU/dxj
+                  call col2(ddx, vxp, lv)              
+                  call col2(ddy, vxp, lv)                 ! dU/dxj*u
+                  call col2(ddz, vxp, lv)
+                  prod = prod - op_glsc2_wt(ddx, ddy, ddz, vxp, vyp, vzp, bm1) ! -uj*u*dU/dxj*bm1
+                  call gradm1(ddx, ddy, ddz, vy)
+                  call col2(ddx, vyp, lv)
+                  call col2(ddy, vyp, lv)
+                  call col2(ddz, vyp, lv)
+                  prod = prod - op_glsc2_wt(ddx, ddy, ddz, vxp, vyp, vzp, bm1)
+                  call gradm1(ddx, ddy, ddz, vz)
+                  call col2(ddx, vzp, lv)
+                  call col2(ddy, vzp, lv)
+                  call col2(ddz, vzp, lv)
+                  prod = prod - op_glsc2_wt(ddx, ddy, ddz, vxp, vyp, vzp, bm1)
 
-               ! compute turbulent kinetic energy dissipation
-               call rzero(tmpfld, lx1*ly1*lz1*lelv); diss_i = 0.0_dp
-               do e = 1, nelv
-                  do i = 1, lz1
-                     do j = 1, ly1
-                        do k = 1, lx1
-                           ijke = i+lx1*((j-1)+ly1*((k-1) + lz1*(e-1)))
-                           dUdx = dUdx_g(i,j,k,e)
-                           dUdy = dUdy_g(i,j,k,e)
-                           dUdz = dUdz_g(i,j,k,e)
-                           dVdx = dVdx_g(i,j,k,e)
-                           dVdy = dVdy_g(i,j,k,e)
-                           dVdz = dVdz_g(i,j,k,e)
-                           dWdx = dWdx_g(i,j,k,e)
-                           dWdy = dWdy_g(i,j,k,e)
-                           dWdz = dWdz_g(i,j,k,e)
-                           tmpfld(i, j, k, e) = vdiff(i, j, k, e,1)*(
-     &                                        + dUdx**2 + dUdy**2 + dUdz**2
-     &                                        + dVdx**2 + dVdy**2 + dVdz**2
-     &                                        + dWdx**2 + dWdy**2 + dWdz**2)
-                           diss_i = tmpfld(i, j, k, e)*bm1(i, j, k, e)
-                           diss_g(i, j, k, e) = (diss_g(i, j, k, e)*t_ + diss_i*dt)/time
-                        end do
-                     end do
-                  end do
-               end do
+                  ! dissipation rate
+                  diss = 0.0_dp
+                  call gradm1(ddx, ddy, ddz, vxp)         ! du/dxj
+                  call col3(nu_ddx, ddx, vdiff, lv)
+                  call col3(nu_ddy, ddy, vdiff, lv)       ! nu*du/dxj
+                  call col3(nu_ddz, ddz, vdiff, lv)
+                  diss = diss + op_glsc2_wt(ddx, ddy, ddz, nu_ddx, nu_ddy, nu_ddz, bm1) ! nu*(du/dxj)**2*bm1
+                  call gradm1(ddx, ddy, ddz, vyp)
+                  call col3(nu_ddx, ddx, vdiff, lv)
+                  call col3(nu_ddy, ddy, vdiff, lv)
+                  call col3(nu_ddz, ddz, vdiff, lv)
+                  diss = diss + op_glsc2_wt(ddx, ddy, ddz, nu_ddx, nu_ddy, nu_ddz, bm1)
+                  call gradm1(ddx, ddy, ddz, vzp)
+                  call col3(nu_ddx, ddx, vdiff, lv)
+                  call col3(nu_ddy, ddy, vdiff, lv)
+                  call col3(nu_ddz, ddz, vdiff, lv)
+                  diss = diss + op_glsc2_wt(ddx, ddy, ddz, nu_ddx, nu_ddy, nu_ddz, bm1)
 
-               call prtpipe%save_2d_fields(prod_g, diss_g, vxp)
+                  ! energy growth rate
+                  gr = (pert_in%norm() - norm)/(norm*dt)
 
-               gr = (pert_in%norm() - norm)/(norm*dt)
-               
-               ! FTLE
-               FTLE = FTLE + gr*dt
-               tper = time/pd
-               if (io_rank() .and. .not. istep == ns) then
-                  write(msg,fmt) 'istep', istep, 't', time, tper,
-     &                           'norm', norm, 'E', norm**2,
-     &                           'gr', gr, 'FTLE', FTLE/tper,
-     &                           'P', prod_i, 'D', diss_i
+                  ! for consistency check:  (vec%norm)**2*gr = P - D     (note (vec%norm)**2 := 2E)
+                  
+                  ! FTLE
+                  FTLE = FTLE + gr*dt
+                  tper = tper + dt
+                  tpern = tper/pd
+
+                  write(msg,fmt) 'istep ', istep, ' t ', time, tper, tpern, ' P ', i,
+     &                           ' norm ', norm, ' E ', norm**2,
+     &                           ' gr ', gr, ' FTLE ', FTLE/tper,
+     &                           ' prod ', prod, ' diss ', diss
                   call nek_log_message(msg, this_module, this_procedure)
-               end if
 
-               ! update norm and lagged time
-               norm = pert_in%norm()
-               t_ = time
+                  ! update norm
+                  norm = pert_in%norm()
+               end do
             end do
-            if (io_rank()) then
-               write(msg,'(A,E15.8)') 'FTLE ', FTLE/tper
-               call nek_log_message(msg, this_module, this_procedure)
-               call outpost(prod_g, diss_g, vx, pr, t, 'bdg')
-            end if
+            write(msg,'(A,E15.8)') 'FTLE ', FTLE/tper
+            call nek_log_message(msg, this_module, this_procedure)
          end subroutine compute_energy_budgets_period_torus
       
          end module neklab_analysis_torus

@@ -475,6 +475,7 @@
 	         call self%save_2d_fields(vx, vy, vz)
             call self%write_2d(fname, only_mesh=.false.)
             call self%load_baseflow(vx, vy, vz, fname, 1)
+            self%nsave = 0
          end procedure
 
          module procedure setup_summary

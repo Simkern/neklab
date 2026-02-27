@@ -186,7 +186,7 @@
                ! reset output counter to overwrite output files, compute ubar_lag
                call pipe%set_2d_mode('newton')
                do istep = nsteps + 1, nsteps + nrst
-                  call pipe%set_baseflow(vx, vy, vz, istep) ! sets the baseflow field and the appropriate timestep
+                  call pipe%set_baseflow(vx, vy, vz, istep - nsteps) ! sets the baseflow field and the appropriate timestep
                   call nek_advance()
                   call nek2vec(vec_rst, vxp, vyp, vzp, prp, tp)
                   call vec_out%save_rst(vec_rst, istep - nsteps)

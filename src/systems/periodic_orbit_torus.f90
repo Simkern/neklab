@@ -3,17 +3,21 @@
       contains
          module procedure nonlinear_map_torus_upo
          character(len=*), parameter :: this_procedure = 'nonlinear_map_torus_upo'
+         real(dp), parameter :: eps = 1e-3_dp
+         real(dp) :: pd
          select type (vec_in)
          type is (nek_dvector)
             select type (vec_out)
             type is (nek_dvector)
+
+               pd = pipe%get_period()
 
       ! Set the initial condition for the nonlinear solver.
                call vec2nek(vx, vy, vz, pr, t, vec_in)
 
       ! Set appropriate tolerances and Nek status
                call setup_nonlinear_solver(variable_dt = .true., 
-     &                                     endtime     = pipe%get_period(), 
+     &                                     endtime     = pd, 
      &                                     cfl_limit   = 0.4_dp,
      &                                     vtol        = atol*0.1, 
      &                                     ptol        = atol*0.1)
@@ -28,6 +32,7 @@
                do while (lastep == 0)
                   istep = istep + 1
                   call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
+                  if (abs(time + 10*dt - pd) <= dt) dt = (pd-time)/(10.0_dp - eps)
                   call pipe%save_2d_fields(vx,vy,vz)
                   call nek_advance()
                   call pipe%compute_mflow_fft(var_dt = .true.) ! integrate Fourier coefficients
@@ -69,7 +74,7 @@
 
       ! Ensure correct nek status
                call setup_linear_solver(solve_baseflow = .false., 
-     &                                  variable_dt    = .true., 
+     &                                  variable_dt    = .false.,
      &                                  vtol           = atol*0.5, 
      &                                  ptol           = atol*0.5)
 
@@ -126,7 +131,7 @@
       ! Ensure correct nek status
                call setup_linear_solver(transpose      = .true., 
      &                                  solve_baseflow = .false.,
-     &                                  variable_dt    = .true.,
+     &                                  variable_dt    = .false.,
      &                                  vtol           = atol*0.5, 
      &                                  ptol           = atol*0.5)
 

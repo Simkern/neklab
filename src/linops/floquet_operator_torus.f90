@@ -208,7 +208,7 @@
                ! reset output counter to load baseflow files in order
                call pipe%set_2d_mode('floquet')
                do istep = nsteps + 1, nsteps + nrst
-                  call pipe%set_baseflow(vx, vy, vz, istep)
+                  call pipe%set_baseflow(vx, vy, vz, istep - nsteps)
                   call nek_advance()
                   call nek2vec(vec_rst, vxp, vyp, vzp, prp, tp)
                   call vec_out%save_rst(vec_rst, istep - nsteps)

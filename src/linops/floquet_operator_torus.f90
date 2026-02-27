@@ -42,6 +42,7 @@
       
          module procedure floquet_matvec
          character(len=*), parameter :: this_procedure = 'floquet_matvec'
+         real(dp), parameter :: eps = 1e-3_dp
          integer :: nrst
          select type (vec_in)
          type is (nek_dvector)
@@ -65,7 +66,7 @@
                   call pipe%set_save_base(.false.)
                   call setup_linear_solver(solve_baseflow = .false., 
      &                                     endtime        = self%tau, 
-     &                                     variable_dt    = .true.) ! -> load baseflow from 2d files
+     &                                     variable_dt    = .false.) ! -> load baseflow from 2d files
                end if
 
       ! Set the initial condition for Nek5000's linearized solver.
@@ -78,6 +79,7 @@
                   do while (lastep == 0)
                      istep = istep + 1
                      call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
+                     if (abs(time + 10*dt - self%tau) <= dt) dt = (self%tau-time)/(10.0_dp - eps)
                      call pipe%save_2d_fields(vx,vy,vz)
                      call nek_advance()
                      ! Set restart fields if present.
@@ -101,7 +103,7 @@
                call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
 
       ! Compute restart fields.
-               call compute_rst_dnek(vec_out, nrst)
+               call self%compute_rst(vec_out, nrst)
 
                self%baseflow_computed = .true. ! we only need to do this once
             
@@ -115,6 +117,7 @@
       
          module procedure floquet_rmatvec
          character(len=*), parameter :: this_procedure = 'floquet_rmatvec'
+         real(dp), parameter :: eps = 1e-3_dp
          integer :: nrst
          select type (vec_in)
          type is (nek_dvector)
@@ -141,7 +144,7 @@
                   call setup_linear_solver(transpose      = .true.,
      &                                     solve_baseflow = .false.,
      &                                     endtime        = self%tau,  
-     &                                     variable_dt    = .true.) ! -> load baseflow from 2d files
+     &                                     variable_dt    = .false.) ! -> load baseflow from 2d files
                end if
 
       ! Set the initial condition for Nek5000's linearized solver.
@@ -154,6 +157,7 @@
                   do while (lastep == 0)
                      istep = istep + 1
                      call pipe%compute_bf_forcing(time) ! --> set neklab_forcing data
+                     if (abs(time + 10*dt - self%tau) <= dt) dt = (self%tau-time)/(10.0_dp - eps)
                      call pipe%save_2d_fields(vx,vy,vz)
                      call nek_advance()
                      ! Set restart fields if present.
@@ -177,7 +181,7 @@
                call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
       
       ! Compute restart fields.
-               call compute_rst_dnek(vec_out, nrst)
+               call self%compute_rst(vec_out, nrst)
 
                self%baseflow_computed = .true. ! we only need to do this once
 
@@ -188,4 +192,29 @@
             call type_error('vec_in','nek_dvector','IN',this_module, this_procedure)
          end select
          end procedure floquet_rmatvec
+
+         module procedure floquet_compute_rst
+            ! internal
+            character(len=*), parameter :: this_procedure = 'floquet_compute_rst'
+            type(nek_dvector), allocatable :: vec_rst
+            character(len=128) :: msg
+            real(dp) :: rtmp
+            select type(vec_out)
+            type is (nek_dvector)
+               write(msg,'(A,I0,A)') 'Run ', nrst, ' extra step(s) to fill up restart arrays.'
+               call nek_log_debug(msg, this_module, this_procedure)
+               fintim = fintim + nrst*dt
+               allocate(vec_rst)
+               ! reset output counter to load baseflow files in order
+               call pipe%set_2d_mode('floquet')
+               do istep = nsteps + 1, nsteps + nrst
+                  call pipe%set_baseflow(vx, vy, vz, istep)
+                  call nek_advance()
+                  call nek2vec(vec_rst, vxp, vyp, vzp, prp, tp)
+                  call vec_out%save_rst(vec_rst, istep - nsteps)
+               end do
+            class default
+               call type_error('vec_out','nek_dvector','INOUT',this_module,this_procedure)
+            end select
+         end procedure floquet_compute_rst
       end submodule

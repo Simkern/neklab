@@ -105,6 +105,7 @@
             procedure, pass(self), public :: init => floquet_init
             procedure, pass(self), public :: matvec => floquet_matvec
             procedure, pass(self), public :: rmatvec => floquet_rmatvec
+            procedure, pass(self), public :: compute_rst => floquet_compute_rst
          end type
       
       ! --> Type-bound procedures: floquet_operator.f90
@@ -123,6 +124,12 @@
                class(floquet_linop), intent(inout) :: self
                class(abstract_vector_rdp), intent(in) :: vec_in
                class(abstract_vector_rdp), intent(out) :: vec_out
+            end subroutine
+
+            module subroutine floquet_compute_rst(self, vec_out, nrst)
+               class(floquet_linop), intent(inout) :: self
+               class(abstract_vector_rdp), intent(inout) :: vec_out
+               integer, intent(in) :: nrst
             end subroutine
          end interface
 

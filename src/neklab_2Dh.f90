@@ -218,7 +218,7 @@
                call add2(dpr(1,jp),frc_div(1,1,1,1,jp),ntot2)
                   
                call chsign  (dpr(1,jp),ntot2)
-               call ortho   (dpr(1,jp))
+               if (beta_z == 0.0_dp) call ortho   (dpr(1,jp))
              
                call solve_pressure_2Dh(dpr(1,jp),h1,h2,h2inv,beta_z,intype,iter)
             end do ! jp                
@@ -298,7 +298,7 @@
             include 'SIZE'
             include 'SOLN' ! jp
             include 'MASS' ! bm1
-            real, dimension(lx1*ly1*lz1*lelv,lpert), intent(out) :: gradz_p
+            real, dimension(lx1*ly1*lz1*lelv,lpert), intent(inout) :: gradz_p
             real, dimension(lx2*ly2*lz2*lelv), intent(in) :: prextr
             real, intent(in) :: beta_z
             ! internal
@@ -348,9 +348,12 @@
             ntot1 = lx1*ly1*lz1*nelv
             ntot2 = lx2*ly2*lz2*nelv
             call mappr  (wdivm1, wp, wrk1, wrk2)                    ! map to vmesh
-            call col2   (wdivm1, wmask, ntot1)
-            call col2c  (wdivm1, h2inv, -beta_z**2, ntot1)          ! collate -beta_z^2 * (h2)^-1
+            call col2   (wdivm1, bm1,   ntot1)                      ! collate mass matrix
+            call col2   (wdivm1, wmask, ntot1)                      ! mask Dirichlet conditions
             call dssum  (wdivm1, lx1, ly1, lz1)                     ! make continuous
+            call invcol2(wdivm1, bm1, ntot1  )                      ! collate inverse mass matrix
+            call col2   (wdivm1, h2inv, ntot1)                      ! collate (h2)^-1
+            call cmult  (wdivm1, -beta_z**2, ntot1)                 ! collate -beta_z^2
             do ie = 1, nelv
                call map12 (wdivm2(1,1,1,ie), wdivm1(1,1,1,ie), ie)  ! map wdiv to pmesh
             end do
@@ -360,7 +363,7 @@
 
          subroutine helmholtz_matvec_2Dh(Au, u, h1, h2, beta_z)
             implicit none
-            real, dimension(lx1,ly1,lz1,1), intent(in) :: Au   
+            real, dimension(lx1,ly1,lz1,1), intent(out) :: Au   
             real, dimension(lx1,ly1,lz1,1), intent(in) :: u   
             real, dimension(lx1,ly1,lz1,1), intent(in) :: h1
             real, dimension(lx1,ly1,lz1,1), intent(in) :: h2
@@ -374,7 +377,7 @@
             call axhelm (Au, u, h1, h2, imesh, 1)
             ! added spanwise viscous diffusion term
             call col3 (tmp, u, vdiff(1,1,1,1,1), ntot1)
-            call col2c(tmp, bm1, -beta_z**2, ntot1)
+            call col2c(tmp, bm1, beta_z**2, ntot1)
             call add2 (Au, tmp, ntot1)
          end subroutine helmholtz_matvec_2Dh
 
@@ -556,11 +559,11 @@
             divex = rnorm
 
             ! DIAGNOSTICS
-             call ortho  (w_gmres) ! Orthogonalize wrt null space, if present
+            if (beta_z == 0.0_dp) call ortho  (w_gmres) ! Orthogonalize wrt null space, if present
             ! DIAGNOSTICS
             call copy(res,x_gmres,ntot2)
 
-            call ortho (res)  ! Orthogonalize wrt null space, if present
+            if (beta_z == 0.0_dp) call ortho (res)  ! Orthogonalize wrt null space, if present
 
             etime1 = dnekclock()-etime1
             if (nio.eq.0) write(6,9999) istep,'  U-PRES gmres  ', 

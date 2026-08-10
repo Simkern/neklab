@@ -23,6 +23,7 @@ c-----------------------------------------------------------------------
       real(dp) :: energy
       real(dp) :: betaz
       real(dp) :: Lz
+      real(dp) :: tau
       complex(dp), parameter :: one_cdp = (1.0_dp, 0.0_dp), im_cdp = (0.0_dp, 1.0_dp)
 
       character(len=*), parameter :: fmt = '(A4,I6,A)'
@@ -57,11 +58,10 @@ c-----------------------------------------------------------------------
 
          if (nid == 0) print *, 'dot herm err ', abs(prt%dot(prt_out) - conjg(prt_out%dot(prt)))
 
-         STOP 9
-
          ! save baseflow
          call nek2vec(bf, vx, vy, vz, pr, t)
-         exptA = exptA_2Dh_linop(tau=1, betaz=betaz, Lz=Lz, baseflow=bf)
+         exptA = exptA_2Dh_linop(tau=1.0_dp, betaz=betaz, Lz=Lz, baseflow=bf)
+         
          ! load prt IC uvw
          ! real part
          call load_fld('IC_poiseuille_uv_r.fld')
@@ -79,6 +79,9 @@ c-----------------------------------------------------------------------
          ! set perturbations
          call vec2nek(vxp, vyp, vzp, prp, tp, prt)
 
+         time = 0.0_dp
+         energy = prt%norm()**2*exptA%Lz
+         if (nid == 0) print *, 'time', time, 'energy', energy
 	      do istep = 1, nstp
             call nek_advance_2Dh(betaz)
             call nek2vec(prt_out, vxp, vyp, vzp, prp, tp)
@@ -90,6 +93,8 @@ c-----------------------------------------------------------------------
          energy = prt%norm()**2*exptA%Lz
          if (nid == 0) print *, 'energy in ', energy
          
+         tau = nstp*dt
+         exptA = exptA_2Dh_linop(tau=tau, betaz=betaz, Lz=Lz, baseflow=bf)
          call exptA%matvec(prt, prt_out)
          
          call outpost_nek(prt_out, 'p__')

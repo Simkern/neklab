@@ -45,12 +45,20 @@
          end procedure
       
          module procedure nek_zscal
-         type(nek_zvector) :: wrk
-      ! Scratch array.
-         wrk = self
-      ! Scale complex vector.
-         call nek_daxpby(alpha%re, wrk%im, -alpha%im, self%re)
-         call nek_daxpby(alpha%re, wrk%re,  alpha%im, self%im)
+         type(nek_dvector) :: wrk
+         ! Complex scaling  z <- alpha * z  with alpha = a + i*b :
+         !
+         !     re <- a*re - b*im
+         !     im <- b*re + a*im
+         !
+         ! Recall that nek_daxpby(alpha, vec, beta, self) computes
+         !
+         !     self <- beta*self + alpha*vec
+         !
+         ! The update of the imaginary part needs the OLD real part, hence the copy.
+         wrk = self%re
+         call nek_daxpby(-alpha%im, self%im, alpha%re, self%re)   ! re <- a*re - b*im
+         call nek_daxpby(alpha%im, wrk, alpha%re, self%im)        ! im <- b*re + a*im
          end procedure
       
          module procedure nek_zaxpby

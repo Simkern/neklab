@@ -661,7 +661,7 @@
             call rzero(p,n)
 
             fmax = glamax(f,n)
-            if (fmax == 0.0) call nek_stop_error(name//': residual is zero.', this_module, 'solve_helmholtz_2Dh')
+            if (fmax == 0.0) return ! trivial solution
 
             ! Check for non-trivial null-space
 

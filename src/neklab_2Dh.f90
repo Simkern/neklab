@@ -7,10 +7,67 @@
       
          private
          character(len=*), parameter, private :: this_module = 'neklab_2Dh'
-      
+         
+         real(dp), dimension(lx1, ly1, lz1, lelv), public :: wmask
+         logical, public :: wmask_defined = .false.
+
+         public :: build_wmask
          public :: nek_advance_2Dh
       
       contains
+
+         subroutine build_wmask(verbose)
+            logical, optional, intent(in) :: verbose
+            ! internal
+            integer :: ie, ifc, nfaces, ntot, ifield_bak, nzero
+            real(dp), external :: vlsum
+            character(len=3) :: cb
+
+            nfaces = 2*ndim
+            ntot = lx1*ly1*lz1*nelv
+
+            call rone(wmask, ntot)
+
+            do ie = 1, nelv
+               do ifc = 1, nfaces
+                  cb = cbc(ifc, ie, 1)   ! velocity boundary conditions
+                  select case (cb)
+      ! Full velocity vector prescribed -> w is prescribed too.
+                  case ('W  ', 'v  ', 'V  ', 'vl ', 'VL ', 'mv ', 'MV ')
+                     call facev(wmask, ie, ifc, 0.0_dp, lx1, ly1, lz1)
+      ! Everything else leaves w free:
+      !   'SYM'          - normal lies in the x-y plane, w is tangential
+      !   'O  ','o  '    - outflow, natural BC
+      !   'ON ','on '    - only the normal component is constrained
+      !   'SL ','sl '    - slip, tangential components free
+      !   'shl'          - stress-free tangential
+      !   'P  ','p  '    - periodic, handled by dssum
+      !   'E  '          - interior
+                  end select
+               end do
+            end do
+
+      ! Propagate zeros across element interfaces. Called directly rather than
+      ! through opdsop so that the 2D dimension guard does not apply. 'MUL' is
+      ! the correct operator for a 0/1 mask: any node that is Dirichlet in one
+      ! element becomes Dirichlet in all elements sharing it.
+            ifield_bak = ifield
+            ifield = 1
+            call dsop(wmask, 'MUL', lx1, ly1, lz1)
+            ifield = ifield_bak
+
+            wmask_defined = .true.
+
+            if (present(verbose)) then
+            if (verbose .and. nid == 0) then
+               nzero = ntot - nint(vlsum(wmask, ntot))
+               write (6, '(A,I10,A,I10,A)')
+     &            ' neklab_masks: wmask built, ', nzero, ' of ', ntot,
+     &            ' local nodes constrained.'
+            end if
+            end if
+
+         end subroutine build_wmask
 
          subroutine nek_advance_2dh(beta_z)
             !implicit none
@@ -103,7 +160,7 @@
                      call sethlm   (h1,h2,intype)
                      ! cresvipp 
                      call bcdirvc (vxp(1,jp), vyp(1,jp), vzp(1,jp),v1mask,v2mask,v3mask)
-                     call bcdirvc (tp(1,1,jp),vyp(1,jp), vzp(1,jp),v3mask,v2mask,v3mask)
+                     call col2(tp(1,1,jp), wmask, ntot1)
 
                      call extrapprp(prextr)
                      call opgradt(resv1,resv2,resv3,prextr)      ! d/dx pr, d/dy pr
@@ -133,9 +190,9 @@
                      call solve_helmholtz_2Dh(dv2,resv2,h1,h2,v2mask,vmult,imesh,tolhv,nmxv,2,binvm1,'VELY',beta_z)
                      
                      call dssum  (resv3,lx1,ly1,lz1)
-                     call col2   (resv3,v3mask,ntot1)
-                     if (istep < 10) call chktcg1 (tolhv,resv3,h1,h2,v3mask,vmult,imesh,3)
-                     call solve_helmholtz_2Dh(dv3,resv3,h1,h2,v3mask,vmult,imesh,tolhv,nmxv,3,binvm1,'VELZ',beta_z)
+                     call col2   (resv3,wmask,ntot1)
+                     if (istep < 10) call chktcg1 (tolhv,resv3,h1,h2,wmask,vmult,imesh,3)
+                     call solve_helmholtz_2Dh(dv3,resv3,h1,h2,wmask,vmult,imesh,tolhv,nmxv,3,binvm1,'VELZ',beta_z)
                      
                      call opadd2 (vxp(1,jp),vyp(1,jp),vzp(1,jp),dv1,dv2,dv3)
                      call add2   (tp(1,1,jp),dv3,ntot1)
@@ -208,7 +265,7 @@
             call mappr  (dw(1,jp), dpr(1,ipert), wrk1, wrk2) ! map to vmesh
             call col2c  (dw(1,jp), bm1, -spert*beta_z, ntot1)
             ! call dssum on dw
-            call col2   (dw(1,jp), v3mask, ntot1)
+            call col2   (dw(1,jp), wmask, ntot1)
             call dssum  (dw(1,jp), lx1, ly1, lz1)
             call invcol2(dw(1,jp), bm1h2inv,ntot1)
          end
@@ -291,7 +348,7 @@
             ntot1 = lx1*ly1*lz1*nelv
             ntot2 = lx2*ly2*lz2*nelv
             call mappr  (wdivm1, wp, wrk1, wrk2)                    ! map to vmesh
-            call col2   (wdivm1, v3mask, ntot1)
+            call col2   (wdivm1, wmask, ntot1)
             call col2c  (wdivm1, h2inv, -beta_z**2, ntot1)          ! collate -beta_z^2 * (h2)^-1
             call dssum  (wdivm1, lx1, ly1, lz1)                     ! make continuous
             do ie = 1, nelv

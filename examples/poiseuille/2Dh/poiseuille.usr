@@ -2,6 +2,7 @@ c-----------------------------------------------------------------------
       subroutine userchk
 
       use neklab
+      use neklab_2Dh
       implicit none
       include "SIZE"
       include "FDMH1"
@@ -22,6 +23,7 @@ c-----------------------------------------------------------------------
       real(dp) :: energy
       real(dp) :: betaz
       real(dp) :: Lz
+      complex(dp), parameter :: one_cdp = (1.0_dp, 0.0_dp), im_cdp = (0.0_dp, 1.0_dp)
 
       character(len=*), parameter :: fmt = '(A4,I6,A)'
 
@@ -32,10 +34,31 @@ c-----------------------------------------------------------------------
 
       betaz = 1.0_dp
       Lz = 2*pi
+      imesh = 1
       ! pert 1: real
       ! pert 2: imag
 
       if (istep.eq.0) then
+
+         call build_wmask(.true.)
+
+         call prt%rand(ifnorm=.true.)
+         call col2(prt%re%theta(:,1), wmask, ntot1)
+         call col2(prt%im%theta(:,1), wmask, ntot1)
+         prt_out = prt
+         call prt_out%scal(one_cdp)                       ! must be a no-op
+         call prt_out%axpby(-one_cdp, prt, one_cdp)
+         if (nid == 0) print *, 'scal(1) err  ', prt_out%norm()
+
+         prt_out = prt
+         call prt_out%scal(im_cdp); call prt_out%scal(im_cdp)   ! i^2 = -1
+         call prt_out%axpby(one_cdp, prt, one_cdp)
+         if (nid == 0) print *, 'scal(i)^2 err', prt_out%norm()
+
+         if (nid == 0) print *, 'dot herm err ', abs(prt%dot(prt_out) - conjg(prt_out%dot(prt)))
+
+         STOP 9
+
          ! save baseflow
          call nek2vec(bf, vx, vy, vz, pr, t)
          exptA = exptA_2Dh_linop(tau=1, betaz=betaz, Lz=Lz, baseflow=bf)

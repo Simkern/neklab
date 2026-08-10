@@ -58,6 +58,8 @@ else
     
 fi
 
+CFLAGS+=" -w" # Disable warnings for C compiler
+
 #-------------------------------------------------------------------------------
 # Linking with LAPACK and BLAS
 #-------------------------------------------------------------------------------
@@ -67,7 +69,11 @@ export PPLIST="VENDOR_BLAS"
 # Lapack is a library of linear algebra routines.
 # Blas (Basic Linear Algebra Subprograms) is used by Lapack.
 
-export USR_LFLAGS+=" -llapack -lblas"
+if [[ $(uname -s) == "Darwin" ]]; then
+    USR_LFLAGS+=" -framework Accelerate"
+else
+    USR_LFLAGS+=" -llapack -lblas"
+fi
 
 #export USR_LFLAGS+=" -L/usr/local/opt/openblas/lib"
 #export FFLAGS+=" -I/usr/local/opt/openblas/include"
@@ -108,54 +114,102 @@ export FFLAGS
 echo "include $NEKLAB_SOURCE_ROOT/src/makefile_neklab" > makefile_usr.inc
 
 # User-specified object files
-USR="neklab_vectors.o"
-USR+=" real_vectors.o"
-USR+=" real_extended_vectors.o"
-USR+=" complex_vectors.o"
-USR+=" neklab_utils.o"
-USR+=" neklab_nek_setup.o"
-USR+=" neklab_nek_forcing.o"
-USR+=" neklab_2Dh.o"
-USR+=" neklab_helix.o"
-USR+=" helix_io.o"
-USR+=" helix_utils.o"
-USR+=" helix_gs.o"
-USR+=" helix_2d.o"
-USR+=" helix_mflow_fft.o"
-USR+=" neklab_linops.o"
-USR+=" exponential_propagator.o"
-USR+=" exponential_propagator_2Dh.o"
-USR+=" floquet_operator_torus.o"
-USR+=" resolvent.o"
-USR+=" neklab_systems.o"
-USR+=" fixed_point.o"
-USR+=" fixed_point_torus.o"
-USR+=" periodic_orbit.o"
-USR+=" periodic_orbit_torus.o"
-USR+=" neklab_otd.o"
-USR+=" neklab_analysis.o"
-USR+=" neklab_analysis_torus.o"
-USR+=" neklab.o"
-export USR
+USR_NEKLAB="neklab_vectors.o"
+USR_NEKLAB+=" real_vectors.o"
+USR_NEKLAB+=" real_extended_vectors.o"
+USR_NEKLAB+=" complex_vectors.o"
+USR_NEKLAB+=" neklab_utils.o"
+USR_NEKLAB+=" neklab_nek_setup.o"
+USR_NEKLAB+=" neklab_nek_forcing.o"
+USR_NEKLAB+=" neklab_2Dh.o"
+USR_NEKLAB+=" neklab_helix.o"
+USR_NEKLAB+=" helix_io.o"
+USR_NEKLAB+=" helix_utils.o"
+USR_NEKLAB+=" helix_gs.o"
+USR_NEKLAB+=" helix_2d.o"
+USR_NEKLAB+=" helix_mflow_fft.o"
+USR_NEKLAB+=" neklab_linops.o"
+USR_NEKLAB+=" exponential_propagator.o"
+USR_NEKLAB+=" exponential_propagator_2Dh.o"
+USR_NEKLAB+=" floquet_operator_torus.o"
+USR_NEKLAB+=" resolvent.o"
+USR_NEKLAB+=" neklab_systems.o"
+USR_NEKLAB+=" fixed_point.o"
+USR_NEKLAB+=" fixed_point_torus.o"
+USR_NEKLAB+=" periodic_orbit.o"
+USR_NEKLAB+=" periodic_orbit_torus.o"
+USR_NEKLAB+=" neklab_otd.o"
+USR_NEKLAB+=" neklab_analysis.o"
+USR_NEKLAB+=" neklab_analysis_torus.o"
+USR_NEKLAB+=" neklab.o"
+# get casename from .usr file
+CASENAME=`find *.usr | sed 's/\.usr$//g'`
 
-# Output summary of settings
-echo ""
-echo "  compilation script: $0"
-echo "  Nek5000 version:    $N_VERSION"
-echo "  neklab version:     $NS_VERSION"
-echo "  preparing compilation with:"
-echo "      compiler:     $(which $FC)"
-echo "      flags:      $FFLAGS"
-echo "      link-flags: $USR_LFLAGS"
-echo "  USR = $USR"
-echo ""
+if [[ $1 == "clean" ]]; then
 
-set +a -e
-$NEK_SOURCE_ROOT/bin/nekconfig $@
-if [[ $1 != "clean" ]]; then
- $NEK_SOURCE_ROOT/bin/nekconfig -build-dep
- set -o pipefail
- touch $1.usr 
- make -j1 2>&1 | tee -a build.log
- set +o pipefail
+   echo ""
+   echo "#############################################################"
+   echo "#                Clean neklab compilation                   #"
+   echo "#############################################################"
+   echo ""
+   set +a -e
+   set -o pipefail
+   $NEK_SOURCE_ROOT/bin/nekconfig $@
+
+else
+
+   # Output summary of settings
+   echo ""
+   echo "  compilation script: $0"
+   echo "  casename:           $CASENAME"
+   echo "  Nek5000 version:    $N_VERSION"
+   echo "  neklab version:     $NS_VERSION"
+   echo "  preparing compilation with:"
+   echo "      compiler:     $(which $FC)"
+   echo "      flags:      $FFLAGS"
+   echo "      link-flags: $USR_LFLAGS"
+
+   # Compile dummy first
+   echo ""
+   echo "#############################################################"
+   echo "#              Compiling base nek nek_dummy.usr             #"
+   echo "#############################################################"
+   echo ""
+   mv $CASENAME.usr $CASENAME.usr_tmp
+   cp $NEK_SOURCE_ROOT/short_tests/chan2d/chan2d.usr nek_dummy.usr
+
+   set +a -e
+   set -o pipefail
+   $NEK_SOURCE_ROOT/bin/nekconfig $@
+   $NEK_SOURCE_ROOT/bin/nekconfig -build-dep
+   
+   # Compile dummy in parallel
+   make -j4 2>&1 | tee -a build.log
+   
+   # Compile full case in serial to avoid race condition
+   echo "#############################################################"
+   echo "#                  Compiling $CASENAME.usr"
+   echo "#############################################################"
+   echo ""
+   echo "Add neklab specifics to compilation:"
+   echo "        USR_NEKLAB = $USR_NEKLAB"
+   echo ""
+   USR=$USR_NEKLAB
+   export USR
+   $NEK_SOURCE_ROOT/bin/nekconfig $@
+   rm -rf nek_dummy.usr
+   cp $CASENAME.usr_tmp $CASENAME.usr
+
+   set +a -e
+   $NEK_SOURCE_ROOT/bin/nekconfig $@
+   $NEK_SOURCE_ROOT/bin/nekconfig -build-dep
+
+   # Compile dummy in serial
+   make -j1 2>&1 | tee -a build.log
+      
+   set +o pipefail
+   if [ $(ls *.mod 2>/dev/null | wc -l) -gt 0 ]; then
+      mv *.mod obj
+      mv *.smod obj 2>/dev/null || true
+   fi
 fi

@@ -60,7 +60,7 @@
          ! Integrate the equations forward in time.
                time = 0.0_dp
                do istep = 1, nsteps
-                  call nek_advance_2Dh(self%betaz)
+                  call nek_advance_2Dh(-self%betaz) ! sign flip for adjoint integration
                end do
          ! Copy the final solution to vector.
                call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)

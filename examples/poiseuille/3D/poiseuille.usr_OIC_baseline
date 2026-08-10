@@ -128,7 +128,7 @@ c-----------------------------------------------------------------------
          
          call load_fld('IC_poiseuille.fld')
          call nek2vec(ini, vx, vy, vz, pr, t)
-         call ini%scal(1.0_dp/ini%norm())
+         !call ini%scal(1.0_dp/ini%norm())
 
          call vec2nek(vxp, vyp, vzp, prp, tp, ini)
          call vec2nek(vx, vy, vz, pr, t, bf)      

@@ -2,7 +2,7 @@
 #stopat = numSteps
 #numsteps = 1000 
 stopat = endTime
-endTime = 50.0
+endTime = 5.0
 #
 dt = 0.033577862
 variableDT = no

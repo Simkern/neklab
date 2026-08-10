@@ -1,0 +1,2 @@
+p '< grep energy ../3D/logfile' u 2:4 w l t '3D', \
+  '< grep energy logfile' u 2:4 w p t '2.5D'

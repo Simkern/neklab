@@ -1,0 +1,2 @@
+#set logscale y
+p '< grep energy logfile' u 2:4 w l

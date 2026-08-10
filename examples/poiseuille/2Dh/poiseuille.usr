@@ -9,9 +9,9 @@ c-----------------------------------------------------------------------
       include "TOTAL"
 
       ! State vectors
-      type(nek_dvector) :: bf, prt_r, prt_i
-      type(nek_zvector) :: prt, prt_out
-      type(exptA_2Dh_linop) :: exptA
+      type(nek_dvector), allocatable :: bf, prt_r, prt_i
+      type(nek_zvector), allocatable :: prt, prt_out
+      type(exptA_2Dh_linop), allocatable :: exptA
 
       ! parameters
       integer, parameter :: nxyz1 = lx1*ly1*lz1
@@ -38,6 +38,8 @@ c-----------------------------------------------------------------------
       imesh = 1
       ! pert 1: real
       ! pert 2: imag
+
+      allocate(bf, prt, prt_out)
 
       if (istep.eq.0) then
 
@@ -73,6 +75,9 @@ c-----------------------------------------------------------------------
          call nek2vec(prt%im, vx, vy, vz, pr, t)
          call load_fld('IC_poiseuille_uw_i.fld')
          call copy(prt%im%theta, vy, ntot1)
+         ! zero out pressure in case something was loaded
+         prt%re%pr = 0.0_dp; prt%im%pr = 0.0_dp
+         prlagp = 0.0_dp
 
          ! reset baseflow
          call vec2nek(vx, vy, vz, pr, t, bf)

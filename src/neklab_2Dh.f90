@@ -351,7 +351,7 @@
             call col2   (wdivm1, bm1,   ntot1)                      ! collate mass matrix
             call col2   (wdivm1, wmask, ntot1)                      ! mask Dirichlet conditions
             call dssum  (wdivm1, lx1, ly1, lz1)                     ! make continuous
-            call invcol2(wdivm1, bm1, ntot1  )                      ! collate inverse mass matrix
+            call col2   (wdivm1, binvm1, ntot1)                     ! collate inverse mass matrix
             call col2   (wdivm1, h2inv, ntot1)                      ! collate (h2)^-1
             call cmult  (wdivm1, -beta_z**2, ntot1)                 ! collate -beta_z^2
             do ie = 1, nelv

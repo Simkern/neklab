@@ -66,6 +66,9 @@ Nek5000/
 **/__pycache__
 **/[0-9][0-9]*/*
 examples/**/*.f
+**/poiseuille/*
+**/cavity/*
+**/fstep/*
 
 # mesh testing
 **/mesh_test/SIZE

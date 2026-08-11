@@ -98,13 +98,19 @@
             ! spanwise velocity correction
             real(dp), dimension(lx2*ly2*lz2*lelv,lpert) :: dpr
             ! prefactor
+            real(dp), dimension(lx2*ly2*lz2*lelv) :: onep, ep
+            ! temporary fields for mean pressure recovery
+            real(dp) :: ebar
+            ! mean pressure
             ! Miscellaneous
             character(len=*), parameter :: this_procedure = 'nek_advance'
             character(len=*), parameter :: fmt = '(A,I6)'
             character(len=256) :: msg
+            character(len=2) :: info_str
             real(dp) :: dtbd
             integer :: igeom, iter, intype, kfldfdm
             integer :: ntot1, ntot2
+            real, external :: glsum
 
             ntot1 = lx1*ly1*lz1*nelv
             ntot2 = lx2*ly2*lz2*nelv
@@ -120,11 +126,16 @@
             call comment
             call setprop
 
+            ifield = 1
+            imesh = 1
+            call unorm
+            call settolv
+
             ! compute best estimate for d/dz (p)
             
             msg = 'Compute explicit pressure gradient term for w'
             call nek_log_debug(msg,this_module,this_procedure)
-            ifield = 1
+
             do jp = 1, npert
                ! we need to do this outside of the other jp loop for extrapolation of the correct pressure term
                call extrapprp(prextr)
@@ -135,6 +146,7 @@
 
             msg = 'Solve momentum equations for u/v/w'
             call nek_log_debug(msg,this_module,this_procedure)
+
             do jp = 1, npert
                do igeom = 1,ngeom
                   if (igeom == 1) then
@@ -157,8 +169,7 @@
                      call sethlm   (h1,h2,intype)
                      ! cresvipp 
                      call bcdirvc (vxp(1,jp), vyp(1,jp), vzp(1,jp),v1mask,v2mask,v3mask)
-                     call col2(tp(1,1,jp), wmask, ntot1)
-
+                     call col2    (tp(1,1,jp), wmask, ntot1)
                      call extrapprp(prextr)
                      call opgradt(resv1,resv2,resv3,prextr)      ! d/dx pr, d/dy pr
                      call opadd2 (resv1,resv2,resv3,bfxp(1,jp), bfyp(1,jp),bfzp(1,jp))
@@ -199,25 +210,35 @@
                   
             msg = 'Compute pressure correction to enforce mass balance'
             call nek_log_debug(msg,this_module,this_procedure)
+
+            ! prepare incomprp
+            ifield = 1 ! velocity
+            intype = 1
+            dtbd   = bd(1)/dt
+            
+            call rzero   (h1,ntot1)
+            call cmult2  (h2,vtrans(1,1,1,1,ifield),dtbd,ntot1)
+            call invers2 (h2inv,h2,ntot1)
+            ! if beta != 0, compute mean pressure to add it back after the pressure solve
+            ebar = 0.0_dp
+            if (beta_z /= 0) then
+               call rone(onep, ntot2)
+               call pressure_matvec_2Dh(ep,onep,h1,h2,h2inv,beta_z,intype)
+               ebar = glsum(ep, ntot2)
+            end if
+
             do jp = 1, npert
-               ! incomprp
-               ifield = 1 ! velocity
-               intype = 1
-               dtbd   = bd(1)/dt
+               info_str = merge('Re', 'Im', jp == 1)
                
-               call rzero   (h1,ntot1)
-               call cmult2  (h2,vtrans(1,1,1,1,ifield),dtbd,ntot1)
-               call invers2 (h2inv,h2,ntot1)
-                  
                call opdiv   (dpr(1,jp),vxp(1,jp),vyp(1,jp),vzp(1,jp))
 
                call compute_frc_div(frc_div, tp, beta_z)
-               call add2(dpr(1,jp),frc_div(1,1,1,1,jp),ntot2)
+               call add2    (dpr(1,jp),frc_div(1,1,1,1,jp),ntot2)
                   
                call chsign  (dpr(1,jp),ntot2)
-               if (beta_z == 0.0_dp) call ortho   (dpr(1,jp))
+               if (beta_z == 0.0_dp) call ortho (dpr(1,jp))
              
-               call solve_pressure_2Dh(dpr(1,jp),h1,h2,h2inv,beta_z,intype,iter)
+               call solve_pressure_2Dh(dpr(1,jp),h1,h2,h2inv,beta_z,intype,iter,ebar,info_str)
             end do ! jp                
 
             ! Reconstruct pressure and add pressure correction
@@ -380,7 +401,7 @@
             call add2 (Au, tmp, ntot1)
          end subroutine helmholtz_matvec_2Dh
 
-         subroutine solve_pressure_2Dh(res,h1,h2,h2inv,beta_z,intype,iter)
+         subroutine solve_pressure_2Dh(res,h1,h2,h2inv,beta_z,intype,iter,ebar,info_str)
             implicit none
             include 'GMRES'
 
@@ -402,8 +423,10 @@
             real, dimension(lx1,ly1,lz1,lelv), intent(in)    :: h2inv
             integer, intent(in) :: intype
             integer, intent(inout) :: iter
+            real(dp), intent(in) :: ebar
+            character(len=2), optional, intent(in) :: info_str
             !!! add the contribution from the 3rd perturbation component
-            real             beta_z
+            real(dp) beta_z
             !!!
             ! internal
             real, dimension(lx2,ly2,lz2,lelv) :: wp
@@ -424,7 +447,9 @@
 
             real*8 etime1,dnekclock
 
-            real, external :: vlsc2, glsc2
+            real, external :: vlsc2, glsc2, glsum
+
+            integer, parameter :: gmres_imax = 100
 
             if(.not.iflag) then
                iflag=.true.
@@ -448,7 +473,7 @@
             iconv = 0
             call rzero(x_gmres,ntot2)
 
-            do while(iconv.eq.0.and.iter.lt.100)
+            do while(iconv.eq.0.and.iter.lt.gmres_imax)
             
                if(iter.eq.0) then
                                                               !      -1
@@ -485,6 +510,11 @@
                                                            !       -1                                  
                   call hsmg_solve(z_gmres(1,j),w_gmres)    ! z  = M   w
                   !call uzprec(z_gmres(1,j),w_gmres,h1,h2,intype,wp)
+                  
+                  ! add mean back to solution if provided
+                  if (ebar /= 0.0_dp) then
+                     call cadd(z_gmres(1,j), glsum(w_gmres,ntot2)/ebar, ntot2)
+                  end if
                   
                   etime_p = etime_p + dnekclock()-etime2
                
@@ -565,8 +595,16 @@
             if (beta_z == 0.0_dp) call ortho (res)  ! Orthogonalize wrt null space, if present
 
             etime1 = dnekclock()-etime1
-            if (nio.eq.0) write(6,9999) istep,'  U-PRES gmres  ', 
+
+            if (present(info_str)) then
+               if (nio.eq.0) write(6,9998) istep,'  U-PRES gmres  beta = ', beta_z,info_str,
      $                                  iter,divex,div0,tolpss,etime_p,etime1
+            else
+               if (nio.eq.0) write(6,9999) istep,'  U-PRES gmres  ', 
+     $                                  iter,divex,div0,tolpss,etime_p,etime1
+            end if
+            
+ 9998       format(i11,a,F5.1,1X,A,1X,I6,1p5e13.4)
  9999       format(i11,a,I6,1p5e13.4)
          
          end subroutine solve_pressure_2Dh
@@ -641,7 +679,7 @@
             tol=abs(tin)
 
             ! overrule input tolerance
-            if (restol(ifield).ne.0) tol=restol(ifield)
+            if (restol(ifield).ne.0) tol = abs(restol(ifield))
 
             if (tin.lt.0) tol=abs(tin)
             niter = min(maxit,maxcg)

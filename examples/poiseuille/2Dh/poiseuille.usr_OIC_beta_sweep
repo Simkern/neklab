@@ -1,0 +1,253 @@
+c-----------------------------------------------------------------------
+      subroutine userchk
+
+      use neklab
+      use neklab_2Dh
+      implicit none
+      include "SIZE"
+      include "FDMH1"
+      include "TOTAL"
+
+      ! State vectors
+      type(nek_dvector), allocatable :: bf
+      type(nek_zvector), allocatable :: prt, prt_out
+
+      ! parameters
+      integer, parameter :: nxyz1 = lx1*ly1*lz1
+      integer, parameter :: nxyz2 = lx2*ly2*lz2
+      integer, parameter :: lv    = nxyz1*lelv
+      
+      ! internal
+      integer :: ntot1, ntot2, ibeta
+      real(dp) :: energy, betaz, Lz, tau
+      real(dp), allocatable :: betaz_v(:)
+      complex(dp), parameter :: one_cdp = (1.0_dp, 0.0_dp), im_cdp = (0.0_dp, 1.0_dp)
+
+      character(len=*), parameter :: fmt = '(A4,I6,A)'
+
+      integer, parameter :: nstp  = 100
+
+      ntot1 = nxyz1*nelv
+      ntot2 = nxyz2*nelv
+
+      betaz_v = [ 0.0_dp, 1.0_dp, 2.0_dp, 5.0_dp, 10.0_dp, 20.0_dp, 50.0_dp ]
+      Lz = 2*pi
+      ! pert 1: real
+      ! pert 2: imag
+
+      allocate(bf, prt, prt_out)
+
+      if (istep.eq.0) then
+
+         call build_wmask(.true.)
+
+         ! save baseflow
+         call nek2vec(bf, vx, vy, vz, pr, t)
+
+         do ibeta = 1, size(betaz_v)
+
+            betaz = betaz_v(ibeta)
+            if (nid == 0) then
+               print *, 'energy'
+               print *, 'energy    beta =', betaz
+               print *, 'energy'
+            end if
+            
+            ! load prt IC uvw
+            ! real part
+            call load_fld('IC_poiseuille_uv_r.fld')
+            call nek2vec(prt%re, vx, vy, vz, pr, t)
+            call load_fld('IC_poiseuille_uw_r.fld')
+            call copy(prt%re%theta, vy, ntot1)
+            ! imag part
+            call load_fld('IC_poiseuille_uv_i.fld')
+            call nek2vec(prt%im, vx, vy, vz, pr, t)
+            call load_fld('IC_poiseuille_uw_i.fld')
+            call copy(prt%im%theta, vy, ntot1)
+            ! zero out pressure in case something was loaded
+            prt%re%pr = 0.0_dp; prt%im%pr = 0.0_dp
+            prlagp = 0.0_dp
+
+            ! reset baseflow
+            call vec2nek(vx, vy, vz, pr, t, bf)
+            ! set perturbations
+            call vec2nek(vxp, vyp, vzp, prp, tp, prt)
+
+            time = 0.0_dp
+            energy = prt%norm()**2*Lz
+            if (nid == 0) print *, 'beta', betaz, 'time', time, 'energy', energy
+            do istep = 1, nstp
+               call nek_advance_2Dh(betaz)
+               call nek2vec(prt_out, vxp, vyp, vzp, prp, tp)
+               energy = prt_out%norm()**2*Lz
+               if (nid == 0) print *, 'beta', betaz, 'time', time, 'energy', energy
+            enddo
+         
+         end do
+
+	      call nek_end()
+      end if
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine uservp (ix,iy,iz,ieg)
+
+      implicit none
+
+      include 'SIZE'
+      include 'NEKUSE'          ! UDIFF, UTRANS
+
+      integer ix,iy,iz,ieg
+
+      UDIFF =0.
+      UTRANS=0.
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userf  (ix,iy,iz,ieg)
+
+      implicit none
+      include 'SIZE'
+      include 'SOLN'            ! jp
+      include 'NEKUSE'          ! FFX, FFY, FFZ
+      include 'PARALLEL'        ! GLLEL
+      integer :: ix,iy,iz,ieg
+
+      FFX = 0.0
+      FFY = 0.0
+      FFZ = 0.0 
+     
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userq  (ix,iy,iz,ieg)
+
+      implicit none
+
+      include 'SIZE'
+      include 'SOLN'            ! jp
+      include 'NEKUSE'          ! QVOL
+      include 'PARALLEL'        ! GLLEL
+      integer :: ix,iy,iz,ieg
+      
+      QVOL = 0.0
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userbc (ix,iy,iz,iside,eg)
+
+      implicit none
+
+      include 'SIZE'
+      include 'NEKUSE'          ! UX, UY, UZ, TEMP, X, Y
+      include 'SOLN'            ! jp
+
+      integer ix,iy,iz,iside,eg
+
+      if (jp.eq.0) then
+c     baseflow
+        if (cbu.eq.'v  ') then
+          UX = 0.0d0
+          UY = 0.0d0
+          UZ = 0.0d0
+	  temp = 0.0d0
+        endif
+      else
+c     perturbations
+        UX = 0.0d0
+        UY = 0.0d0
+        UZ = 0.0d0
+	temp = 0.0d0
+      endif
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine useric (ix,iy,iz,ieg)
+
+      implicit none
+
+      include 'SIZE'
+      include 'INPUT'
+      include 'NEKUSE'          ! UX, UY, UZ, TEMP, Z
+      include 'SOLN'            ! JP
+      include 'PARALLEL'        ! gllel
+
+      integer ix,iy,iz,ieg
+      integer ie, ijke
+
+      real amp, pi, kx(lpert), ky(lpert) 
+
+      real mth_rand
+      real xl(LDIM)
+      real fcoeff(3)
+
+      ie = gllel(ieg)
+
+      pi = 4.0*atan(1.0)
+
+c     velocity
+c     base flow
+      if (jp.eq.0) then
+        UX = (1.0d0 - Y**2)
+        UY = 0.0d0
+        UZ = 0.0d0
+	temp = 0.0d0
+      else
+c     perturbation
+        ijke = ix + lx1*((iy-1) + ly1*((iz-1) + lz1*(ie-1)))
+        UX   = 0.d00
+        UY   = 0.d00
+        UZ   = 0.d00
+        temp = 0.d00
+      endif
+
+      return
+      end
+c-----------------------------------------------------------------------
+c     This routine to modify element vertices
+      subroutine usrdat
+
+      implicit none
+
+      include 'SIZE'
+      include 'TOTAL'
+
+      real glmin,glmax
+           
+      real fact,x_min,x_max,y_max,y_min,z_min,z_max
+      integer n
+
+      n = 8*nelv
+      
+      fact = 4.*atan(1.)
+      call cmult(xc,fact,n)
+      if (if3d) then    
+        call cmult(zc,fact,n)
+      endif     
+
+      x_min=glmin(xc,n)
+      y_min=glmin(yc,n)
+      x_max=glmax(xc,n)
+      y_max=glmax(yc,n)
+      if (if3d) then
+        z_min=glmin(zc,n)
+        z_max=glmax(zc,n)
+      endif
+      
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat2
+      implicit none
+      
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat3
+      implicit none
+
+      return
+      end

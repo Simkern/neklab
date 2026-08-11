@@ -21,7 +21,7 @@ solveBaseflow = no
 variableProperties = no
 #
 [VELOCITY]
-residualtol = 1e-6
+residualtol = 1e-8
 residualproj = no
 density = 1
 viscosity = -5000.0

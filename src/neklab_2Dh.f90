@@ -70,10 +70,7 @@
          end subroutine build_wmask
 
          subroutine nek_advance_2dh(beta_z)
-            !implicit none
-            !include 'SIZE'
-            !include 'SOLN' ! jp
-            !include 'MASS' ! bm1
+            implicit none
             real(dp), intent(in) :: beta_z
             ! spanwise wavenumber
             ! common
@@ -100,8 +97,6 @@
             real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: dw
             ! spanwise velocity correction
             real(dp), dimension(lx2*ly2*lz2*lelv,lpert) :: dpr
-            ! pressure correction
-            real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: bm1h2inv
             ! prefactor
             ! Miscellaneous
             character(len=*), parameter :: this_procedure = 'nek_advance'
@@ -113,6 +108,8 @@
 
             ntot1 = lx1*ly1*lz1*nelv
             ntot2 = lx2*ly2*lz2*nelv
+            if (.not. wmask_defined) call build_wmask(.true.)
+
             write(msg,fmt) 'Step', istep
             call nek_log_debug(msg,this_module,this_procedure)
 
@@ -227,14 +224,11 @@
 
             msg = 'Compute velocity correction based on pressure correction'
             call nek_log_debug(msg,this_module,this_procedure)
-            ! prepare
-            call invcol3 (bm1h2inv,bm1,h2inv,ntot1)    ! = bm1/h2inv = B*h2
-            call dssum   (bm1h2inv,lx1,ly1,lz1)
 
             do jp = 1, npert
                call opgradt (w1 ,w2 ,w3 ,dpr(1,jp))
                call opbinv  (dv1,dv2,dv3,w1 ,w2 ,w3 ,h2inv)
-               call compute_dw(dw, dpr, bm1h2inv, beta_z) ! dw
+               call compute_dw(dw, dpr, h2inv, beta_z) ! dw
 
                call opadd2 (vxp(1,jp),vyp(1,jp),vzp(1,jp), dv1,dv2,dv3)
                call   add2 (tp(1,1,jp), dw(1,jp), ntot1)
@@ -245,14 +239,14 @@
             end do ! jp
          end subroutine nek_advance_2Dh
 
-         subroutine compute_dw(dw, dpr, bm1h2inv, beta_z)
+         subroutine compute_dw(dw, dpr, h2inv, beta_z)
             implicit none
             include 'SIZE'
-            include 'SOLN' ! v3mask, jp
+            include 'SOLN' ! jp
             include 'MASS' ! bm1
             real, dimension(lx1*ly1*lz1*lelv,lpert), intent(out) :: dw
             real, dimension(lx2*ly2*lz2*lelv,lpert), intent(in) :: dpr
-            real, dimension(lx1*ly1*lz1*lelv,lpert), intent(in) :: bm1h2inv
+            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h2inv
             real, intent(in) :: beta_z
             ! internal
             integer :: ipert, spert, ntot1
@@ -262,12 +256,15 @@
             spert = merge(1, -1, jp == 1)  ! +1 for jp = 1, -1 for jp = 2
             ntot1 = lx1*ly1*lz1*nelv
             call rzero  (dw(1,jp), ntot1)
-            call mappr  (dw(1,jp), dpr(1,ipert), wrk1, wrk2) ! map to vmesh
-            call col2c  (dw(1,jp), bm1, -spert*beta_z, ntot1)
-            ! call dssum on dw
-            call col2   (dw(1,jp), wmask, ntot1)
-            call dssum  (dw(1,jp), lx1, ly1, lz1)
-            call invcol2(dw(1,jp), bm1h2inv,ntot1)
+            call mappr  (dw(1,jp), dpr(1,ipert), wrk1, wrk2)   ! map to vmesh
+            call cmult  (dw(1,jp), -spert*beta_z, ntot1)       ! collate coupling
+            !
+            call col2   (dw(1,jp), bm1, ntot1)                 ! collate mass matrix
+            call col2   (dw(1,jp), wmask, ntot1)               ! mask Dirichlet conditions
+            call dssum  (dw(1,jp), lx1, ly1, lz1)              ! make continuous
+            call col2   (dw(1,jp), binvm1, ntot1)              ! collate inverse mass matrix
+            !
+            call col2   (dw(1,jp), h2inv, ntot1)               ! collate inverse h2
          end
    
          subroutine compute_frc_div(frc_div, w, beta_z)
@@ -348,16 +345,18 @@
             ntot1 = lx1*ly1*lz1*nelv
             ntot2 = lx2*ly2*lz2*nelv
             call mappr  (wdivm1, wp, wrk1, wrk2)                    ! map to vmesh
+            !
             call col2   (wdivm1, bm1,   ntot1)                      ! collate mass matrix
             call col2   (wdivm1, wmask, ntot1)                      ! mask Dirichlet conditions
             call dssum  (wdivm1, lx1, ly1, lz1)                     ! make continuous
             call col2   (wdivm1, binvm1, ntot1)                     ! collate inverse mass matrix
+            !
             call col2   (wdivm1, h2inv, ntot1)                      ! collate (h2)^-1
             call cmult  (wdivm1, -beta_z**2, ntot1)                 ! collate -beta_z^2
             do ie = 1, nelv
                call map12 (wdivm2(1,1,1,ie), wdivm1(1,1,1,ie), ie)  ! map wdiv to pmesh
             end do
-            call col2(wdivm2, bm2, ntot2)
+            call col2(wdivm2, bm2, ntot2)                           ! collate mass matrix (pressure mesh)
             call sub2(ap, wdivm2, ntot2)
          end subroutine pressure_matvec_2Dh
 

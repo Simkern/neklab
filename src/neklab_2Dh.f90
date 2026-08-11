@@ -221,7 +221,7 @@
             call invers2 (h2inv,h2,ntot1)
             ! if beta != 0, compute mean pressure to add it back after the pressure solve
             ebar = 0.0_dp
-            if (beta_z /= 0) then
+            if (beta_z /= 0 .and. ifvcor) then
                call rone(onep, ntot2)
                call pressure_matvec_2Dh(ep,onep,h1,h2,h2inv,beta_z,intype)
                ebar = glsum(ep, ntot2)

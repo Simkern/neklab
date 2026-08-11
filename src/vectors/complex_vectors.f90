@@ -38,6 +38,7 @@
       
          module procedure nek_zrand
          real(dp) :: alpha
+         call self%scal(zero_cdp)
          call nek_drand(self%re); call nek_drand(self%im)
          if (optval(ifnorm, .false.)) then
             alpha = self%norm(); call self%scal(one_cdp/alpha)

@@ -35,7 +35,7 @@
                call axhelm (vec_out%v,vec_in%v,self%h1,self%h2,self%imesh,self%isd)
                ! added spanwise diffusion
                call col3   (tmp, vec_in%v, vdiff(1,1,1,1,1), ntot)
-               call col2c  (tmp, bm1, -self%betaz**2, ntot)
+               call col2c  (tmp, bm1, self%betaz**2, ntot)
                call add2   (vec_out%v, tmp, ntot)
                ! make continuous
                call dssum  (vec_out%v, lx1, ly1, lz1) ! make continuous

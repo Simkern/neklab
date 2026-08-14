@@ -41,10 +41,13 @@
                ! B * d/dz (h2*B)^(-1) d/dz wp = (-i betaz) (h2)^(-1) (-i betaz) wp = - betaz^2 (h2)^(-1) wp
                !
                ! Note: we are only considering the ifanls = .false. case
-               call mappr  (wdivm1, vec_in%pr, wrk1, wrk2)             ! map to vmesh
-               call col2   (wdivm1, v3mask, ntot1)
-               call col2c  (wdivm1, self%h2inv, -self%betaz**2, ntot1) ! collate -betaz^2 * (h2)^-1
-               call dssum  (wdivm1, lx1, ly1, lz1)                     ! make continuous
+               call mappr  (wdivm1, vec_in%pr, wrk1, wrk2)
+               call col2   (wdivm1, bm1,   ntot1)
+               call col2   (wdivm1, wmask, ntot1)     ! not v3mask
+               call dssum  (wdivm1, lx1, ly1, lz1)
+               call col2   (wdivm1, binvm1, ntot1)
+               call col2   (wdivm1, self%h2inv, ntot1)
+               call cmult  (wdivm1, -self%betaz**2, ntot1)                    ! make continuous
                do ie = 1, nelv
                   call map12 (wdivm2(1,1,1,ie), wdivm1(1,1,1,ie), ie)  ! map wdiv to pmesh
                end do

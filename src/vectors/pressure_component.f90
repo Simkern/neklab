@@ -21,11 +21,11 @@
       
          module procedure nekp_drand
          logical :: normalize
-         integer :: i, ieg, iel
+         integer :: i
          real(kind=dp) :: xl(ldim), fcoeff(3), alpha
          normalize = optval(ifnorm, .false.)
+         call self%scal(0.0_dp)
          do i = 1, lp
-            ieg = lglel(iel)
             xl(1) = xm2(i, 1, 1, 1)
             xl(2) = ym2(i, 1, 1, 1)
             if (if3D) xl(ldim) = zm2(i, 1, 1, 1)
@@ -39,7 +39,9 @@
          end procedure
       
          module procedure nekp_dscal
-         call dscal(lp, alpha, self%pr, 1)
+         integer :: n2
+         n2 = nx2*ny2*nz2*nelv
+         call dscal(n2, alpha, self%pr, 1)
          end procedure
       
          module procedure nekp_daxpby

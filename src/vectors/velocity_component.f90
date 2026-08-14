@@ -34,6 +34,7 @@
          ifield = 1 ! for bcdirvc
          ntot = lx1*ly1*lz1*nelv
 
+         call self%scal(0.0_dp)
          do iel = 1, nelv
          do iz = 1, lz1
          do iy = 1, ly1
@@ -107,7 +108,7 @@
          n = nx1*ny1*nz1*nelv
          select type (vec)
          type is (nekv_dvector)
-            alpha = glsc3(self%v, vec%v, vmult, n)
+            alpha = glsc3(self%v, vec%v, self%vmult, n)
          class default
             call type_error('vec','nekv_dvector','IN',this_module,'nekv_ddot')
          end select

@@ -20,6 +20,7 @@
          use neklab_analysis_torus
       !! --> Analysis of the torus
          use neklab_2Dh
+         use neklab_2Dh_axisym
       !! --> 2.5D solver
       
          private
@@ -87,6 +88,7 @@
 
       ! 2Dh
          public :: nek_advance_2Dh
+         public :: nek_advance_2Dh_axisym
       
       ! OTD exports.
          public :: nek_otd, otd_opts

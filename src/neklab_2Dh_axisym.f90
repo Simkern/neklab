@@ -52,7 +52,7 @@
             real(dp), dimension(lx2*ly2*lz2*lelv,lpert) :: dpr
             real(dp), dimension(lx2*ly2*lz2*lelv) :: onep, ep
             real(dp), dimension(lx1,ly1,lz1,lelv) :: w2a, w3a, w2b, w3b
-            real(dp) :: ebar
+            real(dp) :: ebar, etime, etime_all
          
             character(len=*), parameter :: this_procedure = 'nek_advance_axisym'
             character(len=256) :: msg
@@ -62,7 +62,7 @@
             logical :: ifprjp
             integer :: igeom, iter, intype
             integer :: ntot1, ntot2, istart
-            real, external :: glsum
+            real, external :: glsum, dnekclock  
          
             ntot1 = lx1*ly1*lz1*nelv
             ntot2 = lx2*ly2*lz2*nelv
@@ -83,6 +83,7 @@
             imesh  = 1
             call unorm
             call settolv
+            etime_all = dnekclock()
          
             ! --- pressure-gradient / alpha-R coupling forcing (analog of gradz_p)
             do jp = 1, npert
@@ -131,8 +132,11 @@
                      call col2 (resv1, v1mask, ntot1)
                      hmh_info = info_str//' VELX'
                      if (istep < 10) call chktcg1(tolhv, resv1, h1, h2, v1mask, vmult, imesh, 1)
+                     etime = dnekclock()
                      call solve_helmholtz_2Dh_axisym(dv1, resv1, h1, h2, v1mask, vmult, imesh,
      &                                              tolhv, nmxv, 1, binvm1, hmh_info, h2z_shift)
+                     etime = dnekclock() - etime
+                     if (nid == 0) print '(A,I2,A,I8,A,E17.8)', 'Solve      u_Z ',jp,', step', istep, ' time ', etime
                      call add2(vxp(1,jp), dv1, ntot1)
          
                      ! stash u_R/u_phi RHS for the joint transform+solve below
@@ -161,43 +165,53 @@
             msg = 'Solve u_+/u_- momentum equations'
             call nek_log_debug(msg, this_module, this_procedure)
 
-            hmh_info = 'BLKA'
-            call solve_coupled_helmholtz_2Dh_axisym(dv2_1, dv3_2, resv2_1, resv3_2, h1, h2, wmask, vmult, imesh, tolhv, nmxv, binvm1, hmh_info, diag_shift, couple_coef, 1.0_dp)
-
-            ! Block B: (u_R,im, u_phi,re) = (resv2_2, resv3_1), csign = -1
-            hmh_info = 'BLKB'
-            call solve_coupled_helmholtz_2Dh_axisym(dv2_2, dv3_1, resv2_2, resv3_1, h1, h2, wmask, vmult, imesh, tolhv, nmxv, binvm1, hmh_info, diag_shift, couple_coef, -1.0_dp)
-
+!            etime = dnekclock()
+!            hmh_info = 'BLKA'
+!            call solve_coupled_helmholtz_2Dh_axisym(dv2_1, dv3_2, resv2_1, resv3_2, h1, h2, wmask, vmult, imesh, tolhv, nmxv, binvm1, hmh_info, diag_shift, couple_coef, 1.0_dp)
+!            etime = dnekclock() - etime
+!            if (nid == 0) print '(A,I0,A,I8,A,E17.8)', 'Solve     cplA ',0,', step', istep, ' time ', etime
+!            
+!            etime = dnekclock()
+!            ! Block B: (u_R,im, u_phi,re) = (resv2_2, resv3_1), csign = -1
+!            hmh_info = 'BLKB'
+!            call solve_coupled_helmholtz_2Dh_axisym(dv2_2, dv3_1, resv2_2, resv3_1, h1, h2, wmask, vmult, imesh, tolhv, nmxv, binvm1, hmh_info, diag_shift, couple_coef, -1.0_dp)
+!            etime = dnekclock() - etime
+!            if (nid == 0) print '(A,I0,A,I8,A,E17.8)', 'Solve     cplB ',0,', step', istep, ' time ', etime
+            
+            call uRphi_to_upm(up_re, up_im, um_re, um_im, resv2_1, resv2_2, resv3_1, resv3_2)
+            
+            call dssum(up_re, lx1, ly1, lz1); call col2(up_re, wmask, ntot1)
+            call dssum(up_im, lx1, ly1, lz1); call col2(up_im, wmask, ntot1)
+            call dssum(um_re, lx1, ly1, lz1); call col2(um_re, wmask, ntot1)
+            call dssum(um_im, lx1, ly1, lz1); call col2(um_im, wmask, ntot1)
+            
+            etime = dnekclock()
+            hmh_info = 'UPLRE'
+            call solve_helmholtz_2Dh_axisym(dvp_re, up_re, h1, h2, wmask, vmult, imesh, tolhv, nmxv, 1, binvm1, hmh_info, h2p_shift)
+            etime = dnekclock() - etime
+            if (nid == 0) print '(A,A,I0,A,I8,A,E17.8)', 'Solve    ',hmh_info,0,', step', istep, ' time ', etime
+            etime = dnekclock()
+            hmh_info = 'UPLIM'
+            call solve_helmholtz_2Dh_axisym(dvp_im, up_im, h1, h2, wmask, vmult, imesh, tolhv, nmxv, 1, binvm1, hmh_info, h2p_shift)
+            etime = dnekclock() - etime
+            if (nid == 0) print '(A,A,I0,A,I8,A,E17.8)', 'Solve    ',hmh_info,0,', step', istep, ' time ', etime
+            etime = dnekclock()
+            hmh_info = 'UMNRE'
+            call solve_helmholtz_2Dh_axisym(dvm_re, um_re, h1, h2, wmask, vmult, imesh, tolhv, nmxv, 1, binvm1, hmh_info, h2m_shift)
+            etime = dnekclock() - etime
+            if (nid == 0) print '(A,A,I0,A,I8,A,E17.8)', 'Solve    ',hmh_info,0,', step', istep, ' time ', etime
+            etime = dnekclock()
+            hmh_info = 'UMNIM'
+            call solve_helmholtz_2Dh_axisym(dvm_im, um_im, h1, h2, wmask, vmult, imesh, tolhv, nmxv, 1, binvm1, hmh_info, h2m_shift)
+            etime = dnekclock() - etime
+            if (nid == 0) print '(A,A,I0,A,I8,A,E17.8)', 'Solve    ',hmh_info,0,', step', istep, ' time ', etime
+            
+            call upm_to_uRphi(dv2_1, dv2_2, dv3_1, dv3_2, dvp_re, dvp_im, dvm_re, dvm_im)
+            
             ! dv2_1,dv2_2,dv3_1,dv3_2 now hold the same quantities upm_to_uRphi
             ! used to produce -- no inverse transform needed, feed straight in:
             call add2(vyp(1,1), dv2_1, ntot1);  call add2(tp(1,1,1), dv3_1, ntot1)
             call add2(vyp(1,2), dv2_2, ntot1);  call add2(tp(1,1,2), dv3_2, ntot1)
-         
-!            call uRphi_to_upm(up_re, up_im, um_re, um_im, resv2_1, resv2_2, resv3_1, resv3_2)
-!         
-!            call dssum(up_re, lx1, ly1, lz1); call col2(up_re, wmask, ntot1)
-!            call dssum(up_im, lx1, ly1, lz1); call col2(up_im, wmask, ntot1)
-!            call dssum(um_re, lx1, ly1, lz1); call col2(um_re, wmask, ntot1)
-!            call dssum(um_im, lx1, ly1, lz1); call col2(um_im, wmask, ntot1)
-!         
-!            hmh_info = 'UPLRE'
-!            call solve_helmholtz_2Dh_axisym(dvp_re, up_re, h1, h2, wmask, vmult, imesh, tolhv, nmxv, 1, binvm1, hmh_info, h2p_shift)
-!            hmh_info = 'UPLIM'
-!            call solve_helmholtz_2Dh_axisym(dvp_im, up_im, h1, h2, wmask, vmult, imesh, tolhv, nmxv, 1, binvm1, hmh_info, h2p_shift)
-!            hmh_info = 'UMNRE'
-!            call solve_helmholtz_2Dh_axisym(dvm_re, um_re, h1, h2, wmask, vmult, imesh, tolhv, nmxv, 1, binvm1, hmh_info, h2m_shift)
-!            hmh_info = 'UMNIM'
-!            call solve_helmholtz_2Dh_axisym(dvm_im, um_im, h1, h2, wmask, vmult, imesh, tolhv, nmxv, 1, binvm1, hmh_info, h2m_shift)
-!         
-!            call upm_to_uRphi(dv2_1, dv2_2, dv3_1, dv3_2, dvp_re, dvp_im, dvm_re, dvm_im)
-!
-!            call outpost(dv2_1, dv2_2, vzp, prp, tp, 'tst')
-!            call outpost(dv3_1, dv3_2, vzp, prp, tp, 'tst')
-!            !bcall outpost(dv3_1, dv3_2, vzp, prp, tp, 'tst')
-!            
-!         
-!            call add2(vyp(1,1), dv2_1, ntot1);  call add2(tp(1,1,1), dv3_1, ntot1)
-!            call add2(vyp(1,2), dv2_2, ntot1);  call add2(tp(1,1,2), dv3_2, ntot1)
          
             ! --- pressure correction stage: identical structure to the beta case,
             !     field routines substituted for the beta_z ones
@@ -236,9 +250,12 @@
 
                if (alpha == 0.0_dp) call ortho(dpr(1,jp))
 
+               etime = dnekclock()
                if (ifprjp) call  setrhs_pressure_2Dh_axisym(dpr(1,jp), h1, h2, h2inv, pbasis(1,1,jp), nprev(jp), alphaR_coef, info_str)
                call               solve_pressure_2Dh_axisym(dpr(1,jp), h1, h2, h2inv, alphaR_coef, alpha, intype, iter, ebar, info_str)
                if (ifprjp) call gensoln_pressure_2Dh_axisym(dpr(1,jp), h1, h2, h2inv, pbasis(1,1,jp), nprev(jp), alphaR_coef)
+               etime = dnekclock() - etime
+               if (nid == 0) print '(A,I2,A,I8,A,E17.8)', 'Solve pressure ',jp,', step', istep, ' time ', etime
             end do
          
             msg = 'Compute velocity correction based on pressure correction'
@@ -256,6 +273,8 @@
                call lagpresp
                call add3(prp(1,jp), prextr, dpr(1,jp), ntot2)
             end do
+            etime_all = dnekclock() - etime_all
+            if (nid == 0) print '(A,I8,A,E17.8)', 'Solve total time ', istep, ' time ', etime_all
          
          end subroutine nek_advance_2Dh_axisym
 

@@ -94,11 +94,11 @@
             common /scrhi/ h2inv
             real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: gradz_p
             ! spanwise pressure gradient
-            real(dp), dimension(lx2,ly2,lz2,lelv,lpert) :: frc_div
+            real(dp), dimension(lx2,ly2,lz2,lelv) :: frc_div
             ! spanwise divergence
             real(dp), dimension(lx2*ly2*lz2*lelv) :: prextr
             ! extrapolated pressure
-            real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: dw
+            real(dp), dimension(lx1*ly1*lz1*lelv) :: dw
             ! spanwise velocity correction
             real(dp), dimension(lx2*ly2*lz2*lelv,lpert) :: dpr
             ! prefactor
@@ -157,67 +157,64 @@
 
             do jp = 1, npert
                info_str = merge('Re', 'Im', jp == 1)
-               do igeom = 1, ngeom
-                  if (igeom == 1) then
-                  !
-                  !  Old geometry, old velocity
-                  !
-                     ifield = 1     !  velocity
-                     call makefp
-                     call lagfieldp
-                     ifield = 2     !  temperature (w)
-                     call makeqp
-                     call lagscalp
-                     !
-                  else
-                  !
-                  !  New geometry, new velocity
-                  !
-                     intype = -1
-                     ifield = 1     !  velocity
-                     call sethlm   (h1,h2,intype)
-                     ! cresvipp 
-                     call bcdirvc (vxp(1,jp), vyp(1,jp), vzp(1,jp),v1mask,v2mask,v3mask)
-                     call col2    (tp(1,1,jp), wmask, ntot1)
-                     call extrapprp(prextr)
-                     call opgradt(resv1,resv2,resv3,prextr)      ! d/dx pr, d/dy pr
-                     call opadd2 (resv1,resv2,resv3,bfxp(1,jp), bfyp(1,jp),bfzp(1,jp))
-                     call copy   (resv3,gradz_p(1,jp),ntot1)     ! d/dz pr
-                     call   add2 (resv3, bqp(1,1,jp), ntot1)
-                     ! ophx
-                     call helmholtz_matvec_2Dh(w1, vxp(1,jp),h1,h2,beta_z)
-                     call helmholtz_matvec_2Dh(w2, vyp(1,jp),h1,h2,beta_z)
-                     call helmholtz_matvec_2Dh(w3,tp(1,1,jp),h1,h2,beta_z)
-                     call opsub2(resv1,resv2,resv3,w1,w2,w3)
-                     call   sub2(            resv3,      w3,ntot1)
-                
-                     ! ophinv
-                     kfldfdm = -1
-                     tolhv = abs(tolhv)
-                     ifield = 1 !  velocity
-
-                     call dssum  (resv1,lx1,ly1,lz1)
-                     call col2   (resv1,v1mask,ntot1)
-                     hmh_info = info_str//' VELX'
-                     if (istep < 10) call chktcg1 (tolhv,resv1,h1,h2,v1mask,vmult,imesh,1)
-                     call solve_helmholtz_2Dh(dv1,resv1,h1,h2,v1mask,vmult,imesh,tolhv,nmxv,1,binvm1,hmh_info,beta_z)
-                     
-                     call dssum  (resv2,lx1,ly1,lz1)
-                     call col2   (resv2,v2mask,ntot1)
-                     hmh_info = info_str//' VELY'
-                     if (istep < 10) call chktcg1 (tolhv,resv2,h1,h2,v2mask,vmult,imesh,2)
-                     call solve_helmholtz_2Dh(dv2,resv2,h1,h2,v2mask,vmult,imesh,tolhv,nmxv,2,binvm1,hmh_info,beta_z)
-                     
-                     call dssum  (resv3,lx1,ly1,lz1)
-                     call col2   (resv3,wmask,ntot1)
-                     hmh_info = info_str//' VELZ'
-                     if (istep < 10) call chktcg1 (tolhv,resv3,h1,h2,wmask,vmult,imesh,3)
-                     call solve_helmholtz_2Dh(dv3,resv3,h1,h2,wmask,vmult,imesh,tolhv,nmxv,3,binvm1,hmh_info,beta_z)
-                     
-                     call opadd2 (vxp(1,jp),vyp(1,jp),vzp(1,jp),dv1,dv2,dv3)
-                     call add2   (tp(1,1,jp),dv3,ntot1)
-                  end if
-               end do ! igeom
+               igeom = 1
+               !
+               !  Old geometry, old velocity
+               !
+               ifield = 1     !  velocity
+               call makefp
+               call lagfieldp
+               ifield = 2     !  temperature (w)
+               call makeqp
+               call lagscalp
+               !
+               igeom = 2
+               !
+               !  New geometry, new velocity
+               !
+               intype = -1
+               ifield = 1     !  velocity
+               call sethlm   (h1,h2,intype)
+               ! cresvipp 
+               call bcdirvc(vxp(1,jp), vyp(1,jp), vzp(1,jp),v1mask, v2mask, v3mask)
+               call col2   (tp(1,1,jp), wmask, ntot1)
+               call extrapprp(prextr)
+               call opgradt(resv1,resv2,resv3,prextr)      ! d/dx pr, d/dy pr
+               call opadd2 (resv1,resv2,resv3,bfxp(1,jp), bfyp(1,jp),bfzp(1,jp))
+               call copy   (resv3,gradz_p(1,jp),ntot1)     ! d/dz pr
+               call   add2 (resv3, bqp(1,1,jp), ntot1)
+               ! ophx
+               call helmholtz_matvec_2Dh(w1, vxp(1,jp),h1,h2,beta_z)
+               call helmholtz_matvec_2Dh(w2, vyp(1,jp),h1,h2,beta_z)
+               call helmholtz_matvec_2Dh(w3,tp(1,1,jp),h1,h2,beta_z)
+               call opsub2(resv1,resv2,resv3,w1,w2,w3)
+               call   sub2(            resv3,      w3,ntot1)
+                             
+               ! ophinv
+               kfldfdm = -1
+               tolhv = abs(tolhv)
+               ifield = 1 !  velocity
+               
+               call dssum  (resv1,lx1,ly1,lz1)
+               call col2   (resv1,v1mask,ntot1)
+               hmh_info = info_str//' VELX'
+               if (istep < 10) call chktcg1 (tolhv,resv1,h1,h2,v1mask,vmult,imesh,1)
+               call solve_helmholtz_2Dh(dv1,resv1,h1,h2,v1mask,vmult,imesh,tolhv,nmxv,1,binvm1,hmh_info,beta_z)
+               
+               call dssum  (resv2,lx1,ly1,lz1)
+               call col2   (resv2,v2mask,ntot1)
+               hmh_info = info_str//' VELY'
+               if (istep < 10) call chktcg1 (tolhv,resv2,h1,h2,v2mask,vmult,imesh,2)
+               call solve_helmholtz_2Dh(dv2,resv2,h1,h2,v2mask,vmult,imesh,tolhv,nmxv,2,binvm1,hmh_info,beta_z)
+               
+               call dssum  (resv3,lx1,ly1,lz1)
+               call col2   (resv3,wmask,ntot1)
+               hmh_info = info_str//' VELZ'
+               if (istep < 10) call chktcg1 (tolhv,resv3,h1,h2,wmask,vmult,imesh,3)
+               call solve_helmholtz_2Dh(dv3,resv3,h1,h2,wmask,vmult,imesh,tolhv,nmxv,3,binvm1,hmh_info,beta_z)
+               
+               call opadd2 (vxp(1,jp),vyp(1,jp),vzp(1,jp),dv1,dv2,dv3)
+               call add2   (tp(1,1,jp),dv3,ntot1)
             end do ! jp
                   
             msg = 'Compute pressure correction to enforce mass balance'
@@ -253,7 +250,7 @@
                call opdiv   (dpr(1,jp),vxp(1,jp),vyp(1,jp),vzp(1,jp))
 
                call compute_frc_div(frc_div, tp, beta_z)
-               call add2    (dpr(1,jp),frc_div(1,1,1,1,jp),ntot2)
+               call add2    (dpr(1,jp),frc_div,ntot2)
                   
                call chsign  (dpr(1,jp),ntot2)
                if (beta_z == 0.0_dp) call ortho (dpr(1,jp))
@@ -274,13 +271,12 @@
                call compute_dw(dw, dpr, h2inv, beta_z) ! dw
 
                call opadd2 (vxp(1,jp),vyp(1,jp),vzp(1,jp), dv1,dv2,dv3)
-               call   add2 (tp(1,1,jp), dw(1,jp), ntot1)
+               call   add2 (tp(1,1,jp), dw, ntot1)
              
                call extrapprp(prextr)
                call lagpresp
                call add3(prp(1,jp),prextr,dpr(1,jp), ntot2)
             end do ! jp
-
             
          end subroutine nek_advance_2Dh
 
@@ -289,7 +285,7 @@
             include 'SIZE'
             include 'SOLN' ! jp
             include 'MASS' ! bm1
-            real, dimension(lx1*ly1*lz1*lelv,lpert), intent(out) :: dw
+            real, dimension(lx1*ly1*lz1*lelv), intent(out) :: dw
             real, dimension(lx2*ly2*lz2*lelv,lpert), intent(in) :: dpr
             real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h2inv
             real, intent(in) :: beta_z
@@ -300,16 +296,16 @@
             ipert = npert + 1 - jp
             spert = merge(1, -1, jp == 1)  ! +1 for jp = 1, -1 for jp = 2
             ntot1 = lx1*ly1*lz1*nelv
-            call rzero  (dw(1,jp), ntot1)
-            call mappr  (dw(1,jp), dpr(1,ipert), wrk1, wrk2)   ! map to vmesh
-            call cmult  (dw(1,jp), -spert*beta_z, ntot1)       ! collate coupling
+            call rzero  (dw, ntot1)
+            call mappr  (dw, dpr(1,ipert), wrk1, wrk2)   ! map to vmesh
+            call cmult  (dw, -spert*beta_z, ntot1)       ! collate coupling
             !
-            call col2   (dw(1,jp), bm1, ntot1)                 ! collate mass matrix
-            call col2   (dw(1,jp), wmask, ntot1)               ! mask Dirichlet conditions
-            call dssum  (dw(1,jp), lx1, ly1, lz1)              ! make continuous
-            call col2   (dw(1,jp), binvm1, ntot1)              ! collate inverse mass matrix
+            call col2   (dw, bm1, ntot1)                 ! collate mass matrix
+            call col2   (dw, wmask, ntot1)               ! mask Dirichlet conditions
+            call dssum  (dw, lx1, ly1, lz1)              ! make continuous
+            call col2   (dw, binvm1, ntot1)              ! collate inverse mass matrix
             !
-            call col2   (dw(1,jp), h2inv, ntot1)               ! collate inverse h2
+            call col2   (dw, h2inv, ntot1)               ! collate inverse h2
          end
    
          subroutine compute_frc_div(frc_div, w, beta_z)
@@ -317,7 +313,7 @@
             include 'SIZE'
             include 'SOLN' ! jp
             include 'MASS' ! bm2
-            real, dimension(lx2,ly2,lz2,lelv,lpert), intent(out) :: frc_div
+            real, dimension(lx2,ly2,lz2,lelv), intent(out) :: frc_div
             real, dimension(lx1*ly1*lz1*lelv,ldimt,lpert), intent(in) :: w
             real, intent(in) :: beta_z
             ! internal
@@ -327,12 +323,12 @@
             spert = merge(1, -1, jp == 1)  ! +1 for jp = 1, -1 for jp = 2
             nxyz1 = lx1*ly1*lz1
             ntot2 = lx2*ly2*lz2*nelv
-            call rzero(frc_div(1,1,1,1,jp), ntot2)
+            call rzero(frc_div, ntot2)
             do ie = 1, nelv
                ie1 = (ie-1)*nxyz1+1
-               call map12 (frc_div(1,1,1,ie,jp), w(ie1,1,ipert), ie) ! map to pmesh
+               call map12 (frc_div(1,1,1,ie), w(ie1,1,ipert), ie) ! map to pmesh
             end do
-            call col2c(frc_div(1,1,1,1,jp), bm2, spert*beta_z, ntot2) ! this is to be consistent with opdiv output
+            call col2c(frc_div, bm2, spert*beta_z, ntot2) ! this is to be consistent with opdiv output
          end
    
          subroutine compute_gradz_p(gradz_p, prextr, beta_z)

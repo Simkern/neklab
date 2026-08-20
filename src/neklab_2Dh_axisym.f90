@@ -37,22 +37,13 @@
             common /SCRCH/  h2
             common /scrhi/  h2inv
          
-            ! per-jp storage: the u_+/u_- transform needs BOTH jp values simultaneously,
-            ! so u_R/u_phi RHS assembly and their solve can no longer be a single per-jp pass.
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: resv2_1, resv3_1, resv2_2, resv3_2
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: up_re, up_im, um_re, um_im
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: dvp_re, dvp_im, dvm_re, dvm_im
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: dv2_1, dv3_1, dv2_2, dv3_2
-            real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: advZ, advR, advPhi
+            real(dp), dimension(lx1,ly1,lz1,lelv,lpert) :: resv2_jp, resv3_jp
+            real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: gradp, advZ, advR, advPhi
          
-            real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: gradp
-            real(dp), dimension(lx2,ly2,lz2,lelv,lpert) :: frc_div
-            real(dp), dimension(lx2*ly2*lz2*lelv) :: prextr
-            real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: dw
             real(dp), dimension(lx2*ly2*lz2*lelv,lpert) :: dpr
-            real(dp), dimension(lx2*ly2*lz2*lelv) :: onep, ep
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: w2a, w3a, w2b, w3b
-            real(dp) :: ebar, etime, etime_all
+            real(dp), dimension(lx2*ly2*lz2*lelv) :: prextr, frc_div, onep, ep
+            real(dp), dimension(lx1*ly1*lz1*lelv) :: dw
+            real(dp) :: ebar, etime, etime_all, csign_jp
          
             character(len=*), parameter :: this_procedure = 'nek_advance_axisym'
             character(len=256) :: msg
@@ -60,7 +51,7 @@
             character(len=7) :: hmh_info
             real(dp) :: dtbd
             logical :: ifprjp
-            integer :: igeom, iter, intype
+            integer :: igeom, iter, intype, ipert
             integer :: ntot1, ntot2, istart
             real, external :: glsum, dnekclock  
          
@@ -86,132 +77,109 @@
             etime_all = dnekclock()
          
             ! --- pressure-gradient / alpha-R coupling forcing (analog of gradz_p)
+
+            msg = 'Compute explicit pressure gradient term for w'
+            call nek_log_debug(msg,this_module,this_procedure)
+
             do jp = 1, npert
                call extrapprp(prextr)
                call compute_gradp_axisym(gradp, prextr, alphaR_coef)
-               call compute_torus_ignorable_advection(advZ, advR, advPhi, jp)
+               call compute_torus_s_advection(advZ, advR, advPhi, jp)
             end do
          
             ! --- assemble RHS for both jp; solve u_Z immediately (uncoupled across jp);
             !     stash u_R/u_phi RHS for the deferred, jointly-solved transform step.
-            msg = 'Assemble momentum RHS'
+
+            msg = 'Solve momentum equations for u/v/w'
             call nek_log_debug(msg, this_module, this_procedure)
          
             do jp = 1, npert
                info_str = merge('Re', 'Im', jp == 1)
-               do igeom = 1, ngeom
-                  if (igeom == 1) then
-                     ifield = 1
-                     call makefp
-                     call lagfieldp
-                     ifield = 2
-                     call makeqp
-                     call lagscalp
-                  else
-                     intype = -1
-                     ifield = 1
-                     call sethlm(h1, h2, intype)
-                     call bcdirvc(vxp(1,jp), vyp(1,jp), vzp(1,jp), v1mask, v2mask, v3mask)
-                     call col2(tp(1,1,jp), wmask, ntot1)
-                     call extrapprp(prextr)
-                     call opgradt(resv1, resv2, resv3, prextr)
-                     call opadd2(resv1, resv2, resv3, bfxp(1,jp), bfyp(1,jp), bfzp(1,jp))
-                     call add2(resv1, advZ(1,jp), ntot1)
-                     call add2(resv2, advR(1,jp), ntot1)
+               igeom = 1
+               !
+               !  Old geometry, old velocity
+               !
+               ifield = 1
+               call makefp
+               call lagfieldp
+               ifield = 2
+               call makeqp
+               call lagscalp
+               !
+               igeom = 2
+               !
+               !  New geometry, new velocity
+               !
+               intype = -1
+               ifield = 1
+               call sethlm(h1, h2, intype)
+               ! cresvipp
+               call bcdirvc(vxp(1,jp), vyp(1,jp), vzp(1,jp), v1mask, v2mask, v3mask)
+               call col2   (tp(1,1,jp), wmask, ntot1)
+               call extrapprp(prextr)
+               call opgradt(resv1, resv2, resv3, prextr)
+               call opadd2 (resv1, resv2, resv3, bfxp(1,jp), bfyp(1,jp), bfzp(1,jp))
+               
+               ! compute w term
+               call copy(resv3, gradp(1,jp),  ntot1)
+               call add2(resv3, bqp(1,1,jp),  ntot1)
+               
+               ! add in the streamwise advection
+               call add2(resv1, advZ(1,jp), ntot1)
+               call add2(resv2, advR(1,jp), ntot1)
+               call add2(resv3, advPhi(1,jp), ntot1)
+               
+               ! add in the toroidal coupling term (alpha/R) * gradp
+               call add_torus_perturbation_coupling(resv2, resv3, jp)
          
-                     call copy(resv3, gradp(1,jp),  ntot1)
-                     call add2(resv3, bqp(1,1,jp),  ntot1)
-                     call add2(resv3, advPhi(1,jp), ntot1)
+               ! hv1
+               call helmholtz_matvec_2Dh_axisym(w1, vxp(1,jp), h1, h2, h2z_shift, 1)
+               call sub2 (resv1, w1, ntot1)
 
-                     call add_torus_perturbation_coupling(resv2, resv3, jp)
-         
-                     ! u_Z: plain scalar Helmholtz + alpha^2/R^2 shift, no transform needed
-                     call helmholtz_matvec_2Dh_axisym(w1, vxp(1,jp), h1, h2, h2z_shift, 1)
-                     call sub2(resv1, w1, ntot1)
-                     call dssum(resv1, lx1, ly1, lz1)
-                     call col2 (resv1, v1mask, ntot1)
-                     hmh_info = info_str//' VELX'
-                     if (istep < 10) call chktcg1(tolhv, resv1, h1, h2, v1mask, vmult, imesh, 1)
-                     etime = dnekclock()
-                     call solve_helmholtz_2Dh_axisym(dv1, resv1, h1, h2, v1mask, vmult, imesh,
+               call dssum(resv1, lx1, ly1, lz1)
+               call col2 (resv1, v1mask, ntot1)
+               hmh_info = info_str//' VELX'
+               if (istep < 10) call chktcg1(tolhv, resv1, h1, h2, v1mask, vmult, imesh, 1)
+               etime = dnekclock()
+               call solve_helmholtz_2Dh_axisym(dv1, resv1, h1, h2, v1mask, vmult, imesh,
      &                                              tolhv, nmxv, 1, binvm1, hmh_info, h2z_shift)
-                     etime = dnekclock() - etime
-                     if (nid == 0) print '(A,I2,A,I8,A,E17.8)', 'Solve      u_Z ',jp,', step', istep, ' time ', etime
-                     call add2(vxp(1,jp), dv1, ntot1)
-         
-                     ! stash u_R/u_phi RHS for the joint transform+solve below
-                     if (jp == 1) then
-                        call copy(resv2_1, resv2, ntot1)
-                        call copy(resv3_1, resv3, ntot1)
-                     else
-                        call copy(resv2_2, resv2, ntot1)
-                        call copy(resv3_2, resv3, ntot1)
-                     end if
-                  end if
-               end do ! igeom
+               etime = dnekclock() - etime
+               !if (nid == 0) print '(A,I2,A,I8,A,E17.8)', 'Solve      u_Z ',jp,', step', istep, ' time ', etime
+               call add2(vxp(1,jp), dv1, ntot1)
+               
+               ! stash u_R/u_phi RHS for the joint transform+solve below
+                                    ! stash u_R/u_phi RHS for the joint transform+solve below
+               call copy(resv2_jp(1,1,1,1,jp), resv2, ntot1)
+               call copy(resv3_jp(1,1,1,1,jp), resv3, ntot1)
             end do ! jp
 
-            ! residual-form correction for Block A: (vyp(1,1), tp(1,1,2)), csign=+1
-            call coupled_helmholtz_matvec_2Dh_axisym(w2a, w3a, vyp(1,1), tp(1,1,2), h1, h2, diag_shift, couple_coef, 1.0_dp)
-            call sub2(resv2_1, w2a, ntot1)
-            call sub2(resv3_2, w3a, ntot1)
-
-            ! residual-form correction for Block B: (vyp(1,2), tp(1,1,1)), csign=-1
-            call coupled_helmholtz_matvec_2Dh_axisym(w2b, w3b, vyp(1,2), tp(1,1,1), h1, h2, diag_shift, couple_coef, -1.0_dp)
-            call sub2(resv2_2, w2b, ntot1)
-            call sub2(resv3_1, w3b, ntot1)
+            do jp = 1, npert
+               ipert = npert + 1 - jp
+               csign_jp = merge(1.0_dp, -1.0_dp, jp == 1)
+               call coupled_helmholtz_matvec_2Dh_axisym(w2, w3, vyp(1,jp), tp(1,1,ipert), h1, h2, diag_shift, couple_coef, csign_jp)
+               call sub2(resv2_jp(1,1,1,1,jp),    w2, ntot1)
+               call sub2(resv3_jp(1,1,1,1,ipert), w3, ntot1)
+            end do
          
-            ! --- joint u_+/u_- solve (needs both jp simultaneously)
             msg = 'Solve u_+/u_- momentum equations'
             call nek_log_debug(msg, this_module, this_procedure)
-
-!            etime = dnekclock()
-!            hmh_info = 'BLKA'
-!            call solve_coupled_helmholtz_2Dh_axisym(dv2_1, dv3_2, resv2_1, resv3_2, h1, h2, wmask, vmult, imesh, tolhv, nmxv, binvm1, hmh_info, diag_shift, couple_coef, 1.0_dp)
-!            etime = dnekclock() - etime
-!            if (nid == 0) print '(A,I0,A,I8,A,E17.8)', 'Solve     cplA ',0,', step', istep, ' time ', etime
-!            
-!            etime = dnekclock()
-!            ! Block B: (u_R,im, u_phi,re) = (resv2_2, resv3_1), csign = -1
-!            hmh_info = 'BLKB'
-!            call solve_coupled_helmholtz_2Dh_axisym(dv2_2, dv3_1, resv2_2, resv3_1, h1, h2, wmask, vmult, imesh, tolhv, nmxv, binvm1, hmh_info, diag_shift, couple_coef, -1.0_dp)
-!            etime = dnekclock() - etime
-!            if (nid == 0) print '(A,I0,A,I8,A,E17.8)', 'Solve     cplB ',0,', step', istep, ' time ', etime
-            
-            call uRphi_to_upm(up_re, up_im, um_re, um_im, resv2_1, resv2_2, resv3_1, resv3_2)
-            
-            call dssum(up_re, lx1, ly1, lz1); call col2(up_re, wmask, ntot1)
-            call dssum(up_im, lx1, ly1, lz1); call col2(up_im, wmask, ntot1)
-            call dssum(um_re, lx1, ly1, lz1); call col2(um_re, wmask, ntot1)
-            call dssum(um_im, lx1, ly1, lz1); call col2(um_im, wmask, ntot1)
-            
-            etime = dnekclock()
-            hmh_info = 'UPLRE'
-            call solve_helmholtz_2Dh_axisym(dvp_re, up_re, h1, h2, wmask, vmult, imesh, tolhv, nmxv, 1, binvm1, hmh_info, h2p_shift)
-            etime = dnekclock() - etime
-            if (nid == 0) print '(A,A,I0,A,I8,A,E17.8)', 'Solve    ',hmh_info,0,', step', istep, ' time ', etime
-            etime = dnekclock()
-            hmh_info = 'UPLIM'
-            call solve_helmholtz_2Dh_axisym(dvp_im, up_im, h1, h2, wmask, vmult, imesh, tolhv, nmxv, 1, binvm1, hmh_info, h2p_shift)
-            etime = dnekclock() - etime
-            if (nid == 0) print '(A,A,I0,A,I8,A,E17.8)', 'Solve    ',hmh_info,0,', step', istep, ' time ', etime
-            etime = dnekclock()
-            hmh_info = 'UMNRE'
-            call solve_helmholtz_2Dh_axisym(dvm_re, um_re, h1, h2, wmask, vmult, imesh, tolhv, nmxv, 1, binvm1, hmh_info, h2m_shift)
-            etime = dnekclock() - etime
-            if (nid == 0) print '(A,A,I0,A,I8,A,E17.8)', 'Solve    ',hmh_info,0,', step', istep, ' time ', etime
-            etime = dnekclock()
-            hmh_info = 'UMNIM'
-            call solve_helmholtz_2Dh_axisym(dvm_im, um_im, h1, h2, wmask, vmult, imesh, tolhv, nmxv, 1, binvm1, hmh_info, h2m_shift)
-            etime = dnekclock() - etime
-            if (nid == 0) print '(A,A,I0,A,I8,A,E17.8)', 'Solve    ',hmh_info,0,', step', istep, ' time ', etime
-            
-            call upm_to_uRphi(dv2_1, dv2_2, dv3_1, dv3_2, dvp_re, dvp_im, dvm_re, dvm_im)
-            
-            ! dv2_1,dv2_2,dv3_1,dv3_2 now hold the same quantities upm_to_uRphi
-            ! used to produce -- no inverse transform needed, feed straight in:
-            call add2(vyp(1,1), dv2_1, ntot1);  call add2(tp(1,1,1), dv3_1, ntot1)
-            call add2(vyp(1,2), dv2_2, ntot1);  call add2(tp(1,1,2), dv3_2, ntot1)
+ 
+            do jp = 1, npert
+               ipert = npert + 1 - jp
+               csign_jp = merge(1.0_dp, -1.0_dp, jp == 1)
+               hmh_info = merge('BLKA   ', 'BLKB   ', jp == 1)
+               etime = dnekclock()
+               call solve_coupled_helmholtz_2Dh_axisym(dv2, dv3, resv2_jp(1,1,1,1,jp), resv3_jp(1,1,1,1,ipert), 
+     &                                                  h1, h2, wmask, vmult, imesh, tolhv, nmxv, binvm1, hmh_info, 
+     &                                                  diag_shift, couple_coef, csign_jp)
+               etime = dnekclock() - etime
+               if (nid == 0) print '(A,I0,A,I8,A,E17.8)', 'Solve     cpl'//merge('A','B',jp==1),0,', step', istep, ' time ', etime
+         
+               ! dv2/dv3 hold the same quantities upm_to_uRphi used to produce --
+               ! no inverse transform needed, feed straight in:
+               call add2(vyp(1,jp),    dv2, ntot1)
+               call add2(tp(1,1,ipert), dv3, ntot1)
+            end do
          
             ! --- pressure correction stage: identical structure to the beta case,
             !     field routines substituted for the beta_z ones
@@ -245,7 +213,7 @@
                info_str = merge('Re', 'Im', jp == 1)
                call opdiv(dpr(1,jp), vxp(1,jp), vyp(1,jp), vzp(1,jp))
                call compute_frc_div_axisym(frc_div, tp, alphaR_coef)
-               call add2 (dpr(1,jp), frc_div(1,1,1,1,jp), ntot2)
+               call add2 (dpr(1,jp), frc_div, ntot2)
                call chsign(dpr(1,jp), ntot2)
 
                if (alpha == 0.0_dp) call ortho(dpr(1,jp))
@@ -255,7 +223,7 @@
                call               solve_pressure_2Dh_axisym(dpr(1,jp), h1, h2, h2inv, alphaR_coef, alpha, intype, iter, ebar, info_str)
                if (ifprjp) call gensoln_pressure_2Dh_axisym(dpr(1,jp), h1, h2, h2inv, pbasis(1,1,jp), nprev(jp), alphaR_coef)
                etime = dnekclock() - etime
-               if (nid == 0) print '(A,I2,A,I8,A,E17.8)', 'Solve pressure ',jp,', step', istep, ' time ', etime
+               !if (nid == 0) print '(A,I2,A,I8,A,E17.8)', 'Solve pressure ',jp,', step', istep, ' time ', etime
             end do
          
             msg = 'Compute velocity correction based on pressure correction'
@@ -267,7 +235,7 @@
                call compute_dw_axisym(dw, dpr, h2inv, alphaR_coef)
          
                call opadd2(vxp(1,jp), vyp(1,jp), vzp(1,jp), dv1, dv2, dv3)
-               call add2  (tp(1,1,jp), dw(1,jp), ntot1)
+               call add2  (tp(1,1,jp), dw, ntot1)
          
                call extrapprp(prextr)
                call lagpresp
@@ -305,26 +273,6 @@
             alpha_cached          = alpha
             torus_coeffs_defined  = .true.
          end subroutine build_torus_coeffs
-
-         subroutine uRphi_to_upm(up_re, up_im, um_re, um_im, uR_re, uR_im, uphi_re, uphi_im)
-            implicit none
-            real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: up_re, up_im, um_re, um_im
-            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in)  :: uR_re, uR_im, uphi_re, uphi_im
-            up_re = uR_re - uphi_im
-            up_im = uR_im + uphi_re
-            um_re = uR_re + uphi_im
-            um_im = uR_im - uphi_re
-         end subroutine uRphi_to_upm
-         
-         subroutine upm_to_uRphi(uR_re, uR_im, uphi_re, uphi_im, up_re, up_im, um_re, um_im)
-            implicit none
-            real(dp), dimension(lx1,ly1,lz1,lelv), intent(out) :: uR_re, uR_im, uphi_re, uphi_im
-            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in)  :: up_re, up_im, um_re, um_im
-            uR_re   = 0.5_dp*(up_re + um_re)
-            uR_im   = 0.5_dp*(up_im + um_im)
-            uphi_re = 0.5_dp*(up_im - um_im)
-            uphi_im = 0.5_dp*(um_re - up_re)
-         end subroutine upm_to_uRphi
 
          subroutine helmholtz_matvec_2Dh_axisym(Au, u, h1, h2, shift, isd)
             implicit none
@@ -372,7 +320,7 @@
             include 'SIZE'
             include 'SOLN'
             include 'MASS'
-            real(dp), dimension(lx1*ly1*lz1*lelv,lpert), intent(out) :: dw
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(out) :: dw
             real(dp), dimension(lx2*ly2*lz2*lelv,lpert), intent(in) :: dpr
             real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: h2inv, alphaR
             integer :: ipert, spert, ntot1
@@ -381,15 +329,15 @@
             ipert = npert + 1 - jp
             spert = merge(1, -1, jp == 1)
             ntot1 = lx1*ly1*lz1*nelv
-            call rzero(dw(1,jp), ntot1)
-            call mappr(dw(1,jp), dpr(1,ipert), wrk1, wrk2)
-            call col2 (dw(1,jp), bm1, ntot1)
-            call col2 (dw(1,jp), alphaR, ntot1)
-            if (spert == 1) call chsign(dw(1,jp), ntot1)     ! matches -spert*beta_z sign convention
-            call col2 (dw(1,jp), wmask, ntot1)
-            call dssum(dw(1,jp), lx1, ly1, lz1)
-            call col2 (dw(1,jp), binvm1, ntot1)
-            call col2 (dw(1,jp), h2inv, ntot1)
+            call rzero(dw, ntot1)
+            call mappr(dw, dpr(1,ipert), wrk1, wrk2)
+            call col2 (dw, bm1, ntot1)
+            call col2 (dw, alphaR, ntot1)
+            if (spert == 1) call chsign(dw, ntot1)     ! matches -spert*beta_z sign convention
+            call col2 (dw, wmask, ntot1)
+            call dssum(dw, lx1, ly1, lz1)
+            call col2 (dw, binvm1, ntot1)
+            call col2 (dw, h2inv, ntot1)
          end subroutine compute_dw_axisym
          
          subroutine compute_frc_div_axisym(frc_div, w, alphaR)
@@ -397,7 +345,7 @@
             include 'SIZE'
             include 'SOLN'
             include 'MASS'
-            real(dp), dimension(lx2,ly2,lz2,lelv,lpert), intent(out) :: frc_div
+            real(dp), dimension(lx2,ly2,lz2,lelv), intent(out) :: frc_div
             real(dp), dimension(lx1*ly1*lz1*lelv,ldimt,lpert), intent(in) :: w
             real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: alphaR
             integer :: ipert, spert, ie, ie1, nxyz1, ntot2
@@ -412,12 +360,12 @@
             call col2(wtmp, alphaR, nxyz1*nelv)          ! scale on M1 BEFORE mapping to M2 -- see caveat below
             if (spert == -1) call chsign(wtmp, nxyz1*nelv)
          
-            call rzero(frc_div(1,1,1,1,jp), ntot2)
+            call rzero(frc_div, ntot2)
             do ie = 1, nelv
                ie1 = (ie-1)*nxyz1 + 1
-               call map12(frc_div(1,1,1,ie,jp), wtmp(ie1,1,1,1), ie)
+               call map12(frc_div(1,1,1,ie), wtmp(ie1,1,1,1), ie)
             end do
-            call col2(frc_div(1,1,1,1,jp), bm2, ntot2)
+            call col2(frc_div, bm2, ntot2)
          end subroutine compute_frc_div_axisym
 
          subroutine add_torus_perturbation_coupling(resv2, resv3, jp_)
@@ -454,7 +402,7 @@
          
          end subroutine add_torus_perturbation_coupling
 
-         subroutine compute_torus_ignorable_advection(advZ, advR, advPhi, jp_)
+         subroutine compute_torus_s_advection(advZ, advR, advPhi, jp_)
             ! -i*alpha*(U_phi/R)*u term, present in ALL THREE momentum equations
             ! because the base flow has U_phi != 0 in the ignorable direction
             ! (no analogue in the planar beta_z case, where W=0 by assumption).
@@ -484,7 +432,7 @@
             call col3 (advPhi(1,ipert), coef, tp(1,1,jp_), ntot1)
             call col2 (advPhi(1,ipert), vtrans(1,1,1,1,2), ntot1)
             call col2 (advPhi(1,ipert), bm1, ntot1)
-         end subroutine compute_torus_ignorable_advection
+         end subroutine compute_torus_s_advection
 
          subroutine pressure_matvec_2Dh_axisym(ap, wp, h1, h2, h2inv, alphaR, intype)
             implicit none
@@ -601,8 +549,6 @@
             call setprec(d(1),   h1,h2,imsh,1)
             call setprec(d(n+1), h1,h2,imsh,1)
    
-            ! dssum + mask EACH field separately, before any combination --
-            ! this is the direct test of the ordering hypothesis
             call dssum(f1, lx1, ly1, lz1)
             call dssum(f2, lx1, ly1, lz1)
             call copy(r(1),   f1, n);  call col2(r(1),   mask, n)

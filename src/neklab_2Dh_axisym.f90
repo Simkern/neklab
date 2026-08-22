@@ -9,7 +9,7 @@
          private
          character(len=*), parameter, private :: this_module = 'neklab_2Dh_axisym'
          
-         real(dp), dimension(lx1,ly1,lz1,lelv), public :: h2z_shift, h2p_shift, h2m_shift
+         real(dp), dimension(lx1,ly1,lz1,lelv), public :: h2z_shift
          real(dp), dimension(lx1,ly1,lz1,lelv), public :: diag_shift, couple_coef
          real(dp), dimension(lx1,ly1,lz1,lelv), public :: alphaR_coef   ! alpha/R, continuity/pressure coupling
          logical, public :: torus_coeffs_defined = .false.
@@ -99,12 +99,7 @@
                !
                !  Old geometry, old velocity
                !
-               ifield = 1
-               call makefp
-               call lagfieldp
-               ifield = 2
-               call makeqp
-               call lagscalp
+               call makefp_2Dh_axisym(advZ, advR, advPhi)
                !
                igeom = 2
                !
@@ -123,14 +118,6 @@
                ! compute w term
                call copy(resv3, gradp(1,jp),  ntot1)
                call add2(resv3, bqp(1,1,jp),  ntot1)
-               
-               ! add in the streamwise advection
-               call add2(resv1, advZ(1,jp), ntot1)
-               call add2(resv2, advR(1,jp), ntot1)
-               call add2(resv3, advPhi(1,jp), ntot1)
-               
-               ! add in the toroidal coupling term (alpha/R) * gradp
-               call add_torus_perturbation_coupling(resv2, resv3, jp)
          
                ! hv1
                call helmholtz_matvec_2Dh_axisym(w1, vxp(1,jp), h1, h2, h2z_shift, 1)
@@ -148,7 +135,6 @@
                call add2(vxp(1,jp), dv1, ntot1)
                
                ! stash u_R/u_phi RHS for the joint transform+solve below
-                                    ! stash u_R/u_phi RHS for the joint transform+solve below
                call copy(resv2_jp(1,1,1,1,jp), resv2, ntot1)
                call copy(resv3_jp(1,1,1,1,jp), resv3, ntot1)
             end do ! jp
@@ -161,7 +147,7 @@
                call sub2(resv3_jp(1,1,1,1,ipert), w3, ntot1)
             end do
          
-            msg = 'Solve u_+/u_- momentum equations'
+            msg = 'Solve u_R/u_phi momentum equations'
             call nek_log_debug(msg, this_module, this_procedure)
  
             do jp = 1, npert
@@ -256,11 +242,9 @@
                do iz = 1, lz1
                   do iy = 1, ly1
                      do ix = 1, lx1
-                        Rloc = ym1(ix,iy,iz,ie)          ! R, always > 0 in your torus mesh
+                        Rloc                     = ym1(ix,iy,iz,ie) ! R, always > 0 in your torus mesh
                         alphaR_coef(ix,iy,iz,ie) = alpha / Rloc
-                        h2z_shift(ix,iy,iz,ie)   =  alpha**2          / Rloc**2
-                        h2p_shift(ix,iy,iz,ie)   = (alpha + 1.0_dp)**2 / Rloc**2
-                        h2m_shift(ix,iy,iz,ie)   = (alpha - 1.0_dp)**2 / Rloc**2
+                        h2z_shift(ix,iy,iz,ie)   = alpha**2 / Rloc**2
                         diag_shift(ix,iy,iz,ie)  = h2z_shift(ix,iy,iz,ie) + 1.0_dp/Rloc**2
                         couple_coef(ix,iy,iz,ie) = 2.0_dp*alpha/Rloc**2
                      end do
@@ -368,26 +352,100 @@
             call col2(frc_div, bm2, ntot2)
          end subroutine compute_frc_div_axisym
 
-         subroutine add_torus_perturbation_coupling(resv2, resv3, jp_)
+         subroutine makefp_2Dh_axisym(advZ, advR, advPhi)
+            ! Perturbation RHS assembly for the torus formulation.
+            !
+            ! Replaces the core `makefp` + `makeqp` pair. Structure is identical
+            ! to those routines (perturb.f), with the toroidal explicit terms
+            ! injected AFTER the convective step and BEFORE the extrapolation
+            ! step, so that makextp/makeabqp apply EXT3 to them and roll them
+            ! into the lag arrays (exx1p/exx2p, vgradt1p/vgradt2p) automatically.
+            !
+            ! Operates on the current global `jp` (the Nek routines called here
+            ! all read it), and restores `ifield` on exit.
+            implicit none
+            include 'SIZE'
+            include 'SOLN'
+            include 'INPUT'
+            include 'TSTEP'
+            include 'ADJOINT'
+            real(dp), dimension(lx1*ly1*lz1*lelv,lpert), intent(in) :: advZ, advR, advPhi
+            character(len=*), parameter :: this_procedure = 'makefp_2Dh_axisym'
+            integer :: ifield_bak, ntot1
+
+            ntot1 = lx1*ly1*lz1*nelv
+            ifield_bak = ifield
+
+            ! The toroidal terms are linearised about the forward base flow and
+            ! are not adjoint-aware; refuse rather than silently solve the wrong
+            ! system.
+            if (ifadj) call nek_stop_error(
+     &         'adjoint mode not supported by the torus formulation',
+     &         this_module, this_procedure)
+
+            ! ---------------- velocity: u_Z, u_R ----------------
+            ifield = 1
+            call makeufp
+            if (ifnav .and. .not. ifchar) call advabp
+            call add2(bfxp(1,jp), advZ(1,jp), ntot1)   ! -i*alpha*(U_phi/R)*u_Z
+            call add2(bfyp(1,jp), advR(1,jp), ntot1)   ! -i*alpha*(U_phi/R)*u_R
+            call add_torus_curv_R(bfyp(1,jp), jp)      ! +2*U_phi*u'_phi/R
+            if (iftran) call makextp                   ! <-- EXT3
+            call makebdfp
+            call lagfieldp
+
+            ! ---------------- scalar: u_phi ----------------
+            ifield = 2
+            if (ifadvc(ifield) .and. ifchar) call nek_stop_error(
+     &         'characteristics (ifchar) not supported for the swirl field',
+     &         this_module, this_procedure)
+
+            call makeuqp
+            if (ifadvc(ifield) .and. .not. ifchar) call convabp
+            call add2(bqp(1,ifield-1,jp), advPhi(1,jp), ntot1)   ! -i*alpha*(U_phi/R)*u_phi
+            call add_torus_curv_phi(bqp(1,ifield-1,jp), jp)      ! -(U_phi*u'_R + U_R*u'_phi)/R
+            if (iftran) call makeabqp                            ! <-- EXT3
+            if ((iftran .and. .not. ifchar) .or.
+     &          (iftran .and. .not. ifadvc(ifield) .and. ifchar)) call makebdqp
+            call lagscalp
+
+            ifield = ifield_bak
+         end subroutine makefp_2Dh_axisym
+
+         subroutine add_torus_curv_R(rhs, jp_)
             implicit none
             include 'SIZE'
             include 'SOLN'   ! vx,vy,t (baseflow); vxp,vyp,tp (perturbation); vtrans
             include 'MASS'   ! bm1
-            real(dp), dimension(lx1,ly1,lz1,lelv), intent(inout) :: resv2, resv3
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(inout) :: rhs
             integer, intent(in) :: jp_
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: tmp1, tmp2
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: tmp
             integer :: ntot1
          
             ntot1 = lx1*ly1*lz1*nelv
          
             ! --- R-momentum: + 2*U_phi*u'_phi/R * rho * bm1
             !     linearization of the missing -U_phi^2/R term in (U.grad U)_R
-            call col3   (tmp1, t(1,1,1,1,1), tp(1,1,jp_), ntot1)   ! U_phi * u'_phi
-            call invcol2(tmp1, ym1, ntot1)                          ! / R
-            call cmult  (tmp1, 2.0_dp, ntot1)
-            call col2   (tmp1, vtrans(1,1,1,1,1), ntot1)            ! rho  (density = 1.0 in your .par)
-            call col2   (tmp1, bm1, ntot1)
-            call add2   (resv2, tmp1, ntot1)
+            call col3   (tmp, t(1,1,1,1,1), tp(1,1,jp_), ntot1)   ! U_phi * u'_phi
+            call invcol2(tmp, ym1, ntot1)                          ! / R
+            call cmult  (tmp, 2.0_dp, ntot1)
+            call col2   (tmp, vtrans(1,1,1,1,1), ntot1)            ! rho  (density = 1.0 in your .par)
+            call col2   (tmp, bm1, ntot1)
+            call add2   (rhs, tmp, ntot1)
+         
+         end subroutine add_torus_curv_R
+
+         subroutine add_torus_curv_phi(rhs, jp_)
+            implicit none
+            include 'SIZE'
+            include 'SOLN'   ! vx,vy,t (baseflow); vxp,vyp,tp (perturbation); vtrans
+            include 'MASS'   ! bm1
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(inout) :: rhs
+            integer, intent(in) :: jp_
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: tmp1, tmp2
+            integer :: ntot1
+         
+            ntot1 = lx1*ly1*lz1*nelv
          
             ! --- swirl ("phi") equation: - (U_phi*u'_R + U_R*u'_phi)/R * rhocp * bm1
             !     linearization of the missing +U_R*U_phi/R term in (U.grad U)_phi
@@ -398,9 +456,9 @@
             call chsign (tmp1, ntot1)
             call col2   (tmp1, vtrans(1,1,1,1,2), ntot1)             ! rhocp (= 1.0 in your .par)
             call col2   (tmp1, bm1, ntot1)
-            call add2   (resv3, tmp1, ntot1)
+            call add2   (rhs, tmp1, ntot1)
          
-         end subroutine add_torus_perturbation_coupling
+         end subroutine add_torus_curv_phi
 
          subroutine compute_torus_s_advection(advZ, advR, advPhi, jp_)
             ! -i*alpha*(U_phi/R)*u term, present in ALL THREE momentum equations

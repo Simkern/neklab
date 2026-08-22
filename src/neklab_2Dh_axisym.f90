@@ -13,6 +13,7 @@
          real(dp), dimension(lx1,ly1,lz1,lelv), public :: diag_shift, couple_coef
          real(dp), dimension(lx1,ly1,lz1,lelv), public :: alphaR_coef   ! alpha/R, continuity/pressure coupling
          logical, public :: torus_coeffs_defined = .false.
+         logical, public :: dTgrad_defined = .false.
          real(dp), private :: alpha_cached = huge(1.0_dp)
 
          real(dp), dimension(lx2*ly2*lz2*lelv,mxprev,lpert), private :: pbasis
@@ -58,6 +59,10 @@
             ntot1 = lx1*ly1*lz1*nelv
             ntot2 = lx2*ly2*lz2*nelv
          
+            if (ifadj .and. .not. dTgrad_defined) then
+               call gradm1(dTdx, dTdy, dTdz, t(1,1,1,1,1))
+               dTgrad_defined = .true.
+            end if
             if (.not. wmask_defined) call build_wmask(.true.)
             if (.not. torus_coeffs_defined .or. alpha /= alpha_cached) call build_torus_coeffs(alpha)
          
@@ -352,6 +357,39 @@
             call col2(frc_div, bm2, ntot2)
          end subroutine compute_frc_div_axisym
 
+         subroutine compute_torus_s_advection(advZ, advR, advPhi, jp_)
+            ! -i*alpha*(U_phi/R)*u term, present in ALL THREE momentum equations
+            ! because the base flow has U_phi != 0 in the ignorable direction
+            ! (no analogue in the planar beta_z case, where W=0 by assumption).
+            implicit none
+            include 'SIZE'
+            include 'SOLN'   ! vxp,vyp,tp; t (baseflow); vtrans
+            include 'MASS'   ! bm1
+            real(dp), dimension(lx1*ly1*lz1*lelv,lpert), intent(inout) :: advZ, advR, advPhi
+            integer, intent(in) :: jp_
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: coef
+            integer :: ipert, ntot1
+         
+            ntot1 = lx1*ly1*lz1*nelv
+            ipert = npert + 1 - jp_
+         
+            call col3(coef, alphaR_coef, t(1,1,1,1,1), ntot1)   ! (alpha/R) * U_phi
+            if (ipert == 1) call chsign(coef, ntot1)            ! sign keyed to the READING jp, not the caller
+            if (ifadj)      call chsign(coef, ntot1)            ! adjoint flips the direction of advection
+         
+            call col3 (advZ(1,ipert), coef, vxp(1,jp_), ntot1)
+            call col2 (advZ(1,ipert), vtrans(1,1,1,1,1), ntot1)
+            call col2 (advZ(1,ipert), bm1, ntot1)
+         
+            call col3 (advR(1,ipert), coef, vyp(1,jp_), ntot1)
+            call col2 (advR(1,ipert), vtrans(1,1,1,1,1), ntot1)
+            call col2 (advR(1,ipert), bm1, ntot1)
+         
+            call col3 (advPhi(1,ipert), coef, tp(1,1,jp_), ntot1)
+            call col2 (advPhi(1,ipert), vtrans(1,1,1,1,2), ntot1)
+            call col2 (advPhi(1,ipert), bm1, ntot1)
+         end subroutine compute_torus_s_advection
+
          subroutine makefp_2Dh_axisym(advZ, advR, advPhi)
             ! Perturbation RHS assembly for the torus formulation.
             !
@@ -371,25 +409,32 @@
             include 'ADJOINT'
             real(dp), dimension(lx1*ly1*lz1*lelv,lpert), intent(in) :: advZ, advR, advPhi
             character(len=*), parameter :: this_procedure = 'makefp_2Dh_axisym'
-            integer :: ifield_bak, ntot1
+            integer :: ifield_bak, ifheat_bak, ntot1
 
             ntot1 = lx1*ly1*lz1*nelv
             ifield_bak = ifield
 
-            ! The toroidal terms are linearised about the forward base flow and
-            ! are not adjoint-aware; refuse rather than silently solve the wrong
-            ! system.
-            if (ifadj) call nek_stop_error(
-     &         'adjoint mode not supported by the torus formulation',
-     &         this_module, this_procedure)
-
             ! ---------------- velocity: u_Z, u_R ----------------
             ifield = 1
             call makeufp
-            if (ifnav .and. .not. ifchar) call advabp
+            if (ifnav .and. .not. ifchar) then
+               if (ifadj) then
+                  ifheat_bak = ifheat
+                  ifheat = .false.   ! its dT-transpose block reads tp(:,:,1) regardless of jp
+                  call advabp_adjoint
+                  ifheat = ifheat_bak
+                  call add_torus_swirl_transpose(bfxp(1,jp), bfyp(1,jp), jp)
+               else
+                  call advabp
+               end if
+            end if
             call add2(bfxp(1,jp), advZ(1,jp), ntot1)   ! -i*alpha*(U_phi/R)*u_Z
             call add2(bfyp(1,jp), advR(1,jp), ntot1)   ! -i*alpha*(U_phi/R)*u_R
-            call add_torus_curv_R(bfyp(1,jp), jp)      ! +2*U_phi*u'_phi/R
+            if (ifadj) then
+               call add_torus_curv_R_adj(bfyp(1,jp), jp)
+            else
+               call add_torus_curv_R    (bfyp(1,jp), jp)
+            end if
             if (iftran) call makextp                   ! <-- EXT3
             call makebdfp
             call lagfieldp
@@ -403,7 +448,11 @@
             call makeuqp
             if (ifadvc(ifield) .and. .not. ifchar) call convabp
             call add2(bqp(1,ifield-1,jp), advPhi(1,jp), ntot1)   ! -i*alpha*(U_phi/R)*u_phi
-            call add_torus_curv_phi(bqp(1,ifield-1,jp), jp)      ! -(U_phi*u'_R + U_R*u'_phi)/R
+            if (ifadj) then
+               call add_torus_curv_phi_adj(bqp(1,ifield-1,jp), jp)
+            else
+               call add_torus_curv_phi    (bqp(1,ifield-1,jp), jp)
+            end if
             if (iftran) call makeabqp                            ! <-- EXT3
             if ((iftran .and. .not. ifchar) .or.
      &          (iftran .and. .not. ifadvc(ifield) .and. ifchar)) call makebdqp
@@ -427,9 +476,9 @@
             ! --- R-momentum: + 2*U_phi*u'_phi/R * rho * bm1
             !     linearization of the missing -U_phi^2/R term in (U.grad U)_R
             call col3   (tmp, t(1,1,1,1,1), tp(1,1,jp_), ntot1)   ! U_phi * u'_phi
-            call invcol2(tmp, ym1, ntot1)                          ! / R
+            call invcol2(tmp, ym1, ntot1)                         ! / R
             call cmult  (tmp, 2.0_dp, ntot1)
-            call col2   (tmp, vtrans(1,1,1,1,1), ntot1)            ! rho  (density = 1.0 in your .par)
+            call col2   (tmp, vtrans(1,1,1,1,1), ntot1)           ! rho  (density = 1.0 in your .par)
             call col2   (tmp, bm1, ntot1)
             call add2   (rhs, tmp, ntot1)
          
@@ -460,37 +509,84 @@
          
          end subroutine add_torus_curv_phi
 
-         subroutine compute_torus_s_advection(advZ, advR, advPhi, jp_)
-            ! -i*alpha*(U_phi/R)*u term, present in ALL THREE momentum equations
-            ! because the base flow has U_phi != 0 in the ignorable direction
-            ! (no analogue in the planar beta_z case, where W=0 by assumption).
+         subroutine add_torus_curv_R_adj(rhs, jp_)
             implicit none
             include 'SIZE'
-            include 'SOLN'   ! vxp,vyp,tp; t (baseflow); vtrans
-            include 'MASS'   ! bm1
-            real(dp), dimension(lx1*ly1*lz1*lelv,lpert), intent(inout) :: advZ, advR, advPhi
+            include 'SOLN'
+            include 'MASS'
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(inout) :: rhs
             integer, intent(in) :: jp_
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: coef
-            integer :: ipert, ntot1
-         
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: tmp
+            integer :: ntot1
+
             ntot1 = lx1*ly1*lz1*nelv
-            ipert = npert + 1 - jp_
-         
-            call col3(coef, alphaR_coef, t(1,1,1,1,1), ntot1)   ! (alpha/R) * U_phi
-            if (ipert == 1) call chsign(coef, ntot1)             ! sign keyed to the READING jp, not the caller
-         
-            call col3 (advZ(1,ipert), coef, vxp(1,jp_), ntot1)
-            call col2 (advZ(1,ipert), vtrans(1,1,1,1,1), ntot1)
-            call col2 (advZ(1,ipert), bm1, ntot1)
-         
-            call col3 (advR(1,ipert), coef, vyp(1,jp_), ntot1)
-            call col2 (advR(1,ipert), vtrans(1,1,1,1,1), ntot1)
-            call col2 (advR(1,ipert), bm1, ntot1)
-         
-            call col3 (advPhi(1,ipert), coef, tp(1,1,jp_), ntot1)
-            call col2 (advPhi(1,ipert), vtrans(1,1,1,1,2), ntot1)
-            call col2 (advPhi(1,ipert), bm1, ntot1)
-         end subroutine compute_torus_s_advection
+
+            ! --- adjoint R-momentum: - U_phi*u'_phi/R * rho * bm1
+            !     transpose of the -U_phi/R entry in the forward phi-equation
+            call col3   (tmp, t(1,1,1,1,1), tp(1,1,jp_), ntot1)   ! U_phi * u'_phi
+            call invcol2(tmp, ym1, ntot1)                         ! / R
+            call chsign (tmp, ntot1)
+            call col2   (tmp, vtrans(1,1,1,1,1), ntot1)           ! rho
+            call col2   (tmp, bm1, ntot1)
+            call add2   (rhs, tmp, ntot1)
+         end subroutine add_torus_curv_R_adj
+
+         subroutine add_torus_curv_phi_adj(rhs, jp_)
+            implicit none
+            include 'SIZE'
+            include 'SOLN'
+            include 'MASS'
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(inout) :: rhs
+            integer, intent(in) :: jp_
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: tmp1, tmp2
+            integer :: ntot1
+
+            ntot1 = lx1*ly1*lz1*nelv
+
+            ! --- adjoint swirl equation: (2*U_phi*u'_R - U_R*u'_phi)/R * rhocp * bm1
+            !     transpose of the +2U_phi/R entry in the forward R-equation,
+            !     plus the (self-transposed) -U_R/R diagonal entry
+            call col3   (tmp1, t(1,1,1,1,1), vyp(1,jp_),  ntot1)   ! U_phi * u'_R
+            call cmult  (tmp1, 2.0_dp, ntot1)
+            call col3   (tmp2, vy,           tp(1,1,jp_), ntot1)   ! U_R   * u'_phi
+            call sub2   (tmp1, tmp2, ntot1)
+            call invcol2(tmp1, ym1, ntot1)                         ! / R
+            call col2   (tmp1, vtrans(1,1,1,1,2), ntot1)           ! rhocp
+            call col2   (tmp1, bm1, ntot1)
+            call add2   (rhs, tmp1, ntot1)
+         end subroutine add_torus_curv_phi_adj
+
+         subroutine add_torus_swirl_transpose(rhsZ, rhsR, jp_)
+            ! Transpose of the -(u'.grad)U_phi term that convabp supplies to the
+            ! forward swirl equation. convabp's adjoint branch deliberately omits
+            ! it (perturb.f:741), so it must be added to the momentum equations
+            ! here:
+            !     Z-eq += - u'_phi * dU_phi/dZ * rhocp * bm1
+            !     R-eq += - u'_phi * dU_phi/dR * rhocp * bm1
+            implicit none
+            include 'SIZE'
+            include 'SOLN'
+            include 'MASS'
+            include 'ADJOINT'
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(inout) :: rhsZ, rhsR
+            integer, intent(in) :: jp_
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: tmp
+            integer :: ntot1
+
+            ntot1 = lx1*ly1*lz1*nelv
+
+            call col3  (tmp, dTdx, tp(1,1,jp_), ntot1)
+            call chsign(tmp, ntot1)
+            call col2  (tmp, vtrans(1,1,1,1,2), ntot1)   ! rhocp
+            call col2  (tmp, bm1, ntot1)
+            call add2  (rhsZ, tmp, ntot1)
+
+            call col3  (tmp, dTdy, tp(1,1,jp_), ntot1)
+            call chsign(tmp, ntot1)
+            call col2  (tmp, vtrans(1,1,1,1,2), ntot1)
+            call col2  (tmp, bm1, ntot1)
+            call add2  (rhsR, tmp, ntot1)
+         end subroutine add_torus_swirl_transpose
 
          subroutine pressure_matvec_2Dh_axisym(ap, wp, h1, h2, h2inv, alphaR, intype)
             implicit none

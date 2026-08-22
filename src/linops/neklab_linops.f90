@@ -97,6 +97,42 @@
                class(abstract_vector_cdp), intent(out) :: vec_out
             end subroutine
          end interface
+
+      !---------------------------------------------------
+      !-----     EXPONENTIAL PROPAGATOR 2Dh axisym   -----
+      !---------------------------------------------------
+      
+      ! --> Type.
+         type, extends(abstract_linop_cdp), public :: exptA_2Dh_axisym_linop
+            real(kind=dp) :: tau
+            real(kind=dp) :: alpha_s
+            real(kind=dp) :: Ls
+            type(nek_dvector) :: baseflow
+         contains
+            private
+            procedure, pass(self), public :: init => init_exptA_2Dh_axisym
+            procedure, pass(self), public :: matvec => exptA_2Dh_axisym_matvec
+            procedure, pass(self), public :: rmatvec => exptA_2Dh_axisym_rmatvec
+         end type exptA_2Dh_axisym_linop
+      
+      ! --> Type-bound procedures: exponential_propagator_2Dh_axisym.f90
+         interface
+            module subroutine init_exptA_2Dh_axisym(self)
+               class(exptA_2Dh_axisym_linop), intent(in) :: self
+            end subroutine
+      
+            module subroutine exptA_2Dh_axisym_matvec(self, vec_in, vec_out)
+               class(exptA_2Dh_axisym_linop), intent(inout) :: self
+               class(abstract_vector_cdp), intent(in) :: vec_in
+               class(abstract_vector_cdp), intent(out) :: vec_out
+            end subroutine
+      
+            module subroutine exptA_2Dh_axisym_rmatvec(self, vec_in, vec_out)
+               class(exptA_2Dh_axisym_linop), intent(inout) :: self
+               class(abstract_vector_cdp), intent(in) :: vec_in
+               class(abstract_vector_cdp), intent(out) :: vec_out
+            end subroutine
+         end interface
       
       !--------------------------------------
       !-----     RESOLVENT OPERATOR     -----

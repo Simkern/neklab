@@ -11,6 +11,7 @@
          use neklab_nek_setup, only: nek_stop_error, nek_log_message, nek_log_debug
          use neklab_helix
          use neklab_2Dh, only: nek_advance_2Dh
+         use neklab_2Dh_axisym, only: nek_advance_2Dh_axisym
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -105,7 +106,7 @@
       ! --> Type.
          type, extends(abstract_linop_cdp), public :: exptA_2Dh_axisym_linop
             real(kind=dp) :: tau
-            real(kind=dp) :: alpha_s
+            real(kind=dp) :: alphas
             real(kind=dp) :: Ls
             type(nek_dvector) :: baseflow
          contains

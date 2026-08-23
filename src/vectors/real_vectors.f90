@@ -44,8 +44,6 @@
          integer :: iface, kx1, kx2, ky1, ky2, kz1, kz2
          real(kind=dp) :: xl(ldim), fcoeff(3), alpha
          normalize = optval(ifnorm, .false.)
-      
-         ifield = 1 ! for bcdirvc
 
          do iel = 1, nelv
          do iz = 1, lz1
@@ -101,16 +99,36 @@
       
       ! Face averaging.
          call opdssum(self%vx, self%vy, self%vz)
-         call opcolv(self%vx, self%vy, self%vz, vmult)
-         call dsavg(self%vx)
-         call dsavg(self%vy)
+         call opcolv (self%vx, self%vy, self%vz, vmult)
+         call dsavg  (self%vx)
+         call dsavg  (self%vy)
          if (if3d) call dsavg(self%vz)
          if (ifto) then
             call dssum(self%theta, lx1, ly1, lz1)
-            call col2(self%theta, vmult, lx1*ly1*lz1*lelv)
+            call col2 (self%theta, vmult, lx1*ly1*lz1*lelv)
             call dsavg(self%theta)
-         end if         
+         end if
+         
+         ifield = 1
          call bcdirvc(self%vx, self%vy, self%vz, v1mask, v2mask, v3mask)
+         if (ifto .and. ifaxis .and. ifaziv) then
+            do iel = 1, nelv
+               do iface = 1, 2*ndim
+                  select case (cbc(iface,iel,1))
+                  case ('W  ','v  ','V  ','vl ','VL ','mv ','MV ')
+                     call facind(kx1, kx2, ky1, ky2, kz1, kz2, lx1, ly1, lz1, iface)
+                     do iz = kz1, kz2
+                     do iy = ky1, ky2
+                     do ix = kx1, kx2
+                        ijke = ix + lx1*((iy-1) + ly1*((iz-1) + lz1*(iel-1)))
+                        self%theta(ijke,1) = 0.0_dp
+                     end do
+                     end do
+                     end do
+                  end select
+               end do
+            end do
+         end if
       
          if (normalize) then
             alpha = self%norm()
@@ -122,10 +140,10 @@
          integer :: n1, n2
          n1 = nx1*ny1*nz1*nelv
          n2 = nx2*ny2*nz2*nelv
-         call cmult(self%vx, alpha, n1)
-         call cmult(self%vy, alpha, n1)
-         if (if3d) call cmult(self%vz, alpha, n1)
-         call cmult(self%pr, alpha, n2)
+         call           cmult(self%vx,          alpha, n1)
+         call           cmult(self%vy,          alpha, n1)
+         if (if3d) call cmult(self%vz,          alpha, n1)
+         call           cmult(self%pr,          alpha, n2)
          if (ifto) call cmult(self%theta(:, 1), alpha, n1)
          end procedure
       
@@ -136,11 +154,21 @@
          call self%scal(beta)
          select type (vec)
          type is (nek_dvector)
-            call add2s2(self%vx, vec%vx, alpha, n1)
-            call add2s2(self%vy, vec%vy, alpha, n1)
-            if (if3d) call add2s2(self%vz, vec%vz, alpha, n1)
-            call add2s2(self%pr, vec%pr, alpha, n2)
+            call           add2s2(self%vx,          vec%vx,          alpha, n1)
+            call           add2s2(self%vy,          vec%vy,          alpha, n1)
+            if (if3d) call add2s2(self%vz,          vec%vz,          alpha, n1)
+            call           add2s2(self%pr,          vec%pr,          alpha, n2)
             if (ifto) call add2s2(self%theta(:, 1), vec%theta(:, 1), alpha, n1)
+            call opdssum(self%vx, self%vy, self%vz)
+            call opcolv (self%vx, self%vy, self%vz, vmult)
+            call dsavg  (self%vx)
+            call dsavg  (self%vy)
+            if (if3d) call dsavg(self%vz)
+            if (ifto) then
+               call dssum(self%theta, lx1, ly1, lz1)
+               call col2 (self%theta, vmult, lx1*ly1*lz1*lelv)
+               call dsavg(self%theta)
+            end if
          class default
             call type_error('vec','nek_dvector','IN',this_module,'nek_daxpby')
          end select

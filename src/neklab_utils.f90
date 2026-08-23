@@ -11,6 +11,7 @@
          use LightKrylov, only: abstract_vector, abstract_vector_rdp
       ! Neklab vectors
          use neklab_vectors
+         use neklab_newton_control, only: lg, nctrl
       
          implicit none
          include "SIZE"
@@ -31,6 +32,9 @@
       ! utilities for extended nek vectors
          public :: nek2ext_vec, ext_vec2nek, abs_ext_vec2nek, outpost_ext_dnek
          public :: get_period, get_period_abs
+      ! utilities for control vectors
+         public :: nek2brd_vec, brd_vec2nek, abs_brd_vec2nek, outpost_brd_dnek
+         public :: get_control, get_control_abs
       ! utility for outposting
          public :: outpost_nek, outpost_2Dh
       ! miscellaneous
@@ -75,6 +79,27 @@
          interface abs_ext_vec2nek
             module procedure abstract_ext_vec2nek_std
             module procedure abstract_ext_vec2nek_prt
+         end interface
+
+      ! Control vector utilities
+         interface nek2brd_vec
+            module procedure nek2brd_vec_std
+            module procedure nek2brd_vec_prt
+         end interface
+      
+         interface brd_vec2nek
+            module procedure brd_vec2nek_std
+            module procedure brd_vec2nek_prt
+         end interface
+      
+         interface abs_brd_vec2nek
+            module procedure abstract_brd_vec2nek_std
+            module procedure abstract_brd_vec2nek_prt
+         end interface
+      
+         interface outpost_brd_dnek
+            module procedure outpost_brd_dnek_vector
+            module procedure outpost_brd_dnek_basis
          end interface
       
       ! Outposting
@@ -347,6 +372,131 @@
             class(nek_ext_dvector), intent(in) :: vec
             period = vec%T
          end function get_period
+
+         ! ---- nonlinear fields -> vector (control block is NOT touched: it is an
+      !      independent unknown, not something Nek carries)
+
+         subroutine nek2brd_vec_std(vec, vx_, vy_, vz_, pr_, t_)
+            include "SIZE"
+            type(nek_bordered_dvector), intent(out) :: vec
+            real(kind=dp), dimension(lx1, ly1, lz1, lelv), intent(in) :: vx_
+            real(kind=dp), dimension(lx1, ly1, lz1, lelv), intent(in) :: vy_
+            real(kind=dp), dimension(lx1, ly1, lz1, lelv), intent(in) :: vz_
+            real(kind=dp), dimension(lx2, ly2, lz2, lelv), intent(in) :: pr_
+            real(kind=dp), dimension(lx1, ly1, lz1, lelt, ldimt), intent(in) :: t_
+
+            call nopcopy(vec%vx, vec%vy, vec%vz, vec%pr, vec%theta, vx_, vy_, vz_, pr_, t_)
+            vec%g = 0.0_dp
+
+         end subroutine nek2brd_vec_std
+
+      ! ---- perturbation fields -> vector
+
+         subroutine nek2brd_vec_prt(vec, vx_, vy_, vz_, pr_, t_)
+            include "SIZE"
+            type(nek_bordered_dvector), intent(out) :: vec
+            real(kind=dp), dimension(lv, lpert), intent(in) :: vx_
+            real(kind=dp), dimension(lv, lpert), intent(in) :: vy_
+            real(kind=dp), dimension(lv, lpert), intent(in) :: vz_
+            real(kind=dp), dimension(lp, lpert), intent(in) :: pr_
+            real(kind=dp), dimension(lt, ldimt, lpert), intent(in) :: t_
+
+            call nopcopy(vec%vx, vec%vy, vec%vz, vec%pr, vec%theta,
+     &                   vx_(:, 1), vy_(:, 1), vz_(:, 1), pr_(:, 1), t_(:, :, 1))
+            vec%g = 0.0_dp
+
+         end subroutine nek2brd_vec_prt
+
+      ! ---- vector -> nonlinear fields
+
+         subroutine brd_vec2nek_std(vx_, vy_, vz_, pr_, t_, vec)
+            include "SIZE"
+            type(nek_bordered_dvector), intent(in) :: vec
+            real(kind=dp), dimension(lx1, ly1, lz1, lelv), intent(out) :: vx_
+            real(kind=dp), dimension(lx1, ly1, lz1, lelv), intent(out) :: vy_
+            real(kind=dp), dimension(lx1, ly1, lz1, lelv), intent(out) :: vz_
+            real(kind=dp), dimension(lx2, ly2, lz2, lelv), intent(out) :: pr_
+            real(kind=dp), dimension(lx1, ly1, lz1, lelt, ldimt), intent(out) :: t_
+
+            call nopcopy(vx_, vy_, vz_, pr_, t_, vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
+
+         end subroutine brd_vec2nek_std
+
+      ! ---- vector -> perturbation fields
+
+         subroutine brd_vec2nek_prt(vx_, vy_, vz_, pr_, t_, vec)
+            include "SIZE"
+            type(nek_bordered_dvector), intent(in) :: vec
+            real(kind=dp), dimension(lv, 1), intent(out) :: vx_
+            real(kind=dp), dimension(lv, 1), intent(out) :: vy_
+            real(kind=dp), dimension(lv, 1), intent(out) :: vz_
+            real(kind=dp), dimension(lp, 1), intent(out) :: pr_
+            real(kind=dp), dimension(lt, ldimt, 1), intent(out) :: t_
+
+            call nopcopy(vx_(:, 1), vy_(:, 1), vz_(:, 1), pr_(:, 1), t_(:, :, 1),
+     &                   vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
+
+         end subroutine brd_vec2nek_prt
+
+      ! ---- abstract variants (needed for self%X inside the Jacobian)
+
+         subroutine abstract_brd_vec2nek_std(vx_, vy_, vz_, pr_, t_, vec)
+            include "SIZE"
+            class(abstract_vector_rdp), intent(in) :: vec
+            real(kind=dp), dimension(lx1, ly1, lz1, lelv), intent(out) :: vx_
+            real(kind=dp), dimension(lx1, ly1, lz1, lelv), intent(out) :: vy_
+            real(kind=dp), dimension(lx1, ly1, lz1, lelv), intent(out) :: vz_
+            real(kind=dp), dimension(lx2, ly2, lz2, lelv), intent(out) :: pr_
+            real(kind=dp), dimension(lx1, ly1, lz1, lelt, ldimt), intent(out) :: t_
+            select type (vec)
+            type is (nek_bordered_dvector)
+               call nopcopy(vx_, vy_, vz_, pr_, t_, vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
+            class default
+               call type_error('vec','nek_bordered_dvector','IN',this_module,
+     &                         'abstract_brd_vec2nek_std')
+            end select
+         end subroutine abstract_brd_vec2nek_std
+
+         subroutine abstract_brd_vec2nek_prt(vx_, vy_, vz_, pr_, t_, vec)
+            include "SIZE"
+            class(abstract_vector_rdp), intent(in) :: vec
+            real(kind=dp), dimension(lv, 1), intent(out) :: vx_
+            real(kind=dp), dimension(lv, 1), intent(out) :: vy_
+            real(kind=dp), dimension(lv, 1), intent(out) :: vz_
+            real(kind=dp), dimension(lp, 1), intent(out) :: pr_
+            real(kind=dp), dimension(lt, ldimt, 1), intent(out) :: t_
+            select type (vec)
+            type is (nek_bordered_dvector)
+               call nopcopy(vx_(:, 1), vy_(:, 1), vz_(:, 1), pr_(:, 1), t_(:, :, 1),
+     &                      vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
+            class default
+               call type_error('vec','nek_bordered_dvector','IN',this_module,
+     &                         'abstract_brd_vec2nek_prt')
+            end select
+         end subroutine abstract_brd_vec2nek_prt
+
+      ! ---- control-block accessors
+
+         function get_control(vec) result(g)
+            type(nek_bordered_dvector), intent(in) :: vec
+            real(kind=dp), dimension(lg) :: g
+            g = vec%g
+         end function get_control
+
+         function get_control_abs(vec) result(g)
+      !! Reads the control block of an abstract vector -- this is how the
+      !! Jacobian recovers the base forcing from self%X.
+            class(abstract_vector_rdp), intent(in) :: vec
+            real(kind=dp), dimension(lg) :: g
+            g = 0.0_dp
+            select type (vec)
+            type is (nek_bordered_dvector)
+               g = vec%g
+            class default
+               call type_error('vec','nek_bordered_dvector','IN',this_module,
+     &                         'get_control_abs')
+            end select
+         end function get_control_abs
    
          subroutine nopcopy(a1, a2, a3, a4, a5, b1, b2, b3, b4, b5)
             implicit none
@@ -435,6 +585,21 @@
                call outpost_ext_dnek_vector(vec(i), prefix)
             end do
          end subroutine outpost_ext_dnek_basis
+
+         subroutine outpost_brd_dnek_vector(vec, prefix)
+            type(nek_bordered_dvector), intent(in) :: vec
+            character(len=3), intent(in) :: prefix
+            call outpost(vec%vx, vec%vy, vec%vz, vec%pr, vec%theta, prefix)
+         end subroutine outpost_brd_dnek_vector
+
+         subroutine outpost_brd_dnek_basis(vec, prefix)
+            type(nek_bordered_dvector), intent(in) :: vec(:)
+            character(len=3), intent(in) :: prefix
+            integer :: i
+            do i = 1, size(vec)
+               call outpost_brd_dnek_vector(vec(i), prefix)
+            end do
+         end subroutine outpost_brd_dnek_basis
 
          subroutine outpost_vector(vec, prefix)
             class(abstract_vector), intent(in) :: vec

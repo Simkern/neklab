@@ -296,6 +296,7 @@
       
             if (ifpert) then
                if (full_summary_) then
+                  call nek_log_message('', this_module, 'nek_status', nekfmt)
                   call nek_log_message('LINEAR MODE:', this_module, 'nek_status', nekfmt)
                   write (msg, '(A,L15)') padl('ifpert: ', 20), ifpert
                   call nek_log_message(msg, this_module, 'nek_status', nekfmt)
@@ -316,6 +317,7 @@
                end if
             else
                if (full_summary_) then
+                  call nek_log_message('', this_module, 'nek_status', nekfmt)
                   call nek_log_message('NONLINEAR MODE:', this_module, 'nek_status', nekfmt)
                   write (msg, '(A,L15)') padl('OIFS: ', 20), ifchar
                   call nek_log_message(msg, this_module, 'nek_status', nekfmt)
@@ -348,6 +350,7 @@
                call nek_log_message(msg, this_module, 'nek_status', nekfmt)
                write (msg, '(A,E15.4)') padl('velocity tol: ', 20), param(22)
                call nek_log_message(msg, this_module, 'nek_status', nekfmt)
+               call nek_log_message('', this_module, 'nek_status', nekfmt)
             end if
             if (nid == 0) then
                print *, ''

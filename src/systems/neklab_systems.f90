@@ -22,6 +22,7 @@
          use neklab_nek_setup
          use neklab_helix
          use neklab_2Dh_axisym
+         use neklab_newton_control
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -234,7 +235,45 @@
                class(abstract_vector_rdp), intent(out) :: vec_out
             end Subroutine jac_adjoint_map_torus_2Dh
          end interface
+
+      !-----------------------------------------------------------------
+      !-----     BORDERED SYSTEM: FIXED POINT + FLOW-RATE CONSTRAINT ---
+      !-----------------------------------------------------------------
       
+         type, extends(abstract_system_rdp), public :: nek_system_bordered
+         contains
+            private
+            procedure, pass(self), public :: response => nonlinear_map_bordered
+         end type nek_system_bordered
+               
+         type, extends(abstract_jacobian_linop_rdp), public :: nek_jacobian_bordered
+         contains
+            private
+            procedure, pass(self), public :: matvec  => jac_direct_map_bordered
+            procedure, pass(self), public :: rmatvec => jac_adjoint_map_bordered
+         end type nek_jacobian_bordered
+         
+         interface
+            module subroutine nonlinear_map_bordered(self, vec_in, vec_out, atol)
+               class(nek_system_bordered), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+               real(dp), intent(in) :: atol
+            end subroutine nonlinear_map_bordered
+                  
+            module subroutine jac_direct_map_bordered(self, vec_in, vec_out)
+               class(nek_jacobian_bordered), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+            end subroutine jac_direct_map_bordered
+                  
+            module subroutine jac_adjoint_map_bordered(self, vec_in, vec_out)
+               class(nek_jacobian_bordered), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+            end subroutine jac_adjoint_map_bordered
+         end interface
+
       contains
       
          subroutine compute_fdot(vec)

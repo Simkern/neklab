@@ -114,9 +114,11 @@ export FFLAGS
 echo "include $NEKLAB_SOURCE_ROOT/src/makefile_neklab" > makefile_usr.inc
 
 # User-specified object files
-USR_NEKLAB="neklab_vectors.o"
+USR_NEKLAB="neklab_newton_control.o"
+USR_NEKLAB+=" neklab_vectors.o"
 USR_NEKLAB+=" real_vectors.o"
 USR_NEKLAB+=" real_extended_vectors.o"
+USR_NEKLAB+=" bordered_vectors.o"
 USR_NEKLAB+=" complex_vectors.o"
 USR_NEKLAB+=" neklab_utils.o"
 USR_NEKLAB+=" neklab_nek_setup.o"
@@ -138,6 +140,7 @@ USR_NEKLAB+=" neklab_systems.o"
 USR_NEKLAB+=" fixed_point.o"
 USR_NEKLAB+=" fixed_point_torus.o"
 USR_NEKLAB+=" fixed_point_torus_2Dh.o"
+USR_NEKLAB+=" fixed_point_bordered_2Dh.o"
 USR_NEKLAB+=" periodic_orbit.o"
 USR_NEKLAB+=" periodic_orbit_torus.o"
 USR_NEKLAB+=" neklab_otd.o"

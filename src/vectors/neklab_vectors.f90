@@ -3,7 +3,8 @@
          use LightKrylov, only: dp
          use LightKrylov, only: abstract_vector_rdp, abstract_vector_cdp
          use LightKrylov_Logger
-      
+         use neklab_newton_control, only: lg, nctrl, wg    
+
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -143,6 +144,68 @@
       
             integer pure module function nek_ext_dsize(self) result(n)
                class(nek_ext_dvector), intent(in) :: self
+            end function
+         end interface
+
+      !-------------------------------------------------
+      !-----     NEK BORDERED REAL VECTOR TYPE     -----
+      !-------------------------------------------------
+      
+         type, extends(abstract_vector_rdp), public :: nek_bordered_dvector
+            real(kind=dp), dimension(lv) :: vx, vy, vz
+            real(kind=dp), dimension(lp) :: pr
+            real(kind=dp), dimension(lv, ldimt) :: theta
+            real(kind=dp), dimension(lg) :: g = 0.0_dp
+         contains
+            private
+            procedure, pass(self), public :: zero => nek_brd_dzero
+            procedure, pass(self), public :: rand => nek_brd_drand
+            procedure, pass(self), public :: scal => nek_brd_dscal
+            procedure, pass(self), public :: axpby => nek_brd_daxpby
+            procedure, pass(self), public :: dot => nek_brd_ddot
+            procedure, pass(self), public :: get_size => nek_brd_dsize
+         end type nek_bordered_dvector
+      
+         interface nek_bordered_dvector
+            pure module function construct_nek_brd_dvector(vx, vy, vz, pr, theta, g) result(out)
+               real(kind=dp), dimension(lv), intent(in) :: vx, vy
+               real(kind=dp), dimension(lv), optional, intent(in) :: vz
+               real(kind=dp), dimension(lp), optional, intent(in) :: pr
+               real(kind=dp), dimension(lv, ldimt), optional, intent(in) :: theta
+               real(kind=dp), dimension(lg), optional, intent(in) :: g
+               type(nek_bordered_dvector) :: out
+            end function
+         end interface
+      
+         interface
+            module subroutine nek_brd_dzero(self)
+               class(nek_bordered_dvector), intent(inout) :: self
+            end subroutine
+         
+            module subroutine nek_brd_drand(self, ifnorm)
+               class(nek_bordered_dvector), intent(inout) :: self
+               logical, optional, intent(in) :: ifnorm
+            end subroutine
+         
+            module subroutine nek_brd_dscal(self, alpha)
+               class(nek_bordered_dvector), intent(inout) :: self
+               real(kind=dp), intent(in) :: alpha
+            end subroutine
+         
+            module subroutine nek_brd_daxpby(alpha, vec, beta, self)
+               class(nek_bordered_dvector), intent(inout) :: self
+               real(kind=dp), intent(in) :: alpha
+               class(abstract_vector_rdp), intent(in) :: vec
+               real(kind=dp), intent(in) :: beta
+            end subroutine
+         
+            real(kind=dp) module function nek_brd_ddot(self, vec) result(alpha)
+               class(nek_bordered_dvector), intent(in) :: self
+               class(abstract_vector_rdp), intent(in) :: vec
+            end function
+         
+            integer pure module function nek_brd_dsize(self) result(n)
+               class(nek_bordered_dvector), intent(in) :: self
             end function
          end interface
       

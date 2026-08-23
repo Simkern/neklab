@@ -283,24 +283,23 @@
             implicit none
             real(dp), intent(in) :: alpha
             integer :: ix, iy, iz, ie
-            real(dp) :: Rloc
+            real(dp) :: r
          
             do ie = 1, nelv
                do iz = 1, lz1
                   do iy = 1, ly1
                      do ix = 1, lx1
-                        Rloc                     = ym1(ix,iy,iz,ie) ! R, always > 0 in your torus mesh
-                        alphaR_coef(ix,iy,iz,ie) = alpha / Rloc
-                        h2z_shift(ix,iy,iz,ie)   = alpha**2 / Rloc**2
-                        diag_shift(ix,iy,iz,ie)  = h2z_shift(ix,iy,iz,ie) + 1.0_dp/Rloc**2
-                        couple_coef(ix,iy,iz,ie) = 2.0_dp*alpha/Rloc**2
+                        r = ym1(ix,iy,iz,ie)
+                        alphaR_coef(ix,iy,iz,ie) = alpha / r
+                        h2z_shift  (ix,iy,iz,ie) = alpha**2 / r**2
+                        diag_shift (ix,iy,iz,ie) = h2z_shift(ix,iy,iz,ie) + 1.0_dp / r**2
+                        couple_coef(ix,iy,iz,ie) = 2.0_dp * alpha / r**2
                      end do
                   end do
                end do
             end do
             ! Same CG loop as solve_helmholtz_2Dh_axisym, but operating on the
             ! stacked 2-field vector (x1;x2). dssum/mask applied to x1 and x2
-            !         
             alpha_cached          = alpha
             torus_coeffs_defined  = .true.
          end subroutine build_torus_coeffs

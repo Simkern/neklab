@@ -277,6 +277,9 @@
                call lagpresp
                call add3(prp(1,jp),prextr,dpr(1,jp), ntot2)
             end do ! jp
+
+            ! reset jp = 0 in case we run the nonlinear step next
+            jp = 0
             
          end subroutine nek_advance_2Dh
 

@@ -21,6 +21,7 @@
          use neklab_utils
          use neklab_nek_setup
          use neklab_helix
+         use neklab_2Dh_axisym
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -193,6 +194,45 @@
                class(abstract_vector_rdp), intent(in) :: vec_in
                class(abstract_vector_rdp), intent(out) :: vec_out
             end Subroutine jac_adjoint_map_torus_upo
+         end interface
+
+      !---------------------------------------------------------------
+      !-----     NEKLAB SYSTEM FOR FIXED POINTS IN TORI 2Dh    -------
+      !---------------------------------------------------------------
+
+         type, extends(abstract_system_rdp), public :: nek_system_torus_2Dh
+         contains
+            private
+            procedure, pass(self), public :: response => nonlinear_map_torus_2Dh
+         end type nek_system_torus_2Dh
+      
+         type, extends(abstract_jacobian_linop_rdp), public :: nek_jacobian_torus_2Dh
+         contains
+            private
+            procedure, pass(self), public :: matvec => jac_direct_map_torus_2Dh
+            procedure, pass(self), public :: rmatvec => jac_adjoint_map_torus_2Dh
+         end type nek_jacobian_torus_2Dh
+
+         ! --> Type-bound procedures for nek_system_torus_2Dh & nek_jacobian_torus_2Dh
+         interface
+            module subroutine nonlinear_map_torus_2Dh(self, vec_in, vec_out, atol)
+               class(nek_system_torus_2Dh), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+               real(dp), intent(in) :: atol
+            end subroutine nonlinear_map_torus_2Dh
+
+            module subroutine jac_direct_map_torus_2Dh(self, vec_in, vec_out)
+               class(nek_jacobian_torus_2Dh), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+            end subroutine jac_direct_map_torus_2Dh
+
+            module subroutine jac_adjoint_map_torus_2Dh(self, vec_in, vec_out)
+               class(nek_jacobian_torus_2Dh), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+            end Subroutine jac_adjoint_map_torus_2Dh
          end interface
       
       contains

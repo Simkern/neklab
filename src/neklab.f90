@@ -61,6 +61,7 @@
       ! Implementation of the standard linear operators.
          public :: exptA_linop
          public :: exptA_2Dh_linop
+         public :: exptA_2Dh_axisym_linop
          public :: floquet_linop
          public :: resolvent_linop
       
@@ -69,7 +70,8 @@
          public :: nek_system_upo, nek_jacobian_upo
          public :: nek_system_torus, nek_jacobian_torus
          public :: nek_system_torus_upo, nek_jacobian_torus_upo
-      
+         public :: nek_system_torus_2Dh, nek_jacobian_torus_2Dh
+               
       ! Data for nek5000 user-defined forcing function
          public :: get_neklab_forcing, set_neklab_forcing, neklab_forcing
       

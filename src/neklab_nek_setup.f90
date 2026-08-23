@@ -132,7 +132,6 @@
             else
                if (ifpert) full_summary = .true.
                ifpert = .false.; call bcast(ifpert, lsize)
-               param(31) = 0; npert = 0
             end if
             if (solve_temperature_) then
                ifheat = .true.; call bcast(ifheat, lsize)
@@ -313,7 +312,7 @@
                   write (msg, '(A,L15)') padl('OIFS: ', 20), ifchar
                   call nek_log_message(msg, this_module, 'nek_status', nekfmt)
                else
-                  call nek_log_message('LINEAR MODE', this_module, 'nek_status', nekfmt)
+                  call nek_log_debug('LINEAR MODE', this_module, 'nek_status', nekfmt)
                end if
             else
                if (full_summary_) then
@@ -321,7 +320,7 @@
                   write (msg, '(A,L15)') padl('OIFS: ', 20), ifchar
                   call nek_log_message(msg, this_module, 'nek_status', nekfmt)
                else
-                  call nek_log_message('NONLINEAR MODE', this_module, 'nek_status', nekfmt)
+                  call nek_log_debug('NONLINEAR MODE', this_module, 'nek_status', nekfmt)
                end if
             end if
             if (full_summary_) then

@@ -74,8 +74,8 @@
             if (istep == 1) nprev(:) = 0
          
             call nekgsync
-            call setup_convect(2)
             call settime
+            call setup_convect(2)
             call setsolv
             call comment
             call setprop

@@ -27,4 +27,5 @@ $(OBJDIR)/helix_2d.o			:$(NEKLAB_SOURCE_ROOT)/src/helix/helix_2d.f90			;$(FC) -c
 $(OBJDIR)/helix_mflow_fft.o			:$(NEKLAB_SOURCE_ROOT)/src/helix/helix_mflow_fft.f90			;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_analysis.o		:$(NEKLAB_SOURCE_ROOT)/src/neklab_analysis.f90			;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_analysis_torus.o		:$(NEKLAB_SOURCE_ROOT)/src/neklab_analysis_torus.f90			;$(FC) -c $(FL2) $< -o $@
+$(OBJDIR)/neklab_analysis_torus_2Dh.o		:$(NEKLAB_SOURCE_ROOT)/src/neklab_analysis_torus_2Dh.f90			;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab.o			:$(NEKLAB_SOURCE_ROOT)/src/neklab.f90				;$(FC) -c $(FL2) $< -o $@

@@ -21,6 +21,7 @@
       !! --> Analysis of the torus
          use neklab_2Dh
          use neklab_2Dh_axisym
+         use neklab_analysis_torus_2Dh
       !! --> 2.5D solver
       
          private
@@ -91,6 +92,7 @@
       ! 2Dh
          public :: nek_advance_2Dh
          public :: nek_advance_2Dh_axisym
+         public :: flowrate_newton
       
       ! OTD exports.
          public :: nek_otd, otd_opts

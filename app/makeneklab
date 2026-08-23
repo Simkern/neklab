@@ -143,6 +143,7 @@ USR_NEKLAB+=" periodic_orbit_torus.o"
 USR_NEKLAB+=" neklab_otd.o"
 USR_NEKLAB+=" neklab_analysis.o"
 USR_NEKLAB+=" neklab_analysis_torus.o"
+USR_NEKLAB+=" neklab_analysis_torus_2Dh.o"
 USR_NEKLAB+=" neklab.o"
 # get casename from .usr file
 CASENAME=`find *.usr | sed 's/\.usr$//g'`

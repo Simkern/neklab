@@ -13,6 +13,7 @@
          real(dp), dimension(lx1,ly1,lz1,lelv), public :: diag_shift, couple_coef
          real(dp), dimension(lx1,ly1,lz1,lelv), public :: alphaR_coef   ! alpha/R, continuity/pressure coupling
          logical, public :: torus_coeffs_defined = .false.
+         logical, public :: if_alpha_zero = .false.
          real(dp), private :: alpha_cached = huge(1.0_dp)
 
          real(dp), dimension(lx2*ly2*lz2*lelv,mxprev,lpert), private :: pbasis
@@ -60,6 +61,15 @@
          
             if (.not. wmask_defined) call build_wmask(.true.)
             if (.not. torus_coeffs_defined .or. alpha /= alpha_cached) call build_torus_coeffs(alpha)
+
+            ! Re/Im pairing is only meaningful for alpha /= 0; npert must match
+            ! or the caller has set up the wrong number of perturbation slots.
+            if_alpha_zero = (alpha == 0.0_dp)
+            if (if_alpha_zero) then
+               if (lpert /= 1) call nek_stop_error('alpha = 0 requires npert = 1.', this_module, this_procedure)
+            else
+               if (lpert /= 2) call nek_stop_error('alpha /= 0 requires npert = 2.', this_module, this_procedure)
+            end if
          
             if (istep == 1) nprev(:) = 0
          
@@ -139,33 +149,67 @@
                call copy(resv3_jp(1,1,1,1,jp), resv3, ntot1)
             end do ! jp
 
-            do jp = 1, npert
-               ipert = npert + 1 - jp
-               csign_jp = merge(1.0_dp, -1.0_dp, jp == 1)
-               call coupled_helmholtz_matvec_2Dh_axisym(w2, w3, vyp(1,jp), tp(1,1,ipert), h1, h2, diag_shift, couple_coef, csign_jp)
-               call sub2(resv2_jp(1,1,1,1,jp),    w2, ntot1)
-               call sub2(resv3_jp(1,1,1,1,ipert), w3, ntot1)
-            end do
+            if (if_alpha_zero) then
+               do jp = 1, npert
+                  call helmholtz_matvec_2Dh_axisym(w2, vyp(1,jp), h1, h2, diag_shift, 1)
+                  call sub2(resv2_jp(1,1,1,1,jp), w2, ntot1)
+                  call helmholtz_matvec_2Dh_axisym(w3, tp(1,1,jp), h1, h2, diag_shift, 1)
+                  call sub2(resv3_jp(1,1,1,1,jp), w3, ntot1)
+               end do
+            else
+               do jp = 1, npert
+                  ipert = npert + 1 - jp
+                  csign_jp = merge(1.0_dp, -1.0_dp, jp == 1)
+                  call coupled_helmholtz_matvec_2Dh_axisym(w2, w3, vyp(1,jp), tp(1,1,ipert), h1, h2, diag_shift, couple_coef, csign_jp)
+                  call sub2(resv2_jp(1,1,1,1,jp),    w2, ntot1)
+                  call sub2(resv3_jp(1,1,1,1,ipert), w3, ntot1)
+               end do
+            end if
          
             msg = 'Solve u_R/u_phi momentum equations'
             call nek_log_debug(msg, this_module, this_procedure)
  
-            do jp = 1, npert
-               ipert = npert + 1 - jp
-               csign_jp = merge(1.0_dp, -1.0_dp, jp == 1)
-               hmh_info = merge('BLKA   ', 'BLKB   ', jp == 1)
-               etime = dnekclock()
-               call solve_coupled_helmholtz_2Dh_axisym(dv2, dv3, resv2_jp(1,1,1,1,jp), resv3_jp(1,1,1,1,ipert), 
-     &                                                  h1, h2, wmask, vmult, imesh, tolhv, nmxv, binvm1, hmh_info, 
-     &                                                  diag_shift, couple_coef, csign_jp)
-               etime = dnekclock() - etime
-               if (nid == 0) print '(A,I0,A,I8,A,E17.8)', 'Solve     cpl'//merge('A','B',jp==1),0,', step', istep, ' time ', etime
+            if (if_alpha_zero) then
+               do jp = 1, npert
+                  call dssum(resv2_jp(1,1,1,1,jp), lx1, ly1, lz1)
+                  call col2 (resv2_jp(1,1,1,1,jp), v2mask, ntot1)
+                  hmh_info = 'VELR   '
+                  if (istep < 10) call chktcg1(tolhv, resv2_jp(1,1,1,1,jp), h1, h2, v2mask, vmult, imesh, 1)
+                  etime = dnekclock()
+                  call solve_helmholtz_2Dh_axisym(dv2, resv2_jp(1,1,1,1,jp), h1, h2, v2mask, vmult, imesh,
+     &                                             tolhv, nmxv, 1, binvm1, hmh_info, diag_shift)
+                  etime = dnekclock() - etime
+                  if (nid == 0) print '(A,I0,A,I8,A,E17.8)', 'Solve      u_R ',jp,', step', istep, ' time ', etime
+
+                  call dssum(resv3_jp(1,1,1,1,jp), lx1, ly1, lz1)
+                  call col2 (resv3_jp(1,1,1,1,jp), wmask, ntot1)
+                  hmh_info = 'VELPHI '
+                  if (istep < 10) call chktcg1(tolhv, resv3_jp(1,1,1,1,jp), h1, h2, wmask, vmult, imesh, 1)
+                  etime = dnekclock()
+                  call solve_helmholtz_2Dh_axisym(dv3, resv3_jp(1,1,1,1,jp), h1, h2, wmask, vmult, imesh,
+     &                                             tolhv, nmxv, 1, binvm1, hmh_info, diag_shift)
+                  etime = dnekclock() - etime
+                  if (nid == 0) print '(A,I0,A,I8,A,E17.8)', 'Solve    u_phi ',jp,', step', istep, ' time ', etime
+
+                  call add2(vyp(1,jp),  dv2, ntot1)
+                  call add2(tp(1,1,jp), dv3, ntot1)
+               end do
+            else
+               do jp = 1, npert
+                  ipert = npert + 1 - jp
+                  csign_jp = merge(1.0_dp, -1.0_dp, jp == 1)
+                  hmh_info = merge('BLKA   ', 'BLKB   ', jp == 1)
+                  etime = dnekclock()
+                  call solve_coupled_helmholtz_2Dh_axisym(dv2, dv3, resv2_jp(1,1,1,1,jp), resv3_jp(1,1,1,1,ipert), 
+     &                                                     h1, h2, wmask, vmult, imesh, tolhv, nmxv, binvm1, hmh_info, 
+     &                                                     diag_shift, couple_coef, csign_jp)
+                  etime = dnekclock() - etime
+                  if (nid == 0) print '(A,I0,A,I8,A,E17.8)', 'Solve     cpl'//merge('A','B',jp==1),0,', step', istep, ' time ', etime
          
-               ! dv2/dv3 hold the same quantities upm_to_uRphi used to produce --
-               ! no inverse transform needed, feed straight in:
-               call add2(vyp(1,jp),    dv2, ntot1)
-               call add2(tp(1,1,ipert), dv3, ntot1)
-            end do
+                  call add2(vyp(1,jp),     dv2, ntot1)
+                  call add2(tp(1,1,ipert), dv3, ntot1)
+               end do
+            end if
          
             ! --- pressure correction stage: identical structure to the beta case,
             !     field routines substituted for the beta_z ones
@@ -185,7 +229,7 @@
             call invers2(h2inv, h2, ntot1)
          
             ebar = 0.0_dp
-            if (alpha /= 0.0_dp .and. ifvcor) then
+            if (.not. if_alpha_zero .and. ifvcor) then
                call rone(onep, ntot2)
                call pressure_matvec_2Dh_axisym(ep, onep, h1, h2, h2inv, alphaR_coef, intype)
                ebar = glsum(ep, ntot2)
@@ -202,7 +246,7 @@
                call add2 (dpr(1,jp), frc_div, ntot2)
                call chsign(dpr(1,jp), ntot2)
 
-               if (alpha == 0.0_dp) call ortho(dpr(1,jp))
+               if (if_alpha_zero) call ortho(dpr(1,jp))
 
                etime = dnekclock()
                if (ifprjp) call  setrhs_pressure_2Dh_axisym(dpr(1,jp), h1, h2, h2inv, pbasis(1,1,jp), nprev(jp), alphaR_coef, info_str)
@@ -229,6 +273,9 @@
             end do
             etime_all = dnekclock() - etime_all
             if (nid == 0) print '(A,I8,A,E17.8)', 'Solve total time ', istep, ' time ', etime_all
+
+            ! reset jp = 0 in case we switch to the nonlinear solver next
+            jp = 0
          
          end subroutine nek_advance_2Dh_axisym
 
@@ -287,12 +334,15 @@
             integer :: ipert, spert, ntot1
             real(dp), dimension(lx1*ly1*lz1) :: wrk1, wrk2
          
+            ntot1 = lx1*ly1*lz1*nelv
             ipert = npert + 1 - jp
+            call rzero(gradp(1,ipert), ntot1)
+            
+            if (if_alpha_zero) return
+            
             ! Same CG loop as solve_helmholtz_2Dh_axisym, but operating on the
             ! stacked 2-field vector (x1;x2). dssum/mask applied to x1 and x2
             spert = merge(1, -1, jp == 1)
-            ntot1 = lx1*ly1*lz1*nelv
-            call rzero(gradp(1,ipert), ntot1)
             call mappr(gradp(1,ipert), prextr, wrk1, wrk2)
             call col2 (gradp(1,ipert), bm1, ntot1)
             call col2 (gradp(1,ipert), alphaR, ntot1)
@@ -309,11 +359,14 @@
             real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: h2inv, alphaR
             integer :: ipert, spert, ntot1
             real(dp), dimension(lx1*ly1*lz1) :: wrk1, wrk2
-         
-            ipert = npert + 1 - jp
-            spert = merge(1, -1, jp == 1)
+
             ntot1 = lx1*ly1*lz1*nelv
             call rzero(dw, ntot1)
+            
+            if (if_alpha_zero) return
+            
+            ipert = npert + 1 - jp
+            spert = merge(1, -1, jp == 1)
             call mappr(dw, dpr(1,ipert), wrk1, wrk2)
             call col2 (dw, bm1, ntot1)
             call col2 (dw, alphaR, ntot1)
@@ -335,16 +388,17 @@
             integer :: ipert, spert, ie, ie1, nxyz1, ntot2
             real(dp), dimension(lx1,ly1,lz1,lelv) :: wtmp
          
+            ntot2 = lx2*ly2*lz2*nelv
+            call rzero(frc_div, ntot2)
+            
+            if (if_alpha_zero) return
+            
             ipert = npert + 1 - jp
             spert = merge(1, -1, jp == 1)
             nxyz1 = lx1*ly1*lz1
-            ntot2 = lx2*ly2*lz2*nelv
-         
             call copy(wtmp, w(1,1,ipert), nxyz1*nelv)
             call col2(wtmp, alphaR, nxyz1*nelv)          ! scale on M1 BEFORE mapping to M2 -- see caveat below
             if (spert == -1) call chsign(wtmp, nxyz1*nelv)
-         
-            call rzero(frc_div, ntot2)
             do ie = 1, nelv
                ie1 = (ie-1)*nxyz1 + 1
                call map12(frc_div(1,1,1,ie), wtmp(ie1,1,1,1), ie)
@@ -475,7 +529,12 @@
          
             ntot1 = lx1*ly1*lz1*nelv
             ipert = npert + 1 - jp_
-         
+            call rzero(advZ(1,ipert),   ntot1)
+            call rzero(advR(1,ipert),   ntot1)
+            call rzero(advPhi(1,ipert), ntot1)
+            
+            if (if_alpha_zero) return
+            
             call col3(coef, alphaR_coef, t(1,1,1,1,1), ntot1)   ! (alpha/R) * U_phi
             if (ipert == 1) call chsign(coef, ntot1)             ! sign keyed to the READING jp, not the caller
          
@@ -504,6 +563,8 @@
             integer :: ie, ntot1, ntot2
          
             call cdabdtp(Ap, wp, h1, h2, h2inv, intype)   ! core Nek, already ifaxis-correct globally
+
+            if (if_alpha_zero) return
          
             ntot1 = lx1*ly1*lz1*nelv
             ntot2 = lx2*ly2*lz2*nelv

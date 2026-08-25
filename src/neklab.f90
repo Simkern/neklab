@@ -57,7 +57,6 @@
          public :: nek_pr_dvector
          public :: nek_ext_dvector
          public :: nek_ext_dvector_forcing
-         public :: nek_bordered_dvector
          public :: nek_zvector
       
       ! Implementation of the standard linear operators.
@@ -73,7 +72,6 @@
          public :: nek_system_torus, nek_jacobian_torus
          public :: nek_system_torus_upo, nek_jacobian_torus_upo
          public :: nek_system_torus_2Dh, nek_jacobian_torus_2Dh
-         public :: nek_system_bordered, nek_jacobian_bordered
                
       ! Data for nek5000 user-defined forcing function
          public :: get_neklab_forcing, set_neklab_forcing, neklab_forcing
@@ -94,8 +92,8 @@
       ! 2Dh
          public :: nek_advance_2Dh
          public :: nek_advance_2Dh_axisym
-         public :: flowrate_newton
-         public :: combined_flowrate_newton
+         public :: steady_flowrate_newton
+         public :: unsteady_flowrate_newton
       
       ! OTD exports.
          public :: nek_otd, otd_opts
@@ -114,7 +112,6 @@
          public :: nek2vec, vec2nek
          public :: nek2ext_vec, ext_vec2nek
          public :: nek2ext_vec_f, ext_vec_f2nek
-         public :: nek2brd_vec, brd_vec2nek
          public :: setup_nonlinear_solver, setup_linear_solver
          public :: outpost_dnek, outpost_nek, outpost_2Dh
       end module neklab

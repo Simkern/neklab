@@ -63,6 +63,18 @@
          real(dp), dimension(lg), private :: q_acc = 0.0_dp
          real(dp), private :: t_acc = 0.0_dp
 
+         integer, private :: nf_ = 1
+      !! Number of active real forcing components, nf = 2*kctrl + 1.
+         real(dp), dimension(lg), private :: dpds_f = 0.0_dp
+      !! Forcing coefficients in the HELIX convention. Authoritative; g_base is
+      !! derived from these.
+         real(dp), private :: womersley_ = 0.0_dp
+         real(dp), private :: pulse_T = 0.0_dp
+      !! Fundamental period, 2*pi/omega. Fixed for the whole run.
+         real(dp), private :: q_lag = 0.0_dp
+      !! Previous flow rate, for the trapezoidal accumulator.
+   
+
          public :: init_control, control_summary
          public :: set_control_base, get_control_base
          public :: set_control_pert, clear_control_pert
@@ -73,6 +85,11 @@
          public :: build_area_weights, get_area
          public :: get_flowrate_nek, get_flowrate_pert_nek, get_flowrate_arr
          public :: reset_qfft, accumulate_qfft, extract_qfft
+         public :: init_pulsatile, forcing_summary
+         public :: set_dpds_fourier, get_dpds_fourier, get_nf
+         public :: get_period, get_womersley, forcing_amplitude
+         public :: reset_qfft_trap, accumulate_qfft_trap
+         public :: extract_mflow
 
       contains
 
@@ -387,5 +404,249 @@
                coeffs(i) = 2.0_dp*q_acc(i)/t_acc
             end do
          end subroutine extract_qfft
+
+               !====================================================================
+      !     PULSATILE CONFIGURATION
+      !====================================================================
+ 
+         subroutine init_pulsatile(womersley, kharm, dpds)
+      !! Configures the pulsatile control from a Womersley number, exactly as
+      !! neklab_helix does (helix_utils.f90:170-171):
+      !!
+      !!    omega = Wo**2 * nu ,   T = 2*pi/omega
+      !!
+      !! with nu = cpfld(1,1). Wo is fixed for the whole run, so this is called
+      !! once by the driver and the period never changes afterwards.
+            real(dp), intent(in) :: womersley
+            integer, intent(in) :: kharm
+      !! Number of active harmonics K. nf = 2*K + 1.
+            real(dp), dimension(:), intent(in) :: dpds
+      !! Initial forcing coefficients in the helix convention (nf values).
+      ! internal
+            character(len=*), parameter :: this_procedure = 'init_pulsatile'
+            character(len=256) :: msg
+            real(dp) :: omega, pi
+            pi = 4.0_dp*atan(1.0_dp)
+            womersley_ = womersley
+            if (abs(womersley_) <= atol_dp) then
+               call stop_error('init_pulsatile requires a non-zero Womersley number. '//
+     &            'Use init_control directly for the steady problem.', this_module, this_procedure)
+            end if
+            omega = (womersley_**2)*cpfld(1, 1)
+            pulse_T = 2.0_dp*pi/omega
+            nf_ = 2*kharm + 1
+            if (size(dpds) < nf_) then
+               write (msg, '(A,I0,A,I0)') 'dpds has ', size(dpds), ' entries but nf = ', nf_
+               call stop_error(msg, this_module, this_procedure)
+            end if
+            call init_control(kharm, omega=omega)
+            call set_dpds_fourier(dpds)
+            write (msg, '(A,E16.8,A,E16.8,A,E16.8)') 'pulsatile: Wo= ', womersley_,
+     &         ', nu= ', cpfld(1, 1), ', omega= ', omega
+            call logger%log_message(msg, this_module, this_procedure)
+            write (msg, '(A,E24.16)') '   period T = ', pulse_T
+            call logger%log_message(msg, this_module, this_procedure)
+         end subroutine init_pulsatile
+ 
+         real(dp) function get_period() result(T)
+            T = pulse_T
+         end function get_period
+ 
+         real(dp) function get_womersley() result(Wo)
+            Wo = womersley_
+         end function get_womersley
+ 
+         integer function get_nf() result(n)
+            n = nf_
+         end function get_nf
+ 
+      !====================================================================
+      !     FORCING IN THE HELIX CONVENTION
+      !====================================================================
+ 
+         subroutine set_dpds_fourier(dpds)
+      !! Stores the forcing in the helix convention and pushes the equivalent
+      !! internal coefficients to the base control, which is what userq sees
+      !! through control_forcing.
+            real(dp), dimension(:), intent(in) :: dpds
+      ! internal
+            real(dp), dimension(lg) :: g
+            integer :: i, k, n
+            n = min(size(dpds), nf_)
+            dpds_f = 0.0_dp
+            dpds_f(1:n) = dpds(1:n)
+            call bcast(dpds_f, lg*wdsize)
+            g = 0.0_dp
+            g(1) = dpds_f(1)
+            do k = 1, kctrl
+               i = 2*k
+               g(i) = 2.0_dp*dpds_f(i)
+               g(i + 1) = -2.0_dp*dpds_f(i + 1)
+            end do
+            call set_control_base(g)
+         end subroutine set_dpds_fourier
+ 
+         subroutine get_dpds_fourier(dpds, phase)
+      !! Returns the forcing coefficients and, optionally, the phase of each
+      !! harmonic in the helix convention, phase_k = atan2(dpds(2k+1), dpds(2k))
+      !! (helix_gs.f90:78-90). Index 1 of phase is the mean, whose phase is zero
+      !! by construction.
+            real(dp), dimension(:), intent(out) :: dpds
+            real(dp), dimension(:), allocatable, optional, intent(out) :: phase
+      ! internal
+            integer :: i, k, n
+            n = min(size(dpds), lg)
+            dpds = 0.0_dp
+            dpds(1:n) = dpds_f(1:n)
+            if (present(phase)) then
+               allocate (phase(kctrl + 1))
+               phase = 0.0_dp
+               do k = 1, kctrl
+                  i = 2*k
+                  phase(k + 1) = atan2(dpds_f(i + 1), dpds_f(i))
+               end do
+            end if
+         end subroutine get_dpds_fourier
+ 
+         real(dp) function forcing_amplitude(tval) result(f)
+      !! Instantaneous streamwise forcing amplitude in the helix convention.
+      !! Diagnostic only: the forcing actually applied comes from
+      !! control_forcing, which evaluates the equivalent internal coefficients.
+            real(dp), intent(in) :: tval
+      ! internal
+            integer :: k, i
+            f = dpds_f(1)
+            do k = 1, kctrl
+               i = 2*k
+               f = f + 2.0_dp*(dpds_f(i)*cos(k*omega_ctrl*tval) - dpds_f(i + 1)*sin(k*omega_ctrl*tval))
+            end do
+         end function forcing_amplitude
+ 
+         subroutine forcing_summary()
+            character(len=*), parameter :: this_procedure = 'forcing_summary'
+            character(len=512) :: msg
+            real(dp), dimension(lg) :: d
+            real(dp), dimension(:), allocatable :: ph
+            integer :: i, k
+            call get_dpds_fourier(d, ph)
+            write (msg, '(A,*(1X,F16.10))') 'dpds      =', (d(i), i=1, nf_)
+            call logger%log_message(msg, this_module, this_procedure)
+            write (msg, '(A,*(1X,F16.10))') 'amplitude =', d(1), (2.0_dp*sqrt(d(2*k)**2 + d(2*k + 1)**2), k=1, kctrl)
+            call logger%log_message(msg, this_module, this_procedure)
+            write (msg, '(A,*(1X,F16.10))') 'phase     =', (ph(k), k=1, kctrl + 1)
+            call logger%log_message(msg, this_module, this_procedure)
+         end subroutine forcing_summary
+ 
+      !====================================================================
+      !     TRAPEZOIDAL FLOW-RATE ACCUMULATOR
+      !====================================================================
+      !
+      !  accumulate_qfft uses the right-endpoint rule, which is O(dt) on a
+      !  non-uniform grid. With a variable timestep and as few as 50 steps per
+      !  period that is a percent-level error on the harmonics -- far above the
+      !  Newton tolerance, and it would put a floor under the flow-rate solve.
+      !  The trapezoidal variant below is O(dt**2) and mirrors what helix does
+      !  (helix_mflow_fft.f90:30-65).
+      !
+      !  REVERSE FLOW. When Q changes sign within a step, a node is placed at
+      !  the zero crossing of the linear interpolant and the rule is applied on
+      !  each half. For the mean this makes no difference (the trapezoid of a
+      !  linear function is exact either way, and the split form is
+      !  algebraically identical); for the harmonics it is a genuine refinement,
+      !  since Q*phi is not linear and the extra node helps.
+      !
+      !  Two corrections versus helix_mflow_fft.f90:34-49, which this replaces:
+      !
+      !    * the crossing fraction. Helix uses dt0 = -(Q - Q_old)/Q_old, which
+      !      is not a fraction of the interval at all: for Q_old = 1, Q = -1 it
+      !      returns 2. The linear interpolant vanishes at
+      !      s = Q_old/(Q_old - Q), which is 0.5 for that case.
+      !
+      !    * the factor 1/2. Helix applies it to the mean but not to the
+      !      harmonic terms, so every step containing a crossing contributes
+      !      twice what it should to every harmonic.
+      !
+      !  Both only fire on a sign change, which is why they have survived: with
+      !  no reverse flow the branch is never taken.
+ 
+         subroutine reset_qfft_trap(Q0)
+      !! Starts a trapezoidal accumulation. Q0 is the flow rate at t = 0, i.e.
+      !! of the initial condition, before the first step is taken.
+            real(dp), intent(in) :: Q0
+            q_acc = 0.0_dp
+            t_acc = 0.0_dp
+            q_lag = Q0
+         end subroutine reset_qfft_trap
+ 
+         subroutine accumulate_qfft_trap(Q, tval, dtn)
+      !! Call once per timestep, AFTER nek_advance, with the flow rate of the
+      !! current field, the current time and the timestep just taken. tval is
+      !! the time at the END of the step, so the interval is [tval-dtn, tval].
+            real(dp), intent(in) :: Q
+            real(dp), intent(in) :: tval
+            real(dp), intent(in) :: dtn
+      ! internal
+            integer :: i
+            real(dp) :: told, s
+            told = tval - dtn
+            t_acc = t_acc + dtn
+            if (Q*q_lag < 0.0_dp) then
+      ! Sign change: split at the zero of the linear interpolant. The integrand
+      ! vanishes there, so only the two outer endpoints contribute and the
+      ! weights are the sub-interval lengths.
+               s = q_lag/(q_lag - Q)
+ 
+               do i = 1, nctrl
+                  q_acc(i) = q_acc(i) + 0.5_dp*dtn*(s*q_lag*control_basis(i, told)
+     &                                              + (1.0_dp - s)*Q*control_basis(i, tval))
+               end do
+            else
+               do i = 1, nctrl
+                  q_acc(i) = q_acc(i) + 0.5_dp*dtn*(q_lag*control_basis(i, told) + Q*control_basis(i, tval))
+               end do
+            end if
+            q_lag = Q
+         end subroutine accumulate_qfft_trap
+ 
+      !====================================================================
+      !     FLOW RATE IN THE HELIX CONVENTION
+      !====================================================================
+ 
+         subroutine extract_mflow(mflow, amplitude, phase)
+      !! Normalises the accumulator and converts to the helix convention.
+      !! Note that amplitude(k+1) is |mflow_k|, i.e. HALF the peak-to-mean
+      !! excursion of harmonic k -- the same quantity helix reports and the
+      !! same one its targets are given in.
+            real(dp), dimension(lg), intent(out) :: mflow
+            real(dp), dimension(:), allocatable, optional, intent(out) :: amplitude
+            real(dp), dimension(:), allocatable, optional, intent(out) :: phase
+      ! internal
+            real(dp), dimension(lg) :: coeffs
+            integer :: i, k
+            call extract_qfft(coeffs)
+            mflow = 0.0_dp
+            mflow(1) = coeffs(1)
+            do i = 2, nctrl
+               mflow(i) = 0.5_dp*coeffs(i)
+            end do
+            if (present(amplitude)) then
+               allocate (amplitude(kctrl + 1))
+               amplitude = 0.0_dp
+               amplitude(1) = mflow(1)
+               do k = 1, kctrl
+                  i = 2*k
+                  amplitude(k + 1) = sqrt(mflow(i)**2 + mflow(i + 1)**2)
+               end do
+            end if
+            if (present(phase)) then
+               allocate (phase(kctrl + 1))
+               phase = 0.0_dp
+               do k = 1, kctrl
+                  i = 2*k
+                  phase(k + 1) = atan2(mflow(i + 1), mflow(i))
+               end do
+            end if
+         end subroutine extract_mflow
+
 
       end module neklab_newton_control

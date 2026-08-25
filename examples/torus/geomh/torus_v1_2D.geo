@@ -31,6 +31,7 @@ lambda1t=0.75;   //=R_{arc}/R
 lambda1b=0.6;   //=R_{arc}/R
 lambda2=0.5;     //=R_{arc}/R
 dyc = 0.04;
+yshift = 2.0*R; // arbitrary y shift to avoid the symmetry plane to be on the axis
 Lz=1;   //length in z-dir (axial)
 //***** Grid Paramaters
 Nch=11;  // no. of nodes (=#elem+1) in azimuthal direction    # 12 16
@@ -90,9 +91,13 @@ Point(18) = {0, -dyc, 0, 1.0};
 Point(19) = {0.017214092452766394, -0.010184269096062515, 0, 1.0};
 Point(20) = {-0.017214092452766394, -0.010184269096062515, 0, 1.0};
 
+Translate {0, yshift, 0}{
+	Point{1:20};
+}
+
 //***** define lines and curves
 
-// inner ring right clockwise from top
+
 Circle(1)={1, 15, 2};
 Circle(2)={2, 16, 3};
 Circle(3)={3, 17, 4};

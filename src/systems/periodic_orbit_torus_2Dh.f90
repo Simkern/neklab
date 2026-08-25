@@ -10,8 +10,10 @@
       !  NON-AUTONOMOUS, so there is no phase freedom and no unknown period:
       !  the Poincare section is t = 0 and the state vector is a plain
       !  nek_dvector, exactly as for nek_system_torus_upo. The forcing is NOT
-      !  part of the unknown vector -- it is driven by the segregated outer
-      !  Newton in neklab_analysis_torus_2Dh.
+      !  part of the unknown vector -- it is held in ctrl and driven by the
+      !  segregated outer Newton in neklab_analysis_torus_2Dh. There is no
+      !  bordered vector and no perturbation forcing: the linearised equations
+      !  carry no source, so userq must return zero for jp > 0.
       !
       !  The Jacobian is one linearised integration about the recorded
       !  trajectory. Because the baseflow is time dependent it cannot be held in
@@ -20,6 +22,12 @@
       !  path (periodic_orbit_torus.f90), with the buffer standing in for the
       !  pipe object's 2D slice store and nek_advance_2Dh_axisym standing in for
       !  nek_advance.
+      !
+      !  The nonlinear pass also accumulates the flow-rate Fourier coefficients
+      !  and closes them at the horizon (ctrl%close_mflow). That measurement
+      !  belongs to the trajectory, not to its endpoint, which is why it is made
+      !  here rather than in the driver: the outer Newton simply reads it back
+      !  through ctrl%measure_mflow.
       !
       !  TIME GRID
       !
@@ -80,15 +88,11 @@
          type is (nek_dvector)
             select type (vec_out)
             type is (nek_dvector)
-               period = get_pulsation_period()
+               period = ctrl%get_period()
                if (period <= 0.0_dp) then
-                  call nek_stop_error('Period is not set. The driver must call init_pulsatile first.',
-     &               this_module, this_procedure)
+                  call nek_stop_error('Period is not set. The driver must call ctrl%init_flow '//
+     &               'with a non-zero Womersley number first.', this_module, this_procedure)
                end if
-      ! The forcing is set by the outer solve and held fixed here. Any
-      ! perturbation forcing left over from a previous Jacobian matvec would
-      ! act as a spurious source, so clear it.
-               call clear_control_pert()
       ! Set the initial condition
                call vec2nek(vx, vy, vz, pr, t, vec_in)
       ! Set appropriate tolerances and Nek status
@@ -104,7 +108,7 @@
       ! flow rate of the initial condition, so the trapezoidal rule has a left
       ! endpoint for the first step.
                call bf_reset()
-               call reset_qfft_trap(get_flowrate_nek())
+               call ctrl%reset_mflow(ctrl%ubar())
       ! Integrate the nonlinear equations forward over exactly one period
                time = 0.0_dp
                istep = 0
@@ -125,7 +129,7 @@
                         landing = .true.
                         dtland = trem/real(n_land, dp)
                         param(12) = -dtland
-                        write (msg, '(A,I0,A,E16.8,A,E16.8)') 'Landing over ', n_land,
+                        write (msg, '(A,I0,A,E16.8,A,E16.8,A)') 'Landing over ', n_land,
      &                     ' steps: dt= ', dtland, ' (was ', dt, ')'
                         call nek_log_debug(msg, this_module, this_procedure)
                      end if
@@ -134,14 +138,18 @@
                   call nek_advance()
       ! The landing steps are sized by the period constraint, not by the CFL
       ! condition, so they must not pollute the dt statistics the driver uses
-      ! to estimate the flow-rate quadrature error.
+      ! to report the resolution of the orbit.
                   call bf_end_step(count_stats = .not. landing)
-                  call accumulate_qfft_trap(get_flowrate_nek(), time, dt)
+                  call ctrl%accumulate_mflow(ctrl%ubar(), time, dt)
                end do
       ! Close the recording. This is where sum(dt) == T and the minimum step
       ! count are enforced: both failures would otherwise show up much later as
       ! an inconsistency between F and dF.
                call bf_close_record(period=period)
+      ! Close the flow-rate accumulation. This normalises both quadrature rules,
+      ! forms the amplitudes and phases and measures the quadrature error, which
+      ! is what floors the outer Newton's tolerance.
+               call ctrl%close_mflow(period=period)
       ! Copy the final solution to vector.
                call nek2vec(vec_out, vx, vy, vz, pr, t)
       ! Evaluate residual F(X) - X.
@@ -174,16 +182,13 @@
       ! from the buffer step by step; this is here so that setup_linear_solver
       ! sees a representative field when it sizes things from the CFL.
                call abs_vec2nek(vx, vy, vz, pr, t, self%X)
-      ! Segregated solve: the forcing is not an unknown, so the perturbation
-      ! equation carries no source.
-               call clear_control_pert()
       ! Ensure correct nek status. variable_dt because the replay overrides dt
       ! per step from the buffer; endtime only sets fintim, the loop below is
       ! bounded by the recorded step count.
                call setup_linear_solver(solve_baseflow = .false.,
      &                                  solve_temperature = .true.,
      &                                  variable_dt    = .true.,
-     &                                  endtime        = get_pulsation_period(),
+     &                                  endtime        = ctrl%get_period(),
      &                                  cfl_limit      = cfl_upo,
      &                                  vtol           = atol*0.5,
      &                                  ptol           = atol*0.5)
@@ -246,12 +251,11 @@
             type is (nek_dvector)
                atol = param(22)
                call abs_vec2nek(vx, vy, vz, pr, t, self%X)
-               call clear_control_pert()
                call setup_linear_solver(transpose      = .true.,
      &                                  solve_baseflow = .false.,
      &                                  solve_temperature = .true.,
      &                                  variable_dt    = .true.,
-     &                                  endtime        = get_pulsation_period(),
+     &                                  endtime        = ctrl%get_period(),
      &                                  cfl_limit      = cfl_upo,
      &                                  vtol           = atol*0.5,
      &                                  ptol           = atol*0.5)

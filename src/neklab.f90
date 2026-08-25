@@ -72,6 +72,7 @@
          public :: nek_system_torus, nek_jacobian_torus
          public :: nek_system_torus_upo, nek_jacobian_torus_upo
          public :: nek_system_torus_2Dh, nek_jacobian_torus_2Dh
+         public :: nek_system_torus_upo_2Dh, nek_jacobian_torus_upo_2Dh
                
       ! Data for nek5000 user-defined forcing function
          public :: get_neklab_forcing, set_neklab_forcing, neklab_forcing

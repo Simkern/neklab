@@ -22,9 +22,11 @@
          use neklab_nek_setup
          use neklab_helix
          use neklab_2Dh_axisym
-         use neklab_newton_control, only: get_pulsation_period, clear_control_pert, 
-     &                                    get_flowrate_nek, reset_qfft_trap,
-     &                                    accumulate_qfft_trap
+      ! The flow-rate control state. Only the periodic-orbit submodule uses it:
+      ! it reads the period, measures the bulk velocity and drives the Fourier
+      ! accumulator. The forcing is NOT a Newton unknown, so there is no
+      ! perturbation forcing to set or clear here.
+         use neklab_newton_control, only: ctrl
          use neklab_bf_buffer, only: bf_reset, bf_begin_step, bf_end_step,
      &                               bf_close_record, bf_replay_start,
      &                               bf_replay_end, bf_set, bf_set_window,

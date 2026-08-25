@@ -1,95 +1,431 @@
       module neklab_newton_control
-      !! Scalar control unknowns for bordered (flow-rate constrained) systems.
+      !! Owner of the flow-rate control state for the 2Dh torus.
       !!
-      !! Holds everything the old 'pipe' object provided for the flow-rate
-      !! problem: the control basis, the streamwise forcing, the cross-section
-      !! surface integral and the running Fourier accumulator.
+      !! Everything the flow-rate problem needs that is not a Nek field lives
+      !! in the single instance `ctrl` of the type below: the streamwise
+      !! forcing, the pulsation time scales, the cross-section geometry, the
+      !! flow-rate targets, the running Fourier accumulator and the steady
+      !! resistance inherited by an unsteady run. This mirrors the way
+      !! neklab_helix keeps all of the helix state in `pipe`.
       !!
-      !! DEPENDENCIES: LightKrylov only. This module sits BELOW neklab_vectors
-      !! in the dependency graph (neklab_vectors uses it for the inner-product
-      !! weights), so it must NOT use neklab_nek_setup / neklab_utils.
+      !! There is no bordered vector: the forcing is NOT part of the Newton
+      !! unknown. It is driven by the segregated outer iteration in
+      !! neklab_analysis_torus_2Dh, which is why nothing here is exposed to
+      !! neklab_vectors and why this module is free to sit above
+      !! neklab_nek_setup in the dependency graph.
+      !!
+      !!--------------------------------------------------------------------
+      !! FOURIER CONVENTION  (native)
+      !!--------------------------------------------------------------------
+      !!
+      !!   f(t) = a_0 + sum_k [ a_ck cos(k w t) + a_sk sin(k w t) ]
+      !!   Q(t) = q_0 + sum_k [ q_ck cos(k w t) + q_sk sin(k w t) ]
+      !!
+      !!   amp_k   = hypot(._c, ._s)      ! PEAK EXCURSION, both quantities
+      !!   phase_k = atan2(._s, ._c)      ! same sign, both quantities
+      !!   t -> t+s :  phase_k -> phase_k - k w s   ! same direction, both
+      !!
+      !! ONE convention for the forcing and the flow rate, unlike the helix
+      !! code this was ported from, which projects the forcing onto exp(-ikwt)
+      !! and the flow rate onto exp(+ikwt) and reports the forcing amplitude
+      !! as a peak excursion but the flow-rate amplitude as half of one. The
+      !! packing is dpds = (a_0, a_c1, a_s1, a_c2, a_s2, ...), stored exactly
+      !! as it is evaluated: there is no separate internal 'g' representation.
+      !!
+      !! Helix decks are still readable through set_dpds_helix / get_dpds_helix
+      !! and mflow_from_helix / mflow_to_helix, which are the ONLY places the
+      !! old convention appears:
+      !!
+      !!   a_0 = d_0 ,  a_ck =  2 d_ck ,  a_sk = -2 d_sk      (forcing)
+      !!   q_0 = m_0 ,  q_ck =  2 m_ck ,  q_sk =  2 m_sk      (flow rate)
+      !!
+      !! so a helix flow-rate amplitude is HALF the native one, while the two
+      !! forcing amplitudes agree.
+      !!
+      !!--------------------------------------------------------------------
+      !! FORCING PROFILE
+      !!--------------------------------------------------------------------
+      !!
+      !!   f_phi = amplitude(t) / R
+      !!
+      !! which is irrotational, i.e. a genuine mean pressure gradient (a
+      !! uniform f_phi is not: curl f = f/R). This matches helix exactly --
+      !! helix_utils divides by curv_radius and then multiplies by
+      !! fshape = 1/(1 + delta*rr*sin(alpha)), whose product is 1/R -- so the
+      !! same dpds means the same physical forcing in both codes. The earlier
+      !! 2Dh port carried a spurious reference radius R0 in front; it is gone.
          use stdlib_optval, only: optval
          use LightKrylov, only: dp, atol_dp
          use LightKrylov_Logger
+         use neklab_nek_setup, only: nek_log_message, nek_log_information,
+     &                               nek_log_warning, nek_log_debug, nek_stop_error
          implicit none
          include "SIZE"
          include "TOTAL"
          private
          character(len=*), parameter, private :: this_module = 'neklab_newton_control'
 
-         integer, parameter, private :: lv = lx1*ly1*lz1*lelv
+         integer, parameter :: lv = lx1*ly1*lz1*lelv
 
       !--------------------------------------------------------------------
-      !-----     COMPILE-TIME SIZE OF THE CONTROL VECTOR              -----
+      !-----     COMPILE-TIME SIZES                                   -----
       !--------------------------------------------------------------------
-      ! Maximum number of harmonics. Change and recompile (same convention as
-      ! lpert / lelv / nfft). lg is the number of real control unknowns:
-      ! one mean + two (cos, sin) per harmonic.
+      ! Change and recompile, same convention as lpert / lelv / nfft.
          integer, parameter, public :: kmax_ctrl = 4
-         integer, parameter, public :: lg = 2*kmax_ctrl + 1
+      !! Maximum number of harmonics K.
+         integer, parameter, public :: lfc = 2*kmax_ctrl + 1
+      !! Number of real forcing components, one mean + two per harmonic.
+         integer, parameter, public :: lmfc = kmax_ctrl + 1
+      !! Number of amplitude unknowns / constraints, one mean + one per harmonic.
+
+         real(dp), parameter, public :: c_inertial = 0.3_dp
+      !! Empirical prefactor of the inertial forcing law used to seed the
+      !! outer Jacobian,
+      !!
+      !!    |a_k| = c_inertial * k*omega*|q_k| / delta
+      !!
+      !! calibrated at Q_mean = 1 over a range of omega and delta, for which
+      !! all amplitude curves collapse onto a line of this slope once scaled
+      !! by omega/delta. NOTE: the angular-momentum balance
+      !! R_c d(u_phi)/dt = f_phi with f_phi = a/R gives a prefactor of ONE, and
+      !! viscosity can only push the required forcing UP (impedances add in
+      !! quadrature), so a measured value below one is almost certainly a
+      !! definition offset between the plotted axes and the symbols above --
+      !! peak versus half excursion, or r versus D as the length scale. The
+      !! value is therefore treated as a calibration, not as physics, and the
+      !! first Broyden update logs the measured-to-seeded ratio so that a
+      !! systematic factor shows up in every run instead of in a plot. See
+      !! seed_jacobian.
 
       !--------------------------------------------------------------------
-      !-----     ACTIVE CONFIGURATION (runtime)                       -----
+      !-----     THE CONTROL TYPE                                     -----
       !--------------------------------------------------------------------
-         integer, public :: nctrl = 1
-      !! Number of ACTIVE control unknowns, nctrl = 2*kctrl + 1. Public
-      !! because neklab_vectors needs it in dot / get_size / rand.
-         real(dp), dimension(lg), public :: wg = 1.0_dp
-      !! Inner-product weights for the control block. Public for the same reason.
 
-         integer, private :: kctrl = 0
-         real(dp), private :: omega_ctrl = 0.0_dp
-         real(dp), private :: wres = 1.0_dp
-         logical, private :: ctrl_defined = .false.
+         type, public :: nek_control
+            private
+      ! --- regime. NOTE the polarity: this module has if_unsteady, neklab_helix
+      !     has is_steady(). Do not mix them up.
+            logical :: if_unsteady = .false.
+            integer :: kharm = 0
+      !! Number of active harmonics K.
+            integer :: nf = 1
+      !! Number of active forcing components, 2K+1.
+            integer :: nmf = 1
+      !! Number of amplitude unknowns / constraints, K+1.
+      ! --- time scales
+            real(dp) :: womersley = 0.0_dp
+            real(dp) :: omega = 0.0_dp
+            real(dp) :: period = 0.0_dp
+      ! --- forcing, native convention
+            real(dp), dimension(lfc) :: dpds = 0.0_dp
+      ! --- flow rate: coefficients, amplitudes, phases and targets
+            real(dp), dimension(lfc) :: qfour = 0.0_dp
+            real(dp), dimension(lmfc) :: mf = 0.0_dp
+            real(dp), dimension(lmfc) :: mf_phase = 0.0_dp
+            real(dp), dimension(lmfc) :: mf_qerr = 0.0_dp
+            real(dp), dimension(lmfc) :: mf_target = 0.0_dp
+            logical :: mf_extracted = .false.
+            logical :: target_defined = .false.
+      ! --- Fourier accumulator. q_acc is the trapezoidal rule on every step,
+      !     q_crs the same rule on pairs of steps; their difference is a
+      !     Richardson estimate of the quadrature error, which is what floors
+      !     the outer tolerance (see close_mflow).
+            real(dp), dimension(lfc) :: q_acc = 0.0_dp
+            real(dp), dimension(lfc) :: q_crs = 0.0_dp
+            real(dp) :: t_acc = 0.0_dp
+            real(dp) :: q_lag = 0.0_dp
+            real(dp) :: t_lag = 0.0_dp
+            real(dp) :: q_lag2 = 0.0_dp
+            real(dp) :: t_lag2 = 0.0_dp
+            integer :: nacc = 0
+            logical :: accumulating = .false.
+      ! --- cross-section geometry
+            real(dp), dimension(lv) :: bm_area = 0.0_dp
+            real(dp) :: area = 0.0_dp
+            real(dp) :: curv_radius = 0.0_dp
+            real(dp) :: radius = 0.0_dp
+            real(dp) :: delta = 0.0_dp
+            logical :: area_defined = .false.
+      ! --- steady resistance dQ_0/da_0, inherited by an unsteady run
+            real(dp) :: gslope = 0.0_dp
+            logical :: gslope_defined = .false.
+      ! --- sanity
+            logical :: is_initialized = .false.
+         contains
+            private
+      ! neklab_newton_control (this file)
+            procedure, pass(self), public :: init_flow
+            procedure, pass(self), public :: amplitude
+            procedure, pass(self), public :: forcing
+            procedure, pass(self), public :: is_unsteady
+            procedure, pass(self), public :: is_initialised
+      ! control_gs
+            procedure, pass(self), public :: get_dpds
+            procedure, pass(self), public :: set_dpds
+            procedure, pass(self), public :: get_dpds_helix
+            procedure, pass(self), public :: set_dpds_helix
+            procedure, pass(self), public :: get_amp_phase
+            procedure, pass(self), public :: add_amplitude_step
+            procedure, pass(self), public :: probe_dpds
+            procedure, pass(self), public :: ensure_nonzero_mean
+            procedure, pass(self), public :: seed_harmonics
+            procedure, pass(self), public :: rotate_in_time
+            procedure, pass(self), public :: get_target
+            procedure, pass(self), public :: set_target
+            procedure, pass(self), public :: set_target_helix
+            procedure, pass(self), public :: get_slope
+            procedure, pass(self), public :: set_slope
+            procedure, pass(self), public :: has_slope
+            procedure, pass(self), public :: get_mflow
+            procedure, pass(self), public :: get_mflow_helix
+            procedure, pass(self), public :: get_omega
+            procedure, pass(self), public :: get_period
+            procedure, pass(self), public :: get_womersley
+            procedure, pass(self), public :: get_nf
+            procedure, pass(self), public :: get_nmf
+            procedure, pass(self), public :: get_kharm
+            procedure, pass(self), public :: summary
+            procedure, pass(self), public :: forcing_summary
+            procedure, pass(self), public :: mflow_summary
+      ! control_flowrate
+            procedure, pass(self), public :: build_area_weights
+            procedure, pass(self), public :: get_area
+            procedure, pass(self), public :: get_delta
+            procedure, pass(self), public :: get_curv_radius
+            procedure, pass(self), public :: get_radius
+            procedure, pass(self), public :: ubar_arr
+            procedure, pass(self), public :: ubar
+            procedure, pass(self), public :: reset_mflow
+            procedure, pass(self), public :: accumulate_mflow
+            procedure, pass(self), public :: close_mflow
+            procedure, pass(self), public :: measure_mflow
+            procedure, pass(self), public :: seed_jacobian
+         end type nek_control
 
-      ! --- control values
-         real(dp), dimension(lg), private :: g_base = 0.0_dp
-         real(dp), dimension(lg), private :: g_pert = 0.0_dp
-         real(dp), dimension(lg), private :: q_target = 0.0_dp
+         type(nek_control), public :: ctrl
+      !! The one instance. Everything talks to this.
 
-      ! --- forcing profile
-         logical, public :: if_pgrad_profile = .true.
-      !! .true.  : f_phi = g * R0/R   (a true mean pressure gradient, irrotational)
-      !! .false. : f_phi = g          (a uniform body force)
-         real(dp), public :: R0_ctrl = 1.0_dp
-      !! Reference radius used to normalise the 1/R profile.
+         public :: ctrl_basis
+      !! Temporal basis function, exposed for the analysis driver's diagnostics.
 
-      ! --- surface-integral machinery
-         real(dp), dimension(lv), private :: bm_area = 0.0_dp
-         real(dp), private :: area_cs = 0.0_dp
-         logical, private :: area_defined = .false.
+      !--------------------------------------------------------------------
+      !-----     SUBMODULE INTERFACES                                 -----
+      !--------------------------------------------------------------------
 
-      ! --- running Fourier accumulator
-         real(dp), dimension(lg), private :: q_acc = 0.0_dp
-         real(dp), private :: t_acc = 0.0_dp
+      ! --- control_gs
+         interface
+            module subroutine get_dpds(self, dpds, amp, phase)
+               class(nek_control), intent(in) :: self
+               real(dp), dimension(lfc), intent(out) :: dpds
+               real(dp), dimension(lmfc), optional, intent(out) :: amp
+               real(dp), dimension(lmfc), optional, intent(out) :: phase
+            end subroutine get_dpds
 
-         integer, private :: nf_ = 1
-      !! Number of active real forcing components, nf = 2*kctrl + 1.
-         real(dp), dimension(lg), private :: dpds_f = 0.0_dp
-      !! Forcing coefficients in the HELIX convention. Authoritative; g_base is
-      !! derived from these.
-         real(dp), private :: womersley_ = 0.0_dp
-         real(dp), private :: pulse_T = 0.0_dp
-      !! Fundamental period, 2*pi/omega. Fixed for the whole run.
-         real(dp), private :: q_lag = 0.0_dp
-      !! Previous flow rate, for the trapezoidal accumulator.
-   
+            module subroutine set_dpds(self, dpds)
+               class(nek_control), intent(inout) :: self
+               real(dp), dimension(:), intent(in) :: dpds
+            end subroutine set_dpds
 
-         public :: init_control, control_summary
-         public :: set_control_base, get_control_base
-         public :: set_control_pert, clear_control_pert
-         public :: set_control_weights, set_control_weights_auto
-         public :: get_control_target, set_control_target
-         public :: get_nctrl, get_kctrl, get_omega, get_res_scale
-         public :: control_basis, control_forcing
-         public :: build_area_weights, get_area
-         public :: get_flowrate_nek, get_flowrate_pert_nek, get_flowrate_arr
-         public :: reset_qfft, accumulate_qfft, extract_qfft
-         public :: init_pulsatile, forcing_summary
-         public :: set_dpds_fourier, get_dpds_fourier, get_nf
-         public :: get_pulsation_period, get_womersley, forcing_amplitude
-         public :: reset_qfft_trap, accumulate_qfft_trap
-         public :: extract_mflow
+            module subroutine get_dpds_helix(self, dpds)
+               class(nek_control), intent(in) :: self
+               real(dp), dimension(:), intent(out) :: dpds
+            end subroutine get_dpds_helix
+
+            module subroutine set_dpds_helix(self, dpds)
+               class(nek_control), intent(inout) :: self
+               real(dp), dimension(:), intent(in) :: dpds
+            end subroutine set_dpds_helix
+
+            module subroutine get_amp_phase(self, amp, phase)
+               class(nek_control), intent(in) :: self
+               real(dp), dimension(lmfc), intent(out) :: amp
+               real(dp), dimension(lmfc), intent(out) :: phase
+            end subroutine get_amp_phase
+
+            module subroutine add_amplitude_step(self, da)
+               class(nek_control), intent(inout) :: self
+               real(dp), dimension(:), intent(in) :: da
+            end subroutine add_amplitude_step
+
+            module function probe_dpds(self, i, eps) result(d)
+               class(nek_control), intent(in) :: self
+               integer, intent(in) :: i
+               real(dp), intent(in) :: eps
+               real(dp), dimension(lfc) :: d
+            end function probe_dpds
+
+            module subroutine ensure_nonzero_mean(self, probe)
+               class(nek_control), intent(inout) :: self
+               real(dp), intent(in) :: probe
+            end subroutine ensure_nonzero_mean
+
+            module subroutine seed_harmonics(self, force)
+               class(nek_control), intent(inout) :: self
+               logical, optional, intent(in) :: force
+            end subroutine seed_harmonics
+
+            module subroutine rotate_in_time(self, shift)
+               class(nek_control), intent(inout) :: self
+               real(dp), intent(in) :: shift
+            end subroutine rotate_in_time
+
+            module function get_target(self) result(tgt)
+               class(nek_control), intent(in) :: self
+               real(dp), dimension(lmfc) :: tgt
+            end function get_target
+
+            module subroutine set_target(self, tgt)
+               class(nek_control), intent(inout) :: self
+               real(dp), dimension(:), intent(in) :: tgt
+            end subroutine set_target
+
+            module subroutine set_target_helix(self, tgt)
+               class(nek_control), intent(inout) :: self
+               real(dp), dimension(:), intent(in) :: tgt
+            end subroutine set_target_helix
+
+            module function get_slope(self) result(g)
+               class(nek_control), intent(in) :: self
+               real(dp) :: g
+            end function get_slope
+
+            module subroutine set_slope(self, g)
+               class(nek_control), intent(inout) :: self
+               real(dp), intent(in) :: g
+            end subroutine set_slope
+
+            module function has_slope(self) result(l)
+               class(nek_control), intent(in) :: self
+               logical :: l
+            end function has_slope
+
+            module subroutine get_mflow(self, mflow, amp, phase, qerr)
+               class(nek_control), intent(in) :: self
+               real(dp), dimension(lfc), intent(out) :: mflow
+               real(dp), dimension(lmfc), optional, intent(out) :: amp
+               real(dp), dimension(lmfc), optional, intent(out) :: phase
+               real(dp), dimension(lmfc), optional, intent(out) :: qerr
+            end subroutine get_mflow
+
+            module subroutine get_mflow_helix(self, amp, phase)
+               class(nek_control), intent(in) :: self
+               real(dp), dimension(:), intent(out) :: amp
+               real(dp), dimension(:), optional, intent(out) :: phase
+            end subroutine get_mflow_helix
+
+            module function get_omega(self) result(w)
+               class(nek_control), intent(in) :: self
+               real(dp) :: w
+            end function get_omega
+
+            module function get_period(self) result(T)
+               class(nek_control), intent(in) :: self
+               real(dp) :: T
+            end function get_period
+
+            module function get_womersley(self) result(Wo)
+               class(nek_control), intent(in) :: self
+               real(dp) :: Wo
+            end function get_womersley
+
+            module function get_nf(self) result(n)
+               class(nek_control), intent(in) :: self
+               integer :: n
+            end function get_nf
+
+            module function get_nmf(self) result(n)
+               class(nek_control), intent(in) :: self
+               integer :: n
+            end function get_nmf
+
+            module function get_kharm(self) result(k)
+               class(nek_control), intent(in) :: self
+               integer :: k
+            end function get_kharm
+
+            module subroutine summary(self)
+               class(nek_control), intent(in) :: self
+            end subroutine summary
+
+            module subroutine forcing_summary(self)
+               class(nek_control), intent(in) :: self
+            end subroutine forcing_summary
+
+            module subroutine mflow_summary(self)
+               class(nek_control), intent(in) :: self
+            end subroutine mflow_summary
+         end interface
+
+      ! --- control_flowrate
+         interface
+            module subroutine build_area_weights(self, force, radius)
+               class(nek_control), intent(inout) :: self
+               logical, optional, intent(in) :: force
+               real(dp), optional, intent(in) :: radius
+            end subroutine build_area_weights
+
+            module function get_area(self) result(a)
+               class(nek_control), intent(in) :: self
+               real(dp) :: a
+            end function get_area
+
+            module function get_delta(self) result(d)
+               class(nek_control), intent(in) :: self
+               real(dp) :: d
+            end function get_delta
+
+            module function get_curv_radius(self) result(r)
+               class(nek_control), intent(in) :: self
+               real(dp) :: r
+            end function get_curv_radius
+
+            module function get_radius(self) result(r)
+               class(nek_control), intent(in) :: self
+               real(dp) :: r
+            end function get_radius
+
+            module function ubar_arr(self, theta) result(Q)
+               class(nek_control), intent(in) :: self
+               real(dp), dimension(lv), intent(in) :: theta
+               real(dp) :: Q
+            end function ubar_arr
+
+            module function ubar(self) result(Q)
+               class(nek_control), intent(in) :: self
+               real(dp) :: Q
+            end function ubar
+
+            module subroutine reset_mflow(self, Q0)
+               class(nek_control), intent(inout) :: self
+               real(dp), intent(in) :: Q0
+            end subroutine reset_mflow
+
+            module subroutine accumulate_mflow(self, Q, tval, dtn)
+               class(nek_control), intent(inout) :: self
+               real(dp), intent(in) :: Q
+               real(dp), intent(in) :: tval
+               real(dp), intent(in) :: dtn
+            end subroutine accumulate_mflow
+
+            module subroutine close_mflow(self, period)
+               class(nek_control), intent(inout) :: self
+               real(dp), optional, intent(in) :: period
+            end subroutine close_mflow
+
+            module subroutine measure_mflow(self, theta, mf, phase, qerr)
+               class(nek_control), intent(inout) :: self
+               real(dp), dimension(lv), intent(in) :: theta
+               real(dp), dimension(:), intent(out) :: mf
+               real(dp), dimension(:), optional, intent(out) :: phase
+               real(dp), dimension(:), optional, intent(out) :: qerr
+            end subroutine measure_mflow
+
+            module subroutine seed_jacobian(self, J, mf)
+               class(nek_control), intent(inout) :: self
+               real(dp), dimension(:, :), intent(out) :: J
+               real(dp), dimension(:), intent(in) :: mf
+            end subroutine seed_jacobian
+         end interface
 
       contains
 
@@ -97,159 +433,156 @@
       !     CONFIGURATION
       !====================================================================
 
-         subroutine init_control(kharm, omega, target, g0)
-      !! Configures the control vector. kharm = 0 gives the steady problem
-      !! (one unknown: the mean forcing; one constraint: the mean flow rate).
-            integer, intent(in) :: kharm
-      !! Number of active harmonics K. nctrl = 2*K + 1.
-            real(dp), optional, intent(in) :: omega
-      !! Fundamental angular frequency. Required for kharm > 0.
-            real(dp), dimension(:), optional, intent(in) :: target
-      !! Target flow-rate coefficients (nctrl values).
-            real(dp), dimension(:), optional, intent(in) :: g0
-      !! Initial forcing coefficients (nctrl values).
-      ! internal
-            character(len=*), parameter :: this_procedure = 'init_control'
-            character(len=128) :: msg
-            if (kharm < 0 .or. kharm > kmax_ctrl) then
-               write (msg, '(A,I0,A,I0)') 'Invalid kharm= ', kharm, '. Must be in [0, kmax_ctrl] with kmax_ctrl= ', kmax_ctrl
-               call stop_error(msg, this_module, this_procedure)
-            end if
-            kctrl = kharm
-            nctrl = 2*kctrl + 1
-            omega_ctrl = optval(omega, 0.0_dp)
-            if (kctrl > 0 .and. abs(omega_ctrl) <= atol_dp) then
-               call stop_error('kharm > 0 requires a non-zero omega.', this_module, this_procedure)
-            end if
-            g_base = 0.0_dp
-            g_pert = 0.0_dp
-            q_target = 0.0_dp
-            wg = 1.0_dp
-            if (present(target)) call set_control_target(target)
-            if (present(g0)) call set_control_base(g0)
-      ! constraint rows are scaled to read a bulk-velocity error
-            call build_area_weights()
-            wres = 1.0_dp/area_cs
-            ctrl_defined = .true.
-            call control_summary()
-         end subroutine init_control
-
-         subroutine control_summary()
-            character(len=*), parameter :: this_procedure = 'control_summary'
-            character(len=256) :: msg
-            integer :: i
-            write (msg, '(A,I0,A,I0,A,I0)') 'control: K= ', kctrl, ', nctrl= ', nctrl, ', lg= ', lg
-            call logger%log_message(msg, this_module, this_procedure)
-            write (msg, '(A,E16.8,A,E16.8)') '   omega= ', omega_ctrl, ', area= ', area_cs
-            call logger%log_message(msg, this_module, this_procedure)
-            write (msg, '(A,*(1X,E14.6))') '   g      =', (g_base(i), i=1, nctrl)
-            call logger%log_message(msg, this_module, this_procedure)
-            write (msg, '(A,*(1X,E14.6))') '   Qtarget=', (q_target(i), i=1, nctrl)
-            call logger%log_message(msg, this_module, this_procedure)
-            write (msg, '(A,*(1X,E14.6))') '   weights=', (wg(i), i=1, nctrl)
-            call logger%log_message(msg, this_module, this_procedure)
-         end subroutine control_summary
-
-         integer function get_nctrl() result(n)
-            n = nctrl
-         end function get_nctrl
-
-         integer function get_kctrl() result(k)
-            k = kctrl
-         end function get_kctrl
-
-         real(dp) function get_omega() result(w)
-            w = omega_ctrl
-         end function get_omega
-
-         real(dp) function get_res_scale() result(w)
-      !! Scaling applied to the constraint rows of the residual.
-            w = wres
-         end function get_res_scale
-
-      !====================================================================
-      !     CONTROL VALUES
-      !====================================================================
-
-         subroutine set_control_base(g)
-            real(dp), dimension(:), intent(in) :: g
-            g_base = 0.0_dp
-            g_base(1:min(size(g), nctrl)) = g(1:min(size(g), nctrl))
-            call bcast(g_base, lg*wdsize)
-         end subroutine set_control_base
-
-         function get_control_base() result(g)
-            real(dp), dimension(lg) :: g
-            g = g_base
-         end function get_control_base
-
-         subroutine set_control_pert(g)
-      !! Sets the FORCING PERTURBATION used by the linearised solver. Must be
-      !! cleared after every Jacobian matvec, or the next nonlinear solve
-      !! inherits a spurious source.
-            real(dp), dimension(:), intent(in) :: g
-            g_pert = 0.0_dp
-            g_pert(1:min(size(g), nctrl)) = g(1:min(size(g), nctrl))
-            call bcast(g_pert, lg*wdsize)
-         end subroutine set_control_pert
-
-         subroutine clear_control_pert()
-            g_pert = 0.0_dp
-         end subroutine clear_control_pert
-
-         subroutine set_control_target(target)
-            real(dp), dimension(:), intent(in) :: target
-            q_target = 0.0_dp
-            q_target(1:min(size(target), nctrl)) = target(1:min(size(target), nctrl))
-         end subroutine set_control_target
-
-         function get_control_target() result(target)
-            real(dp), dimension(lg) :: target
-            target = q_target
-         end function get_control_target
-
-         subroutine set_control_weights(w)
-            real(dp), dimension(:), intent(in) :: w
-            wg = 1.0_dp
-            wg(1:min(size(w), nctrl)) = w(1:min(size(w), nctrl))
-         end subroutine set_control_weights
-
-         subroutine set_control_weights_auto(xnorm, gscale)
-      !! Sets wg so that a unit perturbation of each control produces a control
-      !! block contribution to the norm comparable to the state block.
+         subroutine init_flow(self, dpds, womersley, radius)
+      !! Configures the control from a forcing vector in the NATIVE convention
+      !! and a Womersley number, mirroring neklab_helix % init_flow.
       !!
-      !! The norm contribution is wg(i)*g(i)**2, so wg = (xnorm/gscale)**2.
-      !! gscale(i) should be the magnitude of control i that produces an O(1)
-      !! relative change of the state -- for the mean forcing that is simply
-      !! |g_1|; for harmonic k the response rolls off with k (Womersley), so a
-      !! single common value will be badly wrong at k = 3.
-            real(dp), intent(in) :: xnorm
-            real(dp), dimension(:), intent(in) :: gscale
+      !! The number of harmonics follows from the length of dpds: nf = 2K+1, so
+      !! a steady deck passes one component and a K = 1 deck passes three. A
+      !! zero (or absent) Womersley number selects the steady problem, in which
+      !! case only the mean is kept.
+      !!
+      !!    omega = Wo**2 * nu ,   T = 2*pi/omega ,   nu = cpfld(1,1)
+      !!
+      !! Wo is fixed for the whole run: the driver calls this once and the
+      !! period never changes afterwards.
+            class(nek_control), intent(inout) :: self
+            real(dp), dimension(:), intent(in) :: dpds
+      !! Forcing components, native convention, nf = 2K+1 of them.
+            real(dp), optional, intent(in) :: womersley
+      !! Womersley number of the fundamental. Zero or absent: steady problem.
+            real(dp), optional, intent(in) :: radius
+      !! Cross-section radius. Measured from the mesh if absent.
       ! internal
-            character(len=*), parameter :: this_procedure = 'set_control_weights_auto'
+            character(len=*), parameter :: this_procedure = 'init_flow'
             character(len=256) :: msg
-            integer :: i
-            wg = 1.0_dp
-            do i = 1, min(size(gscale), nctrl)
-               if (abs(gscale(i)) > atol_dp) then
-                  wg(i) = (xnorm/gscale(i))**2
-               else
-                  wg(i) = 1.0_dp
-                  write (msg, '(A,I0,A)') 'Zero scale for control ', i, '. Weight set to unity.'
-                  call logger%log_warning(msg, this_module, this_procedure)
+            real(dp) :: Wo, pi
+            integer :: n
+
+            pi = 4.0_dp*atan(1.0_dp)
+            n = size(dpds)
+            Wo = optval(womersley, 0.0_dp)
+
+            if (n < 1) then
+               call nek_stop_error('init_flow requires at least one forcing component.',
+     &            this_module, this_procedure)
+            end if
+            if (n > lfc) then
+               write (msg, '(A,I0,A,I0,A)') 'nf= ', n, ' > lfc= ', lfc, '. Increase kmax_ctrl and recompile.'
+               call nek_stop_error(msg, this_module, this_procedure)
+            end if
+            if (mod(n, 2) == 0) then
+               write (msg, '(A,I0,A)') 'nf= ', n, ' is even. nf must be 2K+1.'
+               call nek_stop_error(msg, this_module, this_procedure)
+            end if
+
+            self%if_unsteady = (abs(Wo) > atol_dp)
+            self%womersley = Wo
+
+            if (self%if_unsteady) then
+               if (n == 1) then
+                  call nek_stop_error('A non-zero Womersley number requires nf > 1 forcing components.',
+     &               this_module, this_procedure)
                end if
-            end do
-            write (msg, '(A,*(1X,E14.6))') 'control weights =', (wg(i), i=1, nctrl)
-            call logger%log_message(msg, this_module, this_procedure)
-         end subroutine set_control_weights_auto
+               self%nf = n
+               self%kharm = (n - 1)/2
+               self%omega = (Wo**2)*cpfld(1, 1)
+               self%period = 2.0_dp*pi/self%omega
+               call nek_log_message('Running unsteady (pulsatile) case.', this_module, this_procedure)
+            else
+               if (n > 1) then
+                  call nek_log_warning('Zero Womersley number: harmonic forcing components are ignored.',
+     &               this_module, this_procedure)
+               end if
+               self%nf = 1
+               self%kharm = 0
+               self%omega = 0.0_dp
+               self%period = 0.0_dp
+               call nek_log_message('Running steady case.', this_module, this_procedure)
+            end if
+            self%nmf = self%kharm + 1
+
+            self%dpds = 0.0_dp
+            self%dpds(1:self%nf) = dpds(1:self%nf)
+            call bcast(self%dpds, lfc*wdsize)
+
+      ! measurement state belongs to a trajectory, not to a configuration
+            self%qfour = 0.0_dp
+            self%mf = 0.0_dp
+            self%mf_phase = 0.0_dp
+            self%mf_qerr = 0.0_dp
+            self%mf_extracted = .false.
+            self%accumulating = .false.
+
+      ! geometry. Forced, because a restart may have re-read the mesh.
+            call self%build_area_weights(force=.true., radius=radius)
+
+            self%is_initialized = .true.
+            call self%summary()
+         end subroutine init_flow
 
       !====================================================================
-      !     CONTROL BASIS AND FORCING
+      !     FORCING
       !====================================================================
 
-         real(dp) function control_basis(i, tval) result(phi)
+         real(dp) function amplitude(self, tval) result(f)
+      !! Instantaneous streamwise forcing amplitude in the native convention.
+      !! This is the analogue of neklab_helix % forcing_amplitude and it is the
+      !! ONLY place the temporal shape of the forcing is defined.
+            class(nek_control), intent(in) :: self
+            real(dp), intent(in) :: tval
+      ! internal
+            integer :: k, i
+            real(dp) :: wt
+            f = self%dpds(1)
+            if (self%if_unsteady) then
+               do k = 1, self%kharm
+                  i = 2*k
+                  wt = k*self%omega*tval
+                  f = f + self%dpds(i)*cos(wt) + self%dpds(i + 1)*sin(wt)
+               end do
+            end if
+         end function amplitude
+
+         real(dp) function forcing(self, tval, y) result(f)
+      !! Streamwise source term for a single grid point of the 2Dh mesh, where
+      !! u_phi is carried by the temperature field. Call from userq as
+      !!
+      !!    qvol = ctrl%forcing(time, ym1(ix, iy, iz, gllel(ieg)))
+      !!
+      !! Note that Nek's makeq evaluates userq at t_n (it shifts 'time' by -dt
+      !! internally), which is what the linearisation requires. There is no
+      !! perturbation branch: the forcing is not a Newton unknown, so the
+      !! linearised equations carry no source and userq must return zero for
+      !! jp > 0.
+      !!
+      !! f_phi = amplitude/R is irrotational; a uniform f_phi is not.
+            class(nek_control), intent(in) :: self
+            real(dp), intent(in) :: tval
+            real(dp), intent(in) :: y
+            f = self%amplitude(tval)/y
+         end function forcing
+
+      !====================================================================
+      !     SMALL PREDICATES AND THE TEMPORAL BASIS
+      !====================================================================
+
+         logical function is_unsteady(self) result(l)
+            class(nek_control), intent(in) :: self
+            l = self%if_unsteady
+         end function is_unsteady
+
+         logical function is_initialised(self) result(l)
+            class(nek_control), intent(in) :: self
+            l = self%is_initialized
+         end function is_initialised
+
+         real(dp) function ctrl_basis(i, omega, tval) result(phi)
       !! i-th temporal basis function: 1, cos(wt), sin(wt), cos(2wt), ...
+      !! Module-level rather than type-bound so that the accumulator can call
+      !! it without a self reference in an inner loop.
             integer, intent(in) :: i
+            real(dp), intent(in) :: omega
             real(dp), intent(in) :: tval
       ! internal
             integer :: k
@@ -258,395 +591,11 @@
             else
                k = i/2
                if (mod(i, 2) == 0) then
-                  phi = cos(k*omega_ctrl*tval)
+                  phi = cos(k*omega*tval)
                else
-                  phi = sin(k*omega_ctrl*tval)
+                  phi = sin(k*omega*tval)
                end if
             end if
-         end function control_basis
-
-         real(dp) function control_forcing(tval, jp_, y) result(f)
-      !! Streamwise source term for userq. Call as
-      !!
-      !!    qvol = control_forcing(time, jp, y)
-      !!
-      !! jp = 0 returns the base forcing, jp > 0 the perturbation forcing.
-      !! Note that Nek's makeqp evaluates userq at t_n (it shifts 'time' by
-      !! -dt internally), which is what the linearisation requires.
-            real(dp), intent(in) :: tval
-            integer, intent(in) :: jp_
-            real(dp), intent(in) :: y
-      ! internal
-            integer :: i
-            real(dp) :: amp
-            amp = 0.0_dp
-            if (jp_ == 0) then
-               do i = 1, nctrl
-                  amp = amp + g_base(i)*control_basis(i, tval)
-               end do
-            else
-               do i = 1, nctrl
-                  amp = amp + g_pert(i)*control_basis(i, tval)
-               end do
-            end if
-            if (if_pgrad_profile) then
-      ! f_phi = -(1/R) dp/dphi with p = -g*R0*phi. Irrotational, i.e. a genuine
-      ! mean pressure gradient. A uniform f_phi is NOT (curl f = f/R).
-               f = amp*R0_ctrl/y
-            else
-               f = amp
-            end if
-         end function control_forcing
-
-      !====================================================================
-      !     SURFACE INTEGRALS OVER THE CROSS-SECTION
-      !====================================================================
-
-         subroutine build_area_weights(force)
-      !! Mass matrix for integrals over the phi = const cross-section, whose
-      !! area element is dA = dR dz. If the mesh runs with ifaxis = .true.,
-      !! bm1 carries an extra radial weight which is stripped here; if the
-      !! torus metric lives entirely in the coefficient arrays of
-      !! neklab_2Dh_axisym on a plain 2D mesh, bm1 is already correct.
-            logical, optional, intent(in) :: force
-      ! internal
-            character(len=*), parameter :: this_procedure = 'build_area_weights'
-            real(dp), external :: glsum
-            integer :: n
-            character(len=128) :: msg
-            if (area_defined .and. .not. optval(force, .false.)) return
-            n = lx1*ly1*lz1*nelv
-            if (ifaxis) then
-               call invcol3(bm_area, bm1, ym1, n)
-            else
-               call copy(bm_area, bm1, n)
-            end if
-            area_cs = glsum(bm_area, n)
-            area_defined = .true.
-            write (msg, '(A,E16.8)') 'Cross-section area A = ', area_cs
-            call logger%log_information(msg, this_module, this_procedure)
-         end subroutine build_area_weights
-
-         real(dp) function get_area() result(area)
-            call build_area_weights()
-            area = area_cs
-         end function get_area
-
-         real(dp) function get_flowrate_arr(theta) result(Q)
-      !! Q = int_A theta dA for an arbitrary field array.
-            real(dp), dimension(lx1*ly1*lz1*lelt), intent(in) :: theta
-      ! internal
-            real(dp), external :: glsc2
-            integer :: n
-            call build_area_weights()
-            n = lx1*ly1*lz1*nelv
-            Q = glsc2(theta, bm_area, n) / area_cs
-         end function get_flowrate_arr
-
-         real(dp) function get_flowrate_nek() result(Q)
-      !! Flow rate of the current nonlinear field t (which carries u_phi).
-            Q = get_flowrate_arr(t(1, 1, 1, 1, 1))
-         end function get_flowrate_nek
-
-         real(dp) function get_flowrate_pert_nek(jp_) result(Q)
-      !! Flow rate of the current perturbation field tp.
-            integer, optional, intent(in) :: jp_
-            Q = get_flowrate_arr(tp(1, 1, optval(jp_, 1)))
-         end function get_flowrate_pert_nek
-
-      !====================================================================
-      !     RUNNING FOURIER ACCUMULATOR
-      !====================================================================
-      !
-      !  The constraint is the time average of the flow rate against each basis
-      !  function over the integration horizon:
-      !
-      !     c_1     = (1/T) int_0^T Q(t) dt
-      !     c_{2k}  = (2/T) int_0^T Q(t) cos(k w t) dt
-      !     c_{2k+1}= (2/T) int_0^T Q(t) sin(k w t) dt
-      !
-      !  For K = 0 this is just the mean of Q over the horizon, which equals
-      !  Q itself once the state is a genuine fixed point. Away from the
-      !  solution the two differ, which is fine: the residual and its Jacobian
-      !  are consistent with each other, and the root is unchanged.
-
-         subroutine reset_qfft()
-            q_acc = 0.0_dp
-            t_acc = 0.0_dp
-         end subroutine reset_qfft
-
-         subroutine accumulate_qfft(Q, tval, dtn)
-      !! Call once per timestep, after nek_advance, with the flow rate of the
-      !! current field, the current time and the timestep just taken.
-            real(dp), intent(in) :: Q
-            real(dp), intent(in) :: tval
-            real(dp), intent(in) :: dtn
-      ! internal
-            integer :: i
-            t_acc = t_acc + dtn
-            do i = 1, nctrl
-               q_acc(i) = q_acc(i) + dtn*Q*control_basis(i, tval)
-            end do
-         end subroutine accumulate_qfft
-
-         subroutine extract_qfft(coeffs)
-      !! Normalises the accumulator. Inactive slots are returned as zero.
-            real(dp), dimension(lg), intent(out) :: coeffs
-      ! internal
-            character(len=*), parameter :: this_procedure = 'extract_qfft'
-            integer :: i
-            coeffs = 0.0_dp
-            if (t_acc <= 0.0_dp) then
-               call stop_error('Empty accumulator: reset_qfft/accumulate_qfft were not called.', this_module, this_procedure)
-            end if
-            coeffs(1) = q_acc(1)/t_acc
-            do i = 2, nctrl
-               coeffs(i) = 2.0_dp*q_acc(i)/t_acc
-            end do
-         end subroutine extract_qfft
-
-               !====================================================================
-      !     PULSATILE CONFIGURATION
-      !====================================================================
- 
-         subroutine init_pulsatile(womersley, kharm, dpds)
-      !! Configures the pulsatile control from a Womersley number, exactly as
-      !! neklab_helix does (helix_utils.f90:170-171):
-      !!
-      !!    omega = Wo**2 * nu ,   T = 2*pi/omega
-      !!
-      !! with nu = cpfld(1,1). Wo is fixed for the whole run, so this is called
-      !! once by the driver and the period never changes afterwards.
-            real(dp), intent(in) :: womersley
-            integer, intent(in) :: kharm
-      !! Number of active harmonics K. nf = 2*K + 1.
-            real(dp), dimension(:), intent(in) :: dpds
-      !! Initial forcing coefficients in the helix convention (nf values).
-      ! internal
-            character(len=*), parameter :: this_procedure = 'init_pulsatile'
-            character(len=256) :: msg
-            real(dp) :: omega, pi
-            pi = 4.0_dp*atan(1.0_dp)
-            womersley_ = womersley
-            if (abs(womersley_) <= atol_dp) then
-               call stop_error('init_pulsatile requires a non-zero Womersley number. '//
-     &            'Use init_control directly for the steady problem.', this_module, this_procedure)
-            end if
-            omega = (womersley_**2)*cpfld(1, 1)
-            pulse_T = 2.0_dp*pi/omega
-            nf_ = 2*kharm + 1
-            if (size(dpds) < nf_) then
-               write (msg, '(A,I0,A,I0)') 'dpds has ', size(dpds), ' entries but nf = ', nf_
-               call stop_error(msg, this_module, this_procedure)
-            end if
-            call init_control(kharm, omega=omega)
-            call set_dpds_fourier(dpds)
-            write (msg, '(A,E16.8,A,E16.8,A,E16.8)') 'pulsatile: Wo= ', womersley_,
-     &         ', nu= ', cpfld(1, 1), ', omega= ', omega
-            call logger%log_message(msg, this_module, this_procedure)
-            write (msg, '(A,E24.16)') '   period T = ', pulse_T
-            call logger%log_message(msg, this_module, this_procedure)
-         end subroutine init_pulsatile
- 
-         real(dp) function get_pulsation_period() result(T)
-            T = pulse_T
-         end function get_pulsation_period
- 
-         real(dp) function get_womersley() result(Wo)
-            Wo = womersley_
-         end function get_womersley
- 
-         integer function get_nf() result(n)
-            n = nf_
-         end function get_nf
- 
-      !====================================================================
-      !     FORCING IN THE HELIX CONVENTION
-      !====================================================================
- 
-         subroutine set_dpds_fourier(dpds)
-      !! Stores the forcing in the helix convention and pushes the equivalent
-      !! internal coefficients to the base control, which is what userq sees
-      !! through control_forcing.
-            real(dp), dimension(:), intent(in) :: dpds
-      ! internal
-            real(dp), dimension(lg) :: g
-            integer :: i, k, n
-            n = min(size(dpds), nf_)
-            dpds_f = 0.0_dp
-            dpds_f(1:n) = dpds(1:n)
-            call bcast(dpds_f, lg*wdsize)
-            g = 0.0_dp
-            g(1) = dpds_f(1)
-            do k = 1, kctrl
-               i = 2*k
-               g(i) = 2.0_dp*dpds_f(i)
-               g(i + 1) = -2.0_dp*dpds_f(i + 1)
-            end do
-            call set_control_base(g)
-         end subroutine set_dpds_fourier
- 
-         subroutine get_dpds_fourier(dpds, phase)
-      !! Returns the forcing coefficients and, optionally, the phase of each
-      !! harmonic in the helix convention, phase_k = atan2(dpds(2k+1), dpds(2k))
-      !! (helix_gs.f90:78-90). Index 1 of phase is the mean, whose phase is zero
-      !! by construction.
-            real(dp), dimension(:), intent(out) :: dpds
-            real(dp), dimension(:), allocatable, optional, intent(out) :: phase
-      ! internal
-            integer :: i, k, n
-            n = min(size(dpds), lg)
-            dpds = 0.0_dp
-            dpds(1:n) = dpds_f(1:n)
-            if (present(phase)) then
-               allocate (phase(kctrl + 1))
-               phase = 0.0_dp
-               do k = 1, kctrl
-                  i = 2*k
-                  phase(k + 1) = atan2(dpds_f(i + 1), dpds_f(i))
-               end do
-            end if
-         end subroutine get_dpds_fourier
- 
-         real(dp) function forcing_amplitude(tval) result(f)
-      !! Instantaneous streamwise forcing amplitude in the helix convention.
-      !! Diagnostic only: the forcing actually applied comes from
-      !! control_forcing, which evaluates the equivalent internal coefficients.
-            real(dp), intent(in) :: tval
-      ! internal
-            integer :: k, i
-            f = dpds_f(1)
-            do k = 1, kctrl
-               i = 2*k
-               f = f + 2.0_dp*(dpds_f(i)*cos(k*omega_ctrl*tval) - dpds_f(i + 1)*sin(k*omega_ctrl*tval))
-            end do
-         end function forcing_amplitude
- 
-         subroutine forcing_summary()
-            character(len=*), parameter :: this_procedure = 'forcing_summary'
-            character(len=512) :: msg
-            real(dp), dimension(lg) :: d
-            real(dp), dimension(:), allocatable :: ph
-            integer :: i, k
-            call get_dpds_fourier(d, ph)
-            write (msg, '(A,*(1X,F16.10))') 'dpds      =', (d(i), i=1, nf_)
-            call logger%log_message(msg, this_module, this_procedure)
-            write (msg, '(A,*(1X,F16.10))') 'amplitude =', d(1), (2.0_dp*sqrt(d(2*k)**2 + d(2*k + 1)**2), k=1, kctrl)
-            call logger%log_message(msg, this_module, this_procedure)
-            write (msg, '(A,*(1X,F16.10))') 'phase     =', (ph(k), k=1, kctrl + 1)
-            call logger%log_message(msg, this_module, this_procedure)
-         end subroutine forcing_summary
- 
-      !====================================================================
-      !     TRAPEZOIDAL FLOW-RATE ACCUMULATOR
-      !====================================================================
-      !
-      !  accumulate_qfft uses the right-endpoint rule, which is O(dt) on a
-      !  non-uniform grid. With a variable timestep and as few as 50 steps per
-      !  period that is a percent-level error on the harmonics -- far above the
-      !  Newton tolerance, and it would put a floor under the flow-rate solve.
-      !  The trapezoidal variant below is O(dt**2) and mirrors what helix does
-      !  (helix_mflow_fft.f90:30-65).
-      !
-      !  REVERSE FLOW. When Q changes sign within a step, a node is placed at
-      !  the zero crossing of the linear interpolant and the rule is applied on
-      !  each half. For the mean this makes no difference (the trapezoid of a
-      !  linear function is exact either way, and the split form is
-      !  algebraically identical); for the harmonics it is a genuine refinement,
-      !  since Q*phi is not linear and the extra node helps.
-      !
-      !  Two corrections versus helix_mflow_fft.f90:34-49, which this replaces:
-      !
-      !    * the crossing fraction. Helix uses dt0 = -(Q - Q_old)/Q_old, which
-      !      is not a fraction of the interval at all: for Q_old = 1, Q = -1 it
-      !      returns 2. The linear interpolant vanishes at
-      !      s = Q_old/(Q_old - Q), which is 0.5 for that case.
-      !
-      !    * the factor 1/2. Helix applies it to the mean but not to the
-      !      harmonic terms, so every step containing a crossing contributes
-      !      twice what it should to every harmonic.
-      !
-      !  Both only fire on a sign change, which is why they have survived: with
-      !  no reverse flow the branch is never taken.
- 
-         subroutine reset_qfft_trap(Q0)
-      !! Starts a trapezoidal accumulation. Q0 is the flow rate at t = 0, i.e.
-      !! of the initial condition, before the first step is taken.
-            real(dp), intent(in) :: Q0
-            q_acc = 0.0_dp
-            t_acc = 0.0_dp
-            q_lag = Q0
-         end subroutine reset_qfft_trap
- 
-         subroutine accumulate_qfft_trap(Q, tval, dtn)
-      !! Call once per timestep, AFTER nek_advance, with the flow rate of the
-      !! current field, the current time and the timestep just taken. tval is
-      !! the time at the END of the step, so the interval is [tval-dtn, tval].
-            real(dp), intent(in) :: Q
-            real(dp), intent(in) :: tval
-            real(dp), intent(in) :: dtn
-      ! internal
-            integer :: i
-            real(dp) :: told, s
-            told = tval - dtn
-            t_acc = t_acc + dtn
-            if (Q*q_lag < 0.0_dp) then
-      ! Sign change: split at the zero of the linear interpolant. The integrand
-      ! vanishes there, so only the two outer endpoints contribute and the
-      ! weights are the sub-interval lengths.
-               s = q_lag/(q_lag - Q)
- 
-               do i = 1, nctrl
-                  q_acc(i) = q_acc(i) + 0.5_dp*dtn*(s*q_lag*control_basis(i, told)
-     &                                              + (1.0_dp - s)*Q*control_basis(i, tval))
-               end do
-            else
-               do i = 1, nctrl
-                  q_acc(i) = q_acc(i) + 0.5_dp*dtn*(q_lag*control_basis(i, told) + Q*control_basis(i, tval))
-               end do
-            end if
-            q_lag = Q
-         end subroutine accumulate_qfft_trap
- 
-      !====================================================================
-      !     FLOW RATE IN THE HELIX CONVENTION
-      !====================================================================
- 
-         subroutine extract_mflow(mflow, amplitude, phase)
-      !! Normalises the accumulator and converts to the helix convention.
-      !! Note that amplitude(k+1) is |mflow_k|, i.e. HALF the peak-to-mean
-      !! excursion of harmonic k -- the same quantity helix reports and the
-      !! same one its targets are given in.
-            real(dp), dimension(lg), intent(out) :: mflow
-            real(dp), dimension(:), allocatable, optional, intent(out) :: amplitude
-            real(dp), dimension(:), allocatable, optional, intent(out) :: phase
-      ! internal
-            real(dp), dimension(lg) :: coeffs
-            integer :: i, k
-            call extract_qfft(coeffs)
-            mflow = 0.0_dp
-            mflow(1) = coeffs(1)
-            do i = 2, nctrl
-               mflow(i) = 0.5_dp*coeffs(i)
-            end do
-            if (present(amplitude)) then
-               allocate (amplitude(kctrl + 1))
-               amplitude = 0.0_dp
-               amplitude(1) = mflow(1)
-               do k = 1, kctrl
-                  i = 2*k
-                  amplitude(k + 1) = sqrt(mflow(i)**2 + mflow(i + 1)**2)
-               end do
-            end if
-            if (present(phase)) then
-               allocate (phase(kctrl + 1))
-               phase = 0.0_dp
-               do k = 1, kctrl
-                  i = 2*k
-                  phase(k + 1) = atan2(mflow(i + 1), mflow(i))
-               end do
-            end if
-         end subroutine extract_mflow
-
+         end function ctrl_basis
 
       end module neklab_newton_control

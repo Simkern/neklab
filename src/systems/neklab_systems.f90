@@ -22,15 +22,11 @@
          use neklab_nek_setup
          use neklab_helix
          use neklab_2Dh_axisym
-      ! The flow-rate control state. Only the periodic-orbit submodule uses it:
-      ! it reads the period, measures the bulk velocity and drives the Fourier
-      ! accumulator. The forcing is NOT a Newton unknown, so there is no
-      ! perturbation forcing to set or clear here.
-         use neklab_newton_control, only: ctrl
-         use neklab_bf_buffer, only: bf_reset, bf_begin_step, bf_end_step,
-     &                               bf_close_record, bf_replay_start,
-     &                               bf_replay_end, bf_set, bf_set_window,
-     &                               bf_get_nsteps
+         use neklab_t2Dh, only: t2Dh
+         use t2Dh_bf_buffer, only: bf_reset, bf_begin_step, bf_end_step,
+     &                             bf_close_record, bf_replay_start,
+     &                             bf_replay_end, bf_set, bf_set_window,
+     &                             bf_get_nsteps
 
          implicit none
          include "SIZE"

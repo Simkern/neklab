@@ -1,4 +1,4 @@
-      module neklab_bf_buffer
+      module t2Dh_bf_buffer
       !! Time-resolved baseflow buffer for periodic-orbit Newton solves on the
       !! 2Dh (axisymmetric torus) mesh.
       !!
@@ -57,6 +57,7 @@
       !! neklab_helix. Any scoping unit that uses both modules must import at
       !! least one of them with an explicit only-list.
          use stdlib_optval, only: optval
+         use stdlib_strings, only: padl, padr
          use stdlib_sorting, only: sort_index
          use LightKrylov, only: dp
          use LightKrylov_Logger
@@ -139,7 +140,7 @@
          public :: bf_get_time, bf_is_recording, bf_get_nsteps_min
          public :: bf_set_prefix, bf_get_prefix, bf_fname
          public :: bf_write_mesh, bf_summary
-         public :: bf_write_control, bf_read_control
+         public :: bf_write_t2Dh, bf_read_t2Dh
 
       !--------------------------------------------------------------------
       !-----     IO INTERFACES (implemented in submodule bf_buffer_io) -----
@@ -200,6 +201,7 @@
             character(len=256) :: msg
             integer :: nsym, ie, iface
             real(dp) :: mbytes
+            integer, parameter :: pad = 20
             integer, external :: iglsum
 
             if (is_initialized) then
@@ -247,21 +249,23 @@
             is_initialized = .true.
 
             mbytes = 3.0_dp*real(nbf, dp)*real(lbuf, dp)*8.0_dp/1024.0_dp**2
+            call nek_log_message('', this_module, this_procedure)
             call nek_log_message('Baseflow buffer initialized:', this_module, this_procedure)
-            write (msg, '(3X,A,3(1X,I0))') 'lx1, ly1, nelv          =', lx1, ly1, nelv
+            write (msg, '(3X,A,2X,3(1X,I4))') padl('lx1, ly1, nelv:', pad), lx1, ly1, nelv
             call nek_log_message(msg, this_module, this_procedure)
-            write (msg, '(3X,A,1X,I0)') 'snapshots per chunk     =', lbuf
+            write (msg, '(3X,A,1X,I16)') padl('snapshots per chunk:', pad), lbuf
             call nek_log_message(msg, this_module, this_procedure)
-            write (msg, '(3X,A,1X,F10.1,A)') 'footprint per rank      =', mbytes, ' MB'
+            write (msg, '(3X,A,1X,F13.1,A)') padl('footprint per rank:', pad), mbytes, ' MB'
             call nek_log_message(msg, this_module, this_procedure)
-            write (msg, '(3X,A,1X,I0)') 'global 2D elements      =', nelf
+            write (msg, '(3X,A,1X,I16)') padl('global 2D elements:', pad), nelf
             call nek_log_message(msg, this_module, this_procedure)
-            write (msg, '(3X,A,1X,I0)') 'min steps per horizon   =', nsteps_min
+            write (msg, '(3X,A,1X,I16)') padl('min steps / horizon:', pad), nsteps_min
             call nek_log_message(msg, this_module, this_procedure)
-            write (msg, '(3X,A,1X,A)') 'cross-section           =', merge('half', 'full', if_sym)
+            write (msg, '(3X,A,1X,A16)') padl('cross-section:', pad), merge('half', 'full', if_sym)
             call nek_log_message(msg, this_module, this_procedure)
-            write (msg, '(3X,A,1X,A)') 'chunk spilling          =', merge('on ', 'off', if_write)
+            write (msg, '(3X,A,1X,A16)') padl('chunk spilling:', pad), merge(' on', 'off', if_write)
             call nek_log_message(msg, this_module, this_procedure)
+            call nek_log_message('', this_module, this_procedure)
          end subroutine bf_init
 
          subroutine bf_finalize_module()
@@ -652,7 +656,7 @@
             call nek_log_message('Mesh written to '//trim(fname), this_module, this_procedure)
          end subroutine bf_write_mesh
 
-         subroutine bf_write_control(dpds, nf, omega, period)
+         subroutine bf_write_t2Dh(dpds, nf, omega, period)
       !! Sidecar text file holding everything a restart needs that is not in the
       !! field files. Kept out of the binary so the format stays byte-identical
       !! to the helix files and the existing Python readers keep working.
@@ -662,14 +666,14 @@
             real(dp), intent(in) :: omega
             real(dp), intent(in) :: period
       ! internal
-            character(len=*), parameter :: this_procedure = 'bf_write_control'
+            character(len=*), parameter :: this_procedure = 'bf_write_t2Dh'
             character(len=132) :: fname
             integer :: iunit, i
             if (nid /= 0) return
             fname = ' '
-            write (fname, '(A,A,A)') fprefix, trim(fbase), '.ctrl'
+            write (fname, '(A,A,A)') fprefix, trim(fbase), '.t2Dh'
             open (newunit=iunit, file=trim(fname), status='replace', action='write')
-            write (iunit, '(A)') '# neklab baseflow buffer control state'
+            write (iunit, '(A)') '# neklab baseflow buffer t2Dh state'
             write (iunit, '(A,I0)') 'nf     = ', nf
             write (iunit, '(A,I0)') 'nsteps = ', nsteps_rec
             write (iunit, '(A,I0)') 'nchunk = ', nchunk
@@ -679,9 +683,9 @@
             write (iunit, '(A,*(1X,E24.16))') 'dpds   =', (dpds(i), i=1, nf)
             close (iunit)
             call nek_log_information('Control state written to '//trim(fname), this_module, this_procedure)
-         end subroutine bf_write_control
+         end subroutine bf_write_t2Dh
 
-         subroutine bf_read_control(dpds, nf, omega, period, ierr)
+         subroutine bf_read_t2Dh(dpds, nf, omega, period, ierr)
       !! Reads the sidecar file back. ierr /= 0 if it is missing.
             real(dp), dimension(:), intent(out) :: dpds
             integer, intent(out) :: nf
@@ -689,14 +693,14 @@
             real(dp), intent(out) :: period
             integer, intent(out) :: ierr
       ! internal
-            character(len=*), parameter :: this_procedure = 'bf_read_control'
+            character(len=*), parameter :: this_procedure = 'bf_read_t2Dh'
             character(len=132) :: fname
             character(len=1024) :: line
             integer :: iunit, i, ipos
             logical :: exists
             dpds = 0.0_dp; nf = 0; omega = 0.0_dp; period = 0.0_dp; ierr = 0
             fname = ' '
-            write (fname, '(A,A,A)') fprefix, trim(fbase), '.ctrl'
+            write (fname, '(A,A,A)') fprefix, trim(fbase), '.t2Dh'
             if (nid == 0) then
                inquire (file=trim(fname), exist=exists)
                if (.not. exists) then
@@ -730,7 +734,7 @@
             end if
             call bcast(ierr, isize)
             if (ierr /= 0) then
-               call nek_log_warning('Could not read control state from '//trim(fname), this_module, this_procedure)
+               call nek_log_warning('Could not read t2Dh state from '//trim(fname), this_module, this_procedure)
                return
             end if
             call bcast(nf, isize)
@@ -741,8 +745,8 @@
             call bcast(dpds, size(dpds)*wdsize)
             ichunk = 0
             trec = period
-            call nek_log_message('Control state read from '//trim(fname), this_module, this_procedure)
-         end subroutine bf_read_control
+            call nek_log_message('t2Dh state read from '//trim(fname), this_module, this_procedure)
+         end subroutine bf_read_t2Dh
 
       !====================================================================
       !     INTERNAL HELPERS
@@ -774,8 +778,7 @@
                call bf_write_chunk(fname)
       ! One terse line per file actually written, with the step range, so a
       ! recording can be cross-checked at a glance.
-               write (msg, '(A,A,I0,A,I0,A,I0,A)') trim(fname), ': ', nsave, ' snapshots, steps ',
-     &            k0, '-', k1, ' ->'
+               write (msg, '(A,A,I5,A)') trim(fname), ': ', nsave, ' snapshots'
                call nek_log_information(msg, this_module, this_procedure)
             else
                write (msg, '(A,I0,A,I0,A,I0,A)') 'Chunk ', nchunk, ' held in memory (', nsave,
@@ -826,4 +829,4 @@
             call nek_log_debug(msg, this_module, this_procedure)
          end subroutine load_chunk
 
-      end module neklab_bf_buffer
+      end module t2Dh_bf_buffer

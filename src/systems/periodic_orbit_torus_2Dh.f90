@@ -10,7 +10,7 @@
       !  NON-AUTONOMOUS, so there is no phase freedom and no unknown period:
       !  the Poincare section is t = 0 and the state vector is a plain
       !  nek_dvector, exactly as for nek_system_torus_upo. The forcing is NOT
-      !  part of the unknown vector -- it is held in ctrl and driven by the
+      !  part of the unknown vector -- it is held in t2Dh and driven by the
       !  segregated outer Newton in neklab_analysis_torus_2Dh. There is no
       !  bordered vector and no perturbation forcing: the linearised equations
       !  carry no source, so userq must return zero for jp > 0.
@@ -24,10 +24,10 @@
       !  nek_advance.
       !
       !  The nonlinear pass also accumulates the flow-rate Fourier coefficients
-      !  and closes them at the horizon (ctrl%close_mflow). That measurement
+      !  and closes them at the horizon (t2Dh%close_mflow). That measurement
       !  belongs to the trajectory, not to its endpoint, which is why it is made
       !  here rather than in the driver: the outer Newton simply reads it back
-      !  through ctrl%measure_mflow.
+      !  through t2Dh%measure_mflow.
       !
       !  TIME GRID
       !
@@ -88,9 +88,9 @@
          type is (nek_dvector)
             select type (vec_out)
             type is (nek_dvector)
-               period = ctrl%get_period()
+               period = t2Dh%get_period()
                if (period <= 0.0_dp) then
-                  call nek_stop_error('Period is not set. The driver must call ctrl%init_flow '//
+                  call nek_stop_error('Period is not set. The driver must call t2Dh%init_flow '//
      &               'with a non-zero Womersley number first.', this_module, this_procedure)
                end if
       ! Set the initial condition
@@ -108,7 +108,7 @@
       ! flow rate of the initial condition, so the trapezoidal rule has a left
       ! endpoint for the first step.
                call bf_reset()
-               call ctrl%reset_mflow(ctrl%ubar())
+               call t2Dh%reset_mflow(t2Dh%ubar())
       ! Integrate the nonlinear equations forward over exactly one period
                time = 0.0_dp
                istep = 0
@@ -140,7 +140,7 @@
       ! condition, so they must not pollute the dt statistics the driver uses
       ! to report the resolution of the orbit.
                   call bf_end_step(count_stats = .not. landing)
-                  call ctrl%accumulate_mflow(ctrl%ubar(), time, dt)
+                  call t2Dh%accumulate_mflow(t2Dh%ubar(), time, dt)
                end do
       ! Close the recording. This is where sum(dt) == T and the minimum step
       ! count are enforced: both failures would otherwise show up much later as
@@ -149,7 +149,7 @@
       ! Close the flow-rate accumulation. This normalises both quadrature rules,
       ! forms the amplitudes and phases and measures the quadrature error, which
       ! is what floors the outer Newton's tolerance.
-               call ctrl%close_mflow(period=period)
+               call t2Dh%close_mflow(period=period)
       ! Copy the final solution to vector.
                call nek2vec(vec_out, vx, vy, vz, pr, t)
       ! Evaluate residual F(X) - X.
@@ -188,7 +188,7 @@
                call setup_linear_solver(solve_baseflow = .false.,
      &                                  solve_temperature = .true.,
      &                                  variable_dt    = .true.,
-     &                                  endtime        = ctrl%get_period(),
+     &                                  endtime        = t2Dh%get_period(),
      &                                  cfl_limit      = cfl_upo,
      &                                  vtol           = atol*0.5,
      &                                  ptol           = atol*0.5)
@@ -255,7 +255,7 @@
      &                                  solve_baseflow = .false.,
      &                                  solve_temperature = .true.,
      &                                  variable_dt    = .true.,
-     &                                  endtime        = ctrl%get_period(),
+     &                                  endtime        = t2Dh%get_period(),
      &                                  cfl_limit      = cfl_upo,
      &                                  vtol           = atol*0.5,
      &                                  ptol           = atol*0.5)

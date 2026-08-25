@@ -1,4 +1,4 @@
-      submodule(neklab_newton_control) control_flowrate
+      submodule(neklab_t2Dh) t2Dh_flowrate
       !! Cross-section geometry, the flow rate, its running Fourier transform
       !! and the seed for the outer Jacobian.
       !!
@@ -134,7 +134,7 @@
          real(dp), external :: glsc2
          integer :: n
          if (.not. self%area_defined) then
-            call nek_stop_error('Area weights are not built. Call ctrl%init_flow first.',
+            call nek_stop_error('Area weights are not built. Call t2Dh%init_flow first.',
      &         this_module, this_procedure)
          end if
          n = lx1*ly1*lz1*nelv
@@ -175,7 +175,7 @@
          integer :: i
          real(dp) :: dtc
          if (.not. self%accumulating) then
-            call nek_stop_error('Accumulator is not open. Call ctrl%reset_mflow first.',
+            call nek_stop_error('Accumulator is not open. Call t2Dh%reset_mflow first.',
      &         this_module, this_procedure)
          end if
          self%t_acc = self%t_acc + dtn
@@ -183,14 +183,14 @@
       ! fine rule: trapezoid on [t_lag, tval]
          do i = 1, self%nf
             self%q_acc(i) = self%q_acc(i) + 0.5_dp*dtn*
-     &         (self%q_lag*ctrl_basis(i, self%omega, self%t_lag) + Q*ctrl_basis(i, self%omega, tval))
+     &         (self%q_lag*t2Dh_basis(i, self%omega, self%t_lag) + Q*t2Dh_basis(i, self%omega, tval))
          end do
       ! coarse rule: trapezoid on [t_lag2, tval], closed every second step
          if (mod(self%nacc, 2) == 0) then
             dtc = tval - self%t_lag2
             do i = 1, self%nf
                self%q_crs(i) = self%q_crs(i) + 0.5_dp*dtc*
-     &            (self%q_lag2*ctrl_basis(i, self%omega, self%t_lag2) + Q*ctrl_basis(i, self%omega, tval))
+     &            (self%q_lag2*t2Dh_basis(i, self%omega, self%t_lag2) + Q*t2Dh_basis(i, self%omega, tval))
             end do
             self%q_lag2 = Q
             self%t_lag2 = tval
@@ -227,8 +227,8 @@
             dtc = self%t_lag - self%t_lag2
             do i = 1, self%nf
                self%q_crs(i) = self%q_crs(i) + 0.5_dp*dtc*
-     &            (self%q_lag2*ctrl_basis(i, self%omega, self%t_lag2)
-     &             + self%q_lag*ctrl_basis(i, self%omega, self%t_lag))
+     &            (self%q_lag2*t2Dh_basis(i, self%omega, self%t_lag2)
+     &             + self%q_lag*t2Dh_basis(i, self%omega, self%t_lag))
             end do
          end if
       ! normalise: mean, then twice the projection for each harmonic
@@ -282,14 +282,14 @@
          if (self%if_unsteady) then
             if (.not. self%mf_extracted) then
                call nek_stop_error('No flow-rate measurement available: the nonlinear map must '//
-     &            'call ctrl%close_mflow before the driver measures.', this_module, this_procedure)
+     &            'call t2Dh%close_mflow before the driver measures.', this_module, this_procedure)
             end if
             mf(1:n) = self%mf(1:n)
             if (present(phase)) phase(1:min(size(phase), self%nmf)) = self%mf_phase(1:min(size(phase), self%nmf))
             if (present(qerr)) qerr(1:min(size(qerr), self%nmf)) = self%mf_qerr(1:min(size(qerr), self%nmf))
          else
             mf(1) = self%ubar_arr(theta)
-      ! cache it, so that ctrl holds the last measurement in both regimes and
+      ! cache it, so that t2Dh holds the last measurement in both regimes and
       ! mflow_summary has something to print
             self%qfour = 0.0_dp
             self%mf = 0.0_dp
@@ -360,4 +360,4 @@
          call nek_log_message(msg, this_module, this_procedure)
          end procedure seed_jacobian
 
-      end submodule control_flowrate
+      end submodule t2Dh_flowrate

@@ -1,5 +1,5 @@
-      submodule(neklab_newton_control) control_gs
-      !! Getters, setters, convention converters and summaries for nek_control.
+      submodule(neklab_t2Dh) t2Dh_gs
+      !! Getters, setters, convention converters and summaries for nek_t2Dh.
       !!
       !! The helix converters here are the ONLY place the old (helix) Fourier
       !! convention appears. Everything else in neklab is native:
@@ -98,7 +98,7 @@
             if (k + 1 > n) exit
             if (amp(k + 1) <= atol_dp .and. abs(da(k + 1)) > atol_dp) then
                write (msg, '(A,I0,A)') 'Harmonic ', k, ' is zero: its phase direction is undefined. '//
-     &            'Call ctrl%seed_harmonics before stepping the amplitudes.'
+     &            'Call t2Dh%seed_harmonics before stepping the amplitudes.'
                call nek_stop_error(msg, this_module, this_procedure)
             end if
          end do
@@ -178,7 +178,7 @@
       ! two, but running the steady solve first is still the better path.
             if (abs(self%dpds(1)) <= atol_dp) then
                call nek_stop_error('seed_harmonics needs either the steady resistance dQ/da '//
-     &            '(run the steady solve first, or set it with ctrl%set_slope) or a non-zero '//
+     &            '(run the steady solve first, or set it with t2Dh%set_slope) or a non-zero '//
      &            'mean forcing to estimate it from.', this_module, this_procedure)
             end if
             call self%set_slope(abs(self%mf_target(1)/self%dpds(1)))
@@ -250,19 +250,36 @@
          self%target_defined = .true.
          end procedure set_target
 
-         module procedure set_target_helix
-      !! Helix reports the flow-rate amplitude as HALF the peak excursion, so a
-      !! target taken from a helix deck doubles on the way in. The mean does not.
+         module procedure set_target_ratio
+      !! Targets in the input convention:
+      !!
+      !!    tgt(1)   = Q(0)          mean bulk velocity, ABSOLUTE
+      !!    tgt(k+1) = 2*Q(k)/Q(0)   amplitude RATIO of harmonic k
+      !!
+      !! The native amplitude is the peak excursion, which is exactly 2*Q(k),
+      !! so the harmonic conversion is a multiplication by the mean. At the
+      !! usual Q(0) = 1 this is the identity and the input passes through
+      !! unchanged; it only bites if the mean target is ever moved off one,
+      !! which is precisely why the ratio is stored rather than assumed away.
+      !!
+      !! NOTE the factor 2: a helix deck reports Q(k) itself (half the peak
+      !! excursion), so a helix number must be doubled before it is handed to
+      !! this routine.
+         character(len=*), parameter :: this_procedure = 'set_target_ratio'
          real(dp), dimension(lmfc) :: t_
          integer :: n, i
          n = min(size(tgt), self%nmf)
+         if (abs(tgt(1)) <= atol_dp) then
+            call nek_stop_error('The mean flow-rate target is zero: the harmonic targets are '//
+     &         'ratios to it and cannot be resolved.', this_module, this_procedure)
+         end if
          t_ = 0.0_dp
          t_(1) = tgt(1)
          do i = 2, n
-            t_(i) = 2.0_dp*tgt(i)
+            t_(i) = tgt(i)*abs(tgt(1))
          end do
          call self%set_target(t_)
-         end procedure set_target_helix
+         end procedure set_target_ratio
 
          module procedure get_slope
          g = self%gslope
@@ -295,19 +312,24 @@
          if (present(qerr)) qerr = self%mf_qerr
          end procedure get_mflow
 
-         module procedure get_mflow_helix
+         module procedure get_mflow_ratio
+      !! The measured flow rate in the same convention as set_target_ratio:
+      !! index 1 is the absolute mean, index k+1 is 2*Q(k)/Q(0). Directly
+      !! comparable with what the deck asked for.
          integer :: n, i
          n = min(size(amp), self%nmf)
          amp = 0.0_dp
          amp(1) = self%mf(1)
-         do i = 2, n
-            amp(i) = 0.5_dp*self%mf(i)
-         end do
+         if (abs(self%mf(1)) > atol_dp) then
+            do i = 2, n
+               amp(i) = self%mf(i)/abs(self%mf(1))
+            end do
+         end if
          if (present(phase)) then
             phase = 0.0_dp
             phase(1:min(size(phase), self%nmf)) = self%mf_phase(1:min(size(phase), self%nmf))
          end if
-         end procedure get_mflow_helix
+         end procedure get_mflow_ratio
 
       !====================================================================
       !     SCALARS
@@ -345,26 +367,41 @@
          character(len=*), parameter :: this_procedure = 'summary'
          character(len=256) :: msg
          integer :: i
+         integer, parameter :: pad = 20
+         call nek_log_message('', this_module, this_procedure)
          call nek_log_message('Newton control configuration:', this_module, this_procedure)
-         write (msg, '(3X,A,L1,A,I0,A,I0,A,I0)') 'unsteady= ', self%if_unsteady,
-     &      ', K= ', self%kharm, ', nf= ', self%nf, ', nmf= ', self%nmf
+         call nek_log_message('', this_module, this_procedure)
+         write (msg, '(3X,A,1X,L16)') padl('unsteady:',pad), self%if_unsteady
+         call nek_log_message(msg, this_module, this_procedure)
+         call nek_log_message('Geometry:', this_module, this_procedure)
+         write (msg, '(3X,A,1X,E16.8)') padl('area:',pad), self%area
+         call nek_log_message(msg, this_module, this_procedure)
+         write (msg, '(3X,A,1X,E16.8)') padl('R_c:',pad), self%curv_radius
+         call nek_log_message(msg, this_module, this_procedure)
+         write (msg, '(3X,A,1X,E16.8)') padl('r:',pad), self%radius
+         call nek_log_message(msg, this_module, this_procedure)
+         write (msg, '(3X,A,1X,E16.8)') padl('delta:',pad), self%delta
+         call nek_log_message(msg, this_module, this_procedure)
+         call nek_log_message('Dynamics:', this_module, this_procedure)
+         write (msg, '(3X,A,2X,3(1X,I4))') padl('K, nf, nmf:',pad), self%kharm, self%nf, self%nmf
          call nek_log_message(msg, this_module, this_procedure)
          if (self%if_unsteady) then
-            write (msg, '(3X,A,E16.8,A,E16.8,A,E16.8)') 'Wo= ', self%womersley,
-     &         ', omega= ', self%omega, ', T= ', self%period
+            write (msg, '(3X,A,1X,E16.8)') padl('Wo:',pad), self%womersley
+            call nek_log_message(msg, this_module, this_procedure)
+            write (msg, '(3X,A,1X,E16.8)') padl('omega:',pad), self%omega
+            call nek_log_message(msg, this_module, this_procedure)
+            write (msg, '(3X,A,1X,E16.8)') padl('T:',pad), self%period
             call nek_log_message(msg, this_module, this_procedure)
          end if
-         write (msg, '(3X,A,E16.8,A,E16.8,A,E16.8,A,E16.8)') 'area= ', self%area,
-     &      ', R_c= ', self%curv_radius, ', r= ', self%radius, ', delta= ', self%delta
-         call nek_log_message(msg, this_module, this_procedure)
          if (self%gslope_defined) then
-            write (msg, '(3X,A,E16.8)') 'dQ/da (steady resistance)= ', self%gslope
+            write (msg, '(3X,A,1X,E16.8)') padl('dQ/da:',pad), self%gslope
             call nek_log_message(msg, this_module, this_procedure)
          end if
          if (self%target_defined) then
-            write (msg, '(3X,A,*(1X,F16.10))') 'target  =', (self%mf_target(i), i=1, self%nmf)
+            write (msg, '(3X,A,*(1X,F16.10))') padl('target:',pad), (self%mf_target(i), i=1, self%nmf)
             call nek_log_message(msg, this_module, this_procedure)
          end if
+         call nek_log_message('', this_module, this_procedure)
          call self%forcing_summary()
          end procedure summary
 
@@ -375,12 +412,12 @@
          real(dp), dimension(lmfc) :: amp, phase
          integer :: i
          call self%get_dpds(d, amp, phase)
-         write (msg, '(3X,A,*(1X,F16.10))') 'dpds     =', (d(i), i=1, self%nf)
+         write (msg, '(3X,A,*(1X,F16.10))')    'dpds      =', (d(i), i=1, self%nf)
          call nek_log_message(msg, this_module, this_procedure)
          if (self%if_unsteady) then
-            write (msg, '(3X,A,*(1X,F16.10))') 'amplitude=', (amp(i), i=1, self%nmf)
+            write (msg, '(3X,A,*(1X,F16.10))') 'amplitude =', (amp(i), i=1, self%nmf)
             call nek_log_message(msg, this_module, this_procedure)
-            write (msg, '(3X,A,*(1X,F16.10))') 'phase    =', (phase(i), i=1, self%nmf)
+            write (msg, '(3X,A,*(1X,F16.10))') 'phase     =', (phase(i), i=1, self%nmf)
             call nek_log_message(msg, this_module, this_procedure)
          end if
          end procedure forcing_summary
@@ -389,14 +426,14 @@
          character(len=*), parameter :: this_procedure = 'mflow_summary'
          character(len=512) :: msg
          integer :: i
-         write (msg, '(3X,A,*(1X,F16.10))') 'mflow    =', (self%mf(i), i=1, self%nmf)
+         write (msg, '(5X,A,*(1X,F16.10))')    'mflow     =', (self%mf(i), i=1, self%nmf)
          call nek_log_message(msg, this_module, this_procedure)
          if (self%if_unsteady) then
-            write (msg, '(3X,A,*(1X,F16.10))') 'phase    =', (self%mf_phase(i), i=1, self%nmf)
+            write (msg, '(5X,A,*(1X,F16.10))') 'phase     =', (self%mf_phase(i), i=1, self%nmf)
             call nek_log_message(msg, this_module, this_procedure)
-            write (msg, '(3X,A,*(1X,E16.8))') 'quad err =', (self%mf_qerr(i), i=1, self%nmf)
+            write (msg, '(5X,A,*(1X,E16.8))')  'quad err  =', (self%mf_qerr(i), i=1, self%nmf)
             call nek_log_message(msg, this_module, this_procedure)
          end if
          end procedure mflow_summary
 
-      end submodule control_gs
+      end submodule t2Dh_gs

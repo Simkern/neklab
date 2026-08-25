@@ -1,10 +1,10 @@
       module neklab_analysis_torus_2Dh
-      !! Flow-rate constrained solves on the 2Dh (axisymmetric torus) mesh.
+      !! Flowrate constrained solves on the 2Dh (axisymmetric torus) mesh.
       !!
       !! ONE outer Newton, two wrappers. The steady and pulsatile problems are
       !! not analogues of each other: the steady problem is the nmf = 1 instance
       !! of the pulsatile one. Once the unknown is the amplitude vector
-      !! a(1:nmf), nmf = K+1, and the constraint is the flow-rate amplitude
+      !! a(1:nmf), nmf = K+1, and the constraint is the flowrate amplitude
       !! vector mf(1:nmf), the two share everything -- and a Broyden rank-1
       !! update of a 1x1 matrix IS the secant update the steady driver used to
       !! do by hand. flowrate_newton below is that shared core; it contains no
@@ -55,11 +55,11 @@
          use neklab_otd
          use neklab_systems
          use neklab_analysis
-         use neklab_newton_control
-         use neklab_bf_buffer, only: bf_init, bf_finalize_module,
-     &                               bf_set_prefix, bf_get_dt_minmax,
-     &                               bf_get_nsteps, bf_get_time, bf_summary,
-     &                               bf_write_control
+         use neklab_t2Dh
+         use t2Dh_bf_buffer, only: bf_init, bf_finalize_module,
+     &                             bf_set_prefix, bf_get_dt_minmax,
+     &                             bf_get_nsteps, bf_get_time, bf_summary,
+     &                             bf_write_t2Dh
 
          implicit none
          include "SIZE"
@@ -79,7 +79,7 @@
          real(dp), parameter, private :: pred_limit = 2.0_dp
       !! Maximum extrapolation factor of the state predictor.
          real(dp), parameter, private :: inexact_frac = 0.05_dp
-      !! Inner tolerance as a fraction of the absolute flow-rate error.
+      !! Inner tolerance as a fraction of the absolute flowrate error.
          real(dp), parameter, private :: maxtol = 1.0e-04_dp
       !! Ceiling on the inexact inner tolerance.
          real(dp), parameter, private :: noise_tol_factor = 10.0_dp
@@ -93,7 +93,7 @@
          public :: flowrate_newton
          public :: steady_flowrate_newton
          public :: unsteady_flowrate_newton
-         public :: shift_mflow_phase_upo, upo_taylor_test
+         public :: shift_mflow_phase_upo
 
       contains
 
@@ -130,7 +130,7 @@
       !! solve at every outer step; the forcing is never part of the inner
       !! unknown.
       !!
-      !! ctrl must be configured (init_flow) and its targets set before this is
+      !! t2Dh must be configured (init_flow) and its targets set before this is
       !! called, and any harmonic that is exactly zero must have been seeded --
       !! a zero harmonic has no phase, and the frozen-phase directions this
       !! iteration steps along would then be arbitrary.
@@ -141,7 +141,7 @@
             real(dp), intent(in) :: tol
       !! Absolute tolerance of the inner Newton-Krylov solver.
             real(dp), intent(in) :: rtol_mf
-      !! RELATIVE tolerance on the flow-rate error, in the scaled max-norm.
+      !! RELATIVE tolerance on the flowrate error, in the scaled max-norm.
             integer, optional, intent(in) :: tol_mode
       !! Constant (1, default) or dynamic (2) inner tolerance scheduling.
             integer, optional, intent(in) :: maxiter
@@ -176,20 +176,20 @@
             tol_mode_ = optval(tol_mode, 1)
             maxiter_ = optval(maxiter, 10)
             maxiter_inner_ = optval(maxiter_inner, 40)
-            inexact_ = optval(if_inexact, .false.)
+            inexact_ = optval(if_inexact, .true.)
             jac0_ = optval(jac0, 'fd')
             prefix_ = optval(prefix, 'nwq')
             if (present(info)) info = 0
 
       ! ---- sizes, targets and the norm scaling
-            if (.not. ctrl%is_initialised()) then
-               call nek_stop_error('ctrl is not configured. Call ctrl%init_flow first.',
+            if (.not. t2Dh%is_initialised()) then
+               call nek_stop_error('t2Dh is not configured. Call t2Dh%init_flow first.',
      &            this_module, this_procedure)
             end if
-            nmf = ctrl%get_nmf()
-            tgt = ctrl%get_target()
+            nmf = t2Dh%get_nmf()
+            tgt = t2Dh%get_target()
             if (abs(tgt(1)) <= atol_dp) then
-               call nek_stop_error('The mean flow-rate target is zero: it sets the reference scale '//
+               call nek_stop_error('The mean flowrate target is zero: it sets the reference scale '//
      &            'of the norm and cannot vanish.', this_module, this_procedure)
             end if
             scal = 1.0_dp
@@ -202,23 +202,26 @@
             da = 0.0_dp; da_old = 0.0_dp
 
       ! ---- stamp logs
-            call nek_log_message('Flow-rate Newton configuration:', this_module, this_procedure)
-            write (msg, '(3X,A,1X,I0)') padr('unknowns nmf:', pad), nmf
+            call nek_log_message('', this_module, this_procedure)
+            call nek_log_message(' Flowrate Newton configuration:', this_module, this_procedure)
+            call nek_log_message('', this_module, this_procedure)
+            write (msg, '(3X,A,1X,I16)') padl('unknowns nmf:', pad), nmf
             call nek_log_message(msg, this_module, this_procedure)
-            write (msg, '(3X,A,1X,E16.8)') padr('inner tol:', pad), tol
+            write (msg, '(3X,A,1X,E16.8)') padl('inner tol:', pad), tol
             call nek_log_message(msg, this_module, this_procedure)
-            write (msg, '(3X,A,1X,E16.8)') padr('rel. mflow tol:', pad), rtol_mf
+            write (msg, '(3X,A,1X,E16.8)') padl('rel. mflow tol:', pad), rtol_mf
             call nek_log_message(msg, this_module, this_procedure)
-            write (msg, '(3X,A,A)') padr('tol. scheduling:', pad), padl(merge('constant', 'dynamic ', tol_mode_ == 1), 16)
+            write (msg, '(3X,A,1X,A)') padl('tol. scheduling:', pad), padl(merge('constant', ' dynamic', tol_mode_ == 1), 16)
             call nek_log_message(msg, this_module, this_procedure)
-            write (msg, '(3X,A,A)') padr('inexact outer:', pad), padl(merge('yes', 'no ', inexact_), 16)
+            write (msg, '(3X,A,1X,A)') padl('inexact outer:', pad), padl(merge('yes', 'no ', inexact_), 16)
             call nek_log_message(msg, this_module, this_procedure)
-            write (msg, '(3X,A,A)') padr('initial jacobian:', pad), padl(trim(jac0_), 16)
+            write (msg, '(3X,A,1X,A)') padl('initial jacobian:', pad), padl(trim(jac0_), 16)
             call nek_log_message(msg, this_module, this_procedure)
-            write (msg, '(3X,A,*(1X,F16.10))') padr('target:', pad), (tgt(i), i=1, nmf)
+            write (msg, '(3X,A,*(1X,F16.10))') padl('Q target:', pad), (tgt(i), i=1, nmf)
             call nek_log_message(msg, this_module, this_procedure)
-            write (msg, '(3X,A,*(1X,F16.10))') padr('norm scale:', pad), (scal(i), i=1, nmf)
+            write (msg, '(3X,A,*(1X,F16.10))') padl('norm scale:', pad), (scal(i), i=1, nmf)
             call nek_log_message(msg, this_module, this_procedure)
+            call nek_log_message('', this_module, this_procedure)
 
       !
       ! ---- Baseline solve at the incoming forcing
@@ -227,19 +230,19 @@
             tol_inner = tol
             tol_prev = tol
             call solve_fixed_point(sys, bf, tol_inner, tol_mode_, info_, maxiter=maxiter_inner_)
-            call ctrl%measure_mflow(bf%theta(:, 1), mf, qerr=qerr)
+            call t2Dh%measure_mflow(bf%theta(:, 1), mf, qerr=qerr)
             call errors()
             noise = max(maxval(qerr(1:nmf)), noise_tol_factor*tol)
-            write (msg, '(A,1X,E16.8)') padr('flow-rate noise floor:', pad + 4), noise
+            write (msg, '(A,1X,E16.8)') padr('flowrate noise floor:', pad + 4), noise
             call nek_log_message(msg, this_module, this_procedure)
-            if (ctrl%is_unsteady()) then
+            if (t2Dh%is_unsteady()) then
                if (maxval(qerr(1:nmf)) > rtol_mf*minval(scal(1:nmf))) then
                   call nek_log_warning('The requested tolerance is below the measured quadrature '//
-     &               'error of the flow-rate accumulator. Lower the CFL target to tighten it.',
+     &               'error of the flowrate accumulator. Lower the CFL target to tighten it.',
      &               this_module, this_procedure)
                end if
             end if
-            call ctrl%mflow_summary()
+            call t2Dh%mflow_summary()
             call log_state(0)
 
       !
@@ -249,10 +252,10 @@
       ! loop below will exit on its first test, and an FD Jacobian would cost
       ! nmf inner solves for nothing.
             if (enorm < rtol_mf) then
-               call nek_log_message('Initial forcing already meets the flow-rate target.',
+               call nek_log_message('Initial forcing already meets the flowrate target.',
      &            this_module, this_procedure)
             else if (trim(jac0_) == 'seed') then
-               call ctrl%seed_jacobian(Jac, mf)
+               call t2Dh%seed_jacobian(Jac, mf)
             else
                call fd_jacobian()
             end if
@@ -264,7 +267,7 @@
       !
       ! ---- Outer iteration
       !
-            call nek_log_message('Begin flow-rate Newton iteration', this_module, this_procedure)
+            call nek_log_message('Begin flowrate Newton iteration', this_module, this_procedure)
             newton_loop: do inwt = 1, maxiter_ + 1
                if (enorm < rtol_mf) then
                   if (tol_inner > tol) then
@@ -272,11 +275,11 @@
                      call nek_log_message('Polishing state at target tol ...', this_module, this_procedure)
                      tol_inner = tol
                      call solve_fixed_point(sys, bf, tol_inner, tol_mode_, info_, maxiter=maxiter_inner_)
-                     call ctrl%measure_mflow(bf%theta(:, 1), mf, qerr=qerr)
+                     call t2Dh%measure_mflow(bf%theta(:, 1), mf, qerr=qerr)
                      call errors()
                   end if
                   if (enorm < rtol_mf) then
-                     write (msg, '(A,I0,A)') 'Flow-rate Newton converged after ', inwt - 1, ' step(s).'
+                     write (msg, '(A,I0,A)') 'Flowrate Newton converged after ', inwt - 1, ' step(s).'
                      call nek_log_message(msg, this_module, this_procedure)
                      exit newton_loop
                   end if
@@ -302,7 +305,7 @@
 
       ! ---- trust region. Scale the WHOLE step rather than clipping component
       !      by component, which would rotate the Newton direction.
-               call ctrl%get_amp_phase(amp, phase)
+               call t2Dh%get_amp_phase(amp, phase)
                fac = 1.0_dp
                do i = 1, nmf
                   dmax = step_rel*max(abs(amp(i)), eps_scale*abs(amp(1)))
@@ -334,13 +337,13 @@
                end if
 
       ! ---- apply the step to the forcing amplitudes
-               call ctrl%add_amplitude_step(da)
+               call t2Dh%add_amplitude_step(da)
                write (msg, '(A,A,*(1X,F16.10))') step_id, padl('da:', 10), (da(i), i=1, nmf)
                call nek_log_message(msg, this_module, this_procedure)
-               call ctrl%forcing_summary()
+               call t2Dh%forcing_summary()
 
       ! ---- inexact inner tolerance: no point resolving the state far below
-      !      the accuracy needed to see the current flow-rate error.
+      !      the accuracy needed to see the current flowrate error.
                tol_inner = tol
                if (inexact_ .and. enorm > 10.0_dp*rtol_mf) then
                   tol_inner = min(maxtol, max(tol, inexact_frac*eabs))
@@ -351,7 +354,7 @@
       ! ---- converge the state at the new forcing
                mf_old = mf
                call solve_fixed_point(sys, bf, tol_inner, tol_mode_, info_, maxiter=maxiter_inner_)
-               call ctrl%measure_mflow(bf%theta(:, 1), mf, qerr=qerr)
+               call t2Dh%measure_mflow(bf%theta(:, 1), mf, qerr=qerr)
                call errors()
                dmf = mf - mf_old
                noise = max(maxval(qerr(1:nmf)), noise_tol_factor*tol_inner)
@@ -404,7 +407,7 @@
       !
       ! ---- Output
       !
-            call nek_log_message('Exiting flow-rate Newton iteration.', this_module, this_procedure)
+            call nek_log_message('Exiting flowrate Newton iteration.', this_module, this_procedure)
             if (enorm > rtol_mf) then
                write (msg, '(A,I0,A)') 'Flow rate not converged after ', maxiter_, ' steps.'
                if (present(info)) then
@@ -415,8 +418,6 @@
                end if
             end if
             call nek_log_message('OUTPUT:', this_module, this_procedure)
-            call ctrl%forcing_summary()
-            call ctrl%mflow_summary()
             write (msg, '(3X,A,*(1X,F16.10))') padr('target:', pad), (tgt(i), i=1, nmf)
             call nek_log_message(msg, this_module, this_procedure)
             write (msg, '(3X,A,1X,E16.8,A,E16.8,A)') padr('error:', pad), enorm, '  (abs ', eabs, ')'
@@ -427,13 +428,15 @@
                write (msg, '(6X,*(1X,E16.8))') (Jac(i, j), j=1, nmf)
                call nek_log_message(msg, this_module, this_procedure)
             end do
+            call t2Dh%forcing_summary()
+            call t2Dh%mflow_summary()
       ! the (1,1) entry is the steady resistance an unsteady run will inherit
-            if (Jac(1, 1) > 0.0_dp) call ctrl%set_slope(Jac(1, 1))
+            if (Jac(1, 1) > 0.0_dp) call t2Dh%set_slope(Jac(1, 1))
 
          contains
 
             subroutine errors()
-      !! Refreshes the scaled and absolute flow-rate errors from mf.
+      !! Refreshes the scaled and absolute flowrate errors from mf.
                integer :: ii
                mf_err = 0.0_dp
                do ii = 1, nmf
@@ -448,15 +451,12 @@
                character(len=512) :: lmsg
                real(dp), dimension(lfc) :: d
                integer :: ii
-               call ctrl%get_dpds(d)
-               write (lmsg, '(A,I3,A,*(1X,E16.8))') 'FLOWRATE-NEWTON it= ', istp, ' | dpds =',
-     &            (d(ii), ii=1, ctrl%get_nf())
+               call t2Dh%get_dpds(d)
+               write (lmsg, '(A,I3,A,*(1X,E16.8))') ' it= ', istp, ' | dpds           =', (d(ii), ii=1, t2Dh%get_nf())
                call nek_log_message(lmsg, this_module, this_procedure)
-               write (lmsg, '(A,I3,A,*(1X,E16.8))') 'FLOWRATE-NEWTON it= ', istp, ' | mflow=',
-     &            (mf(ii), ii=1, nmf)
+               write (lmsg, '(A,I3,A,*(1X,E16.8))') ' it= ', istp, ' | mflow          =', (mf(ii), ii=1, nmf)
                call nek_log_message(lmsg, this_module, this_procedure)
-               write (lmsg, '(A,I3,A,2(1X,E16.8))') 'FLOWRATE-NEWTON it= ', istp,
-     &            ' | err (rel, abs) =', enorm, eabs
+               write (lmsg, '(A,I3,A,2(1X,E16.8))') ' it= ', istp, ' | err (rel, abs) =', enorm, eabs
                call nek_log_message(lmsg, this_module, this_procedure)
             end subroutine log_state
 
@@ -498,7 +498,7 @@
       !! Each column restarts from the same reference state, so the measured
       !! difference is a property of the forcing and not of where the previous
       !! inner solve happened to stop. On exit the forcing and the state are
-      !! restored; the measurement cached in ctrl is NOT, but nothing reads it
+      !! restored; the measurement cached in t2Dh is NOT, but nothing reads it
       !! before the next inner solve refreshes it.
                character(len=256) :: lmsg
                character(len=18) :: coef_id
@@ -511,7 +511,7 @@
                call nek_log_message('Building the outer Jacobian by finite differences ...',
      &            this_module, this_procedure)
                call refv%zero(); call refv%add(bf)
-               call ctrl%get_dpds(d0)
+               call t2Dh%get_dpds(d0)
       ! The mean responds most strongly, so it gets the smallest probe; the
       ! harmonics start an order up.
                eps = 0.0_dp
@@ -525,13 +525,13 @@
       ! Probe in the direction of the root, so the secant is taken on the side
       ! we are heading for.
                      eps(ii) = -sign(eps(ii), mf_err(ii))
-                     dtry = ctrl%probe_dpds(ii, eps(ii))
-                     call ctrl%set_dpds(dtry)
+                     dtry = t2Dh%probe_dpds(ii, eps(ii))
+                     call t2Dh%set_dpds(dtry)
                      write (lmsg, '(A,A,E16.8)') coef_id, 'probe = ', eps(ii)
                      call nek_log_information(lmsg, this_module, this_procedure)
                      call bf%zero(); call bf%add(refv)
                      call solve_fixed_point(sys, bf, tol, tol_mode_, linfo, maxiter=maxiter_inner_)
-                     call ctrl%measure_mflow(bf%theta(:, 1), mfp)
+                     call t2Dh%measure_mflow(bf%theta(:, 1), mfp)
                      dmf = mfp - mf
                      icnt = icnt + 1
       ! A response buried in the quadrature/solver noise carries no gradient
@@ -558,7 +558,7 @@
                end do
 
       ! restore the reference forcing and state
-               call ctrl%set_dpds(d0)
+               call t2Dh%set_dpds(d0)
                call bf%zero(); call bf%add(refv)
                call nek_log_message('Outer jacobian  d(mflow_row)/d(a_col):', this_module, this_procedure)
                do ii = 1, nmf
@@ -579,7 +579,7 @@
       !!
       !! This is the nmf = 1 instance of flowrate_newton: one unknown (the mean
       !! forcing) and one constraint (the mean flow rate). Nothing regime
-      !! specific happens here beyond configuring ctrl.
+      !! specific happens here beyond configuring t2Dh.
             class(abstract_system_rdp), intent(inout) :: sys
       !! Steady 2Dh torus system (nek_system_torus_2Dh).
             type(nek_dvector), intent(inout) :: bf
@@ -591,7 +591,7 @@
             real(dp), intent(in) :: tol
       !! Absolute tolerance of the inner Newton-Krylov solver.
             real(dp), intent(in) :: rtol_Q
-      !! Relative tolerance on the flow-rate error, |Q - Q_target|/|Q_target|.
+      !! Relative tolerance on the flowrate error, |Q - Q_target|/|Q_target|.
             integer, optional, intent(in) :: tol_mode
             integer, optional, intent(in) :: maxiter
             logical, optional, intent(in) :: if_inexact
@@ -608,12 +608,12 @@
 
             d0(1) = dpds
             tgt(1) = Q_target
-            call ctrl%init_flow(d0, radius=radius)
-            call ctrl%set_target(tgt)
+            call t2Dh%init_flow(d0, radius=radius)
+            call t2Dh%set_target(tgt)
       ! Q(0) = 0 for a steady flow, so a zero forcing yields no slope: probe.
-            call ctrl%ensure_nonzero_mean(1.0e-03_dp)
+            call t2Dh%ensure_nonzero_mean(1.0e-03_dp)
             if (present(dQdf_guess)) then
-               call ctrl%set_slope(dQdf_guess)
+               call t2Dh%set_slope(dQdf_guess)
                write (msg, '(A,E16.8)') 'Using the supplied slope dQ/da= ', dQdf_guess
                call nek_log_message(msg, this_module, this_procedure)
             end if
@@ -621,7 +621,7 @@
             call flowrate_newton(sys, bf, tol, rtol_Q, tol_mode=tol_mode, maxiter=maxiter,
      &                           if_inexact=if_inexact, jac0='seed', prefix='nwq')
 
-            call ctrl%get_dpds(d)
+            call t2Dh%get_dpds(d)
             dpds = d(1)
             call set_fldindex('BFQ', 1)
             call outpost_dnek(bf, 'BFQ')
@@ -634,13 +634,22 @@
          subroutine unsteady_flowrate_newton(sys, bf, Wo, kharm, dpds, mflow_target,
      &                                       tol, rtol_mf, tol_mode, maxiter, maxiter_inner,
      &                                       buffer_base, if_save_orbit, if_gauge, jac0, radius)
-      !! Pulsatile periodic orbit at a prescribed flow-rate spectrum.
+      !! Pulsatile periodic orbit at a prescribed flowrate spectrum.
       !!
-      !! dpds and mflow_target are in HELIX units on the way in and on the way
-      !! out; everything inside is native. Concretely: the forcing amplitudes
-      !! agree between the two conventions, while a helix flow-rate amplitude is
-      !! HALF the native one, so mflow_target doubles on entry. See the header
-      !! of neklab_newton_control.
+      !! CONVENTIONS AT THIS INTERFACE
+      !!
+      !!   dpds          HELIX array convention on the way in and on the way out
+      !!                 (the amplitudes agree with native; the stored cosine and
+      !!                 sine entries differ by a factor 2 and a sign).
+      !!
+      !!   mflow_target  RATIOS:  index 1 is Q(0), the mean, absolute;
+      !!                 index k+1 is 2*Q(k)/Q(0), the amplitude ratio.
+      !!                 Since the native amplitude is the peak excursion and
+      !!                 therefore exactly 2*Q(k), this is the identity at the
+      !!                 usual Q(0) = 1.
+      !!
+      !! A helix deck quotes Q(k) itself, i.e. HALF the peak excursion, so a
+      !! number copied from one must be doubled before it lands here.
             class(abstract_system_rdp), intent(inout) :: sys
       !! Pulsatile 2Dh system (nek_system_torus_upo_2Dh). Its jacobian is set here.
             type(nek_dvector), intent(inout) :: bf
@@ -652,9 +661,8 @@
             real(dp), dimension(:), intent(inout) :: dpds
       !! In: initial forcing, nf values, helix convention. Out: converged forcing.
             real(dp), dimension(:), intent(in) :: mflow_target
-      !! Target flow-rate amplitudes, nmf values, helix normalisation: index 1
-      !! is the mean, index k+1 is |mflow_k|, HALF the peak excursion of
-      !! harmonic k. These are the numbers a helix deck uses.
+      !! Flowrate targets, nmf values. Index 1 is the mean Q(0), absolute.
+      !! Index k+1 is the amplitude RATIO 2*Q(k)/Q(0) of harmonic k.
             real(dp), intent(in) :: tol
             real(dp), intent(in) :: rtol_mf
       !! RELATIVE tolerance in the scaled max-norm. NOTE: this argument changed
@@ -668,7 +676,7 @@
       !! Re-record the converged orbit under prefix 'b', so the Floquet run has
       !! a stable input the next Newton solve will not overwrite. Default .true.
             logical, optional, intent(in) :: if_gauge
-      !! Put the fundamental flow-rate harmonic on a pure cosine before
+      !! Put the fundamental flowrate harmonic on a pure cosine before
       !! returning. Default .true.
             character(len=*), optional, intent(in) :: jac0
       !! 'fd' (default) or 'seed'.
@@ -693,7 +701,7 @@
      &            'steady_flowrate_newton for the steady problem.', this_module, this_procedure)
             end if
             if (nf > lfc) then
-               write (msg, '(A,I0,A,I0,A)') 'nf= ', nf, ' > lfc= ', lfc, '. Increase kmax_ctrl.'
+               write (msg, '(A,I0,A,I0,A)') 'nf= ', nf, ' > lfc= ', lfc, '. Increase kmax_t2Dh.'
                call nek_stop_error(msg, this_module, this_procedure)
             end if
             if (size(dpds) < nf) then
@@ -707,21 +715,21 @@
 
       ! ---- configure. helix -> native on the forcing and on the targets.
             d_native = helix2native(dpds, nf)
-            call ctrl%init_flow(d_native(1:nf), womersley=Wo, radius=radius)
-            call ctrl%set_target_helix(mflow_target)
+            call t2Dh%init_flow(d_native(1:nf), womersley=Wo, radius=radius)
+            call t2Dh%set_target_ratio(mflow_target)
 
       ! ---- a cold start from a steady solve arrives with every harmonic at
       !      zero, which has no phase to freeze. Seed it.
-            call ctrl%get_amp_phase(amp, phase)
+            call t2Dh%get_amp_phase(amp, phase)
             do k = 2, nmf
                if (amp(k) <= atol_dp) then
                   call nek_log_message('Zero harmonic detected: seeding from the inertial law.',
      &               this_module, this_procedure)
-                  call ctrl%seed_harmonics()
+                  call t2Dh%seed_harmonics()
                   exit
                end if
             end do
-            call ctrl%summary()
+            call t2Dh%summary()
             if (kharm >= 2) then
                call nek_log_warning('K >= 2: the amplitude spectrum is controlled but the relative '//
      &            'phases between harmonics are not. There are 2K+1 forcing components and one '//
@@ -734,7 +742,6 @@
       !      consumes it and fails through check_init if this is skipped.
             call bf_init(base=optval(buffer_base, '2dtorus'), write_chunks=.true., min_steps=50)
             call bf_set_prefix('n')
-            sys%jacobian = nek_jacobian_torus_upo_2Dh()
 
             call flowrate_newton(sys, bf, tol, rtol_mf, tol_mode=tol_mode, maxiter=maxiter,
      &                           maxiter_inner=maxiter_inner, jac0=optval(jac0, 'fd'), prefix='nwf')
@@ -757,19 +764,26 @@
             end if
 
       ! ---- hand the forcing back in helix units and leave a restart sidecar
-            call ctrl%get_dpds_helix(dpds)
-            call ctrl%get_dpds(d_native)
-            call bf_write_control(d_native, nf, ctrl%get_omega(), ctrl%get_period())
+            call t2Dh%get_dpds_helix(dpds)
+            call t2Dh%get_dpds(d_native)
+            call bf_write_t2Dh(d_native, nf, t2Dh%get_omega(), t2Dh%get_period())
 
             call set_fldindex('BFP', 1)
             call outpost_dnek(bf, 'BFP')
 
             call nek_log_message('OUTPUT:', this_module, this_procedure)
-            call ctrl%forcing_summary()
-            call ctrl%mflow_summary()
-            write (msg, '(3X,A,*(1X,F16.10))') 'helix dpds  :', (dpds(i), i=1, nf)
+            call t2Dh%forcing_summary()
+            call t2Dh%mflow_summary()
+      ! Report in the input convention too, so what comes out is directly
+      ! comparable with what the deck asked for.
+            call t2Dh%get_mflow_ratio(amp)
+            write (msg, '(3X,A,*(1X,F16.10))') 'Q(0), 2Q(k)/Q(0) :', (amp(i), i=1, nmf)
             call nek_log_message(msg, this_module, this_procedure)
-            write (msg, '(3X,A,1X,I0)') 'steps/period:', bf_get_nsteps()
+            write (msg, '(3X,A,*(1X,F16.10))') 'requested        :', (mflow_target(i), i=1, nmf)
+            call nek_log_message(msg, this_module, this_procedure)
+            write (msg, '(3X,A,*(1X,F16.10))') 'helix dpds       :', (dpds(i), i=1, nf)
+            call nek_log_message(msg, this_module, this_procedure)
+            write (msg, '(3X,A,1X,I0)')        'steps/period     :', bf_get_nsteps()
             call nek_log_message(msg, this_module, this_procedure)
          end subroutine unsteady_flowrate_newton
 
@@ -778,7 +792,7 @@
       !====================================================================
 
          subroutine shift_mflow_phase_upo(bf, tol, cfl_limit)
-      !! Uses the time-origin freedom to put the FUNDAMENTAL flow-rate harmonic
+      !! Uses the time-origin freedom to put the FUNDAMENTAL flowrate harmonic
       !! on a pure cosine, phase_1 = 0.
       !!
       !! Advancing the state by s and re-referencing the forcing gives the same
@@ -788,7 +802,7 @@
       !!    t -> t + s :  phase_k -> phase_k - k*omega*s ,
       !!
       !! so one rotation applied to the forcing array is all that is needed;
-      !! s = phase_1/omega zeroes the fundamental's flow-rate phase. (In the
+      !! s = phase_1/omega zeroes the fundamental's flowrate phase. (In the
       !! helix convention the two rotate in opposite directions, which is a
       !! convention artefact and the reason this used to need a paragraph of
       !! sign bookkeeping.)
@@ -812,15 +826,15 @@
             integer :: k, kc
             real(dp), parameter :: tol_shift = 1.0e-08_dp
 
-            omega = ctrl%get_omega()
-            period = ctrl%get_period()
-            kc = ctrl%get_kharm()
+            omega = t2Dh%get_omega()
+            period = t2Dh%get_period()
+            kc = t2Dh%get_kharm()
             if (kc < 1) then
                call nek_log_warning('No harmonics: nothing to gauge.', this_module, this_procedure)
                return
             end if
 
-            call ctrl%get_mflow(mflow, amp, phase)
+            call t2Dh%get_mflow(mflow, amp, phase)
             write (msg, '(A,*(1X,F16.10))') 'mflow phase (before) =', (phase(k), k=1, kc + 1)
             call nek_log_message(msg, this_module, this_procedure)
 
@@ -854,88 +868,14 @@
             call nek2vec(bf, vx, vy, vz, pr, t)
 
       ! ---- re-reference the forcing to the same origin
-            call ctrl%rotate_in_time(shift)
+            call t2Dh%rotate_in_time(shift)
             call nek_log_message('Updated forcing:', this_module, this_procedure)
-            call ctrl%forcing_summary()
+            call t2Dh%forcing_summary()
             if (kc >= 2) then
                call nek_log_warning('Only the fundamental has been gauged. Higher harmonics keep '//
      &            'their relative phases, which are physical.', this_module, this_procedure)
             end if
          end subroutine shift_mflow_phase_upo
-
-      !====================================================================
-      !     CONSISTENCY CHECK
-      !====================================================================
-
-         subroutine upo_taylor_test(sys, X0, tol, nlevels)
-      !! Verifies that the replayed Jacobian really is the derivative of the
-      !! recorded nonlinear map:
-      !!
-      !!    e(eps) = || F(X0 + eps*dX) - F(X0) - eps*J*dX ||  ~  O(eps**2)
-      !!
-      !! This is THE check to run before trusting anything else here. Clean
-      !! second order means the buffer replay reproduces the nonlinear
-      !! trajectory step for step. A stall at first order, or a plateau, means
-      !! the two passes are running on different time grids -- exactly the
-      !! failure mode a CFL-adaptive dt can produce if the step sequence drifts
-      !! between the residual evaluation and the matvec.
-      !!
-      !! ORDERING MATTERS: J*dX must be evaluated immediately after F(X0),
-      !! because the perturbed residual evaluations overwrite the buffer.
-            class(abstract_system_rdp), intent(inout) :: sys
-            type(nek_dvector), intent(in) :: X0
-            real(dp), intent(in) :: tol
-            integer, optional, intent(in) :: nlevels
-      ! internal
-            character(len=*), parameter :: this_procedure = 'upo_taylor_test'
-            character(len=256) :: msg
-            type(nek_dvector) :: F0, Fp, dX, JdX, Xp, err
-            integer :: nlev, l
-            real(dp) :: eps, e, e_prev, order, nrm
-
-            nlev = optval(nlevels, 5)
-            sys%jacobian = nek_jacobian_torus_upo_2Dh()
-
-            call nek_log_message('Taylor test on the 2Dh periodic-orbit system:', this_module, this_procedure)
-
-      ! ---- unit-norm random direction
-            call dX%rand()
-            nrm = dX%norm()
-            if (nrm <= atol_dp) call nek_stop_error('Degenerate random direction.', this_module, this_procedure)
-            call dX%scal(1.0_dp/nrm)
-
-      ! ---- base residual, then the matvec while the buffer still holds this
-      !      trajectory
-            call sys%response(X0, F0, tol)
-            sys%jacobian%X = X0
-            call sys%jacobian%matvec(dX, JdX)
-            write (msg, '(3X,A,1X,E16.8,A,I0)') '|F(X0)| = ', F0%norm(), ',  steps/period = ', bf_get_nsteps()
-            call nek_log_message(msg, this_module, this_procedure)
-
-            e_prev = 0.0_dp
-            do l = 1, nlev
-               eps = 10.0_dp**(-l)
-               call Xp%zero(); call Xp%add(X0)
-               call Xp%axpby(1.0_dp, dX, eps)
-               call sys%response(Xp, Fp, tol)
-      ! err = Fp - F0 - eps*J*dX
-               call err%zero(); call err%add(Fp); call err%sub(F0)
-               call err%axpby(1.0_dp, JdX, -eps)
-               e = err%norm()
-               if (l == 1) then
-                  write (msg, '(3X,A,E12.4,A,E16.8)') 'eps= ', eps, '   err= ', e
-               else
-                  order = 0.0_dp
-                  if (e > 0.0_dp .and. e_prev > 0.0_dp) order = log10(e_prev/e)
-                  write (msg, '(3X,A,E12.4,A,E16.8,A,F8.3)') 'eps= ', eps, '   err= ', e,
-     &               '   observed order= ', order
-               end if
-               call nek_log_message(msg, this_module, this_procedure)
-               e_prev = e
-            end do
-            call nek_log_message('Expected observed order: 2.0 until the inner tolerance floors it.',
-     &         this_module, this_procedure)
-         end subroutine upo_taylor_test
 
       !====================================================================
       !     PRIVATE HELPERS
@@ -944,7 +884,7 @@
          function helix2native(d, nf) result(a)
       !! Forcing conversion, helix -> native:  a_0 = d_0, a_ck = 2 d_ck,
       !! a_sk = -2 d_sk. The sign flip on the sine is what makes the forcing and
-      !! the flow-rate phases rotate together natively.
+      !! the flowrate phases rotate together natively.
             real(dp), dimension(:), intent(in) :: d
             integer, intent(in) :: nf
             real(dp), dimension(lfc) :: a
@@ -963,7 +903,7 @@
       !! Dense solve by Gaussian elimination with partial pivoting, plus the
       !! determinant scaled by the product of the row magnitudes.
       !!
-      !! Local rather than stdlib's inv/det: n is at most kmax_ctrl+1, the LU is
+      !! Local rather than stdlib's inv/det: n is at most kmax_t2Dh+1, the LU is
       !! free once the elimination has run, and an exact-zero determinant test
       !! is useless in floating point -- what matters is the determinant
       !! relative to the size of the rows, which is what dscale is.

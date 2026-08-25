@@ -1,4 +1,4 @@
-      submodule(neklab_bf_buffer) bf_buffer_io
+      submodule(t2Dh_bf_buffer) t2Dh_bf_buffer_io
       !! Binary IO for the baseflow snapshot buffer.
       !!
       !! Wire format is byte-identical to the helix 2D format, so
@@ -466,4 +466,4 @@
             if (ierr /= 0) call nek_stop_error('Error writing field data', this_module, 'gather_and_write')
          end subroutine gather_and_write
 
-      end submodule bf_buffer_io
+      end submodule t2Dh_bf_buffer_io

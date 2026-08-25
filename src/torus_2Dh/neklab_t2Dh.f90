@@ -1,8 +1,8 @@
-      module neklab_newton_control
+      module neklab_t2Dh
       !! Owner of the flow-rate control state for the 2Dh torus.
       !!
       !! Everything the flow-rate problem needs that is not a Nek field lives
-      !! in the single instance `ctrl` of the type below: the streamwise
+      !! in the single instance `t2Dh` of the type below: the streamwise
       !! forcing, the pulsation time scales, the cross-section geometry, the
       !! flow-rate targets, the running Fourier accumulator and the steady
       !! resistance inherited by an unsteady run. This mirrors the way
@@ -42,6 +42,15 @@
       !! so a helix flow-rate amplitude is HALF the native one, while the two
       !! forcing amplitudes agree.
       !!
+      !! FLOW-RATE TARGETS are given as RATIOS, not as helix amplitudes:
+      !!
+      !!   target(1)   = Q(0)                 the mean, absolute
+      !!   target(k+1) = 2*Q(k)/Q(0)          the amplitude ratio
+      !!
+      !! Since the native amplitude IS 2*Q(k), the conversion is a
+      !! multiplication by the mean and reduces to the identity at Q(0) = 1.
+      !! See set_target_ratio / get_mflow_ratio.
+      !!
       !!--------------------------------------------------------------------
       !! FORCING PROFILE
       !!--------------------------------------------------------------------
@@ -55,6 +64,7 @@
       !! same dpds means the same physical forcing in both codes. The earlier
       !! 2Dh port carried a spurious reference radius R0 in front; it is gone.
          use stdlib_optval, only: optval
+         use stdlib_strings, only: padl, padr
          use LightKrylov, only: dp, atol_dp
          use LightKrylov_Logger
          use neklab_nek_setup, only: nek_log_message, nek_log_information,
@@ -63,7 +73,7 @@
          include "SIZE"
          include "TOTAL"
          private
-         character(len=*), parameter, private :: this_module = 'neklab_newton_control'
+         character(len=*), parameter, private :: this_module = 'neklab_t2Dh'
 
          integer, parameter :: lv = lx1*ly1*lz1*lelv
 
@@ -71,11 +81,11 @@
       !-----     COMPILE-TIME SIZES                                   -----
       !--------------------------------------------------------------------
       ! Change and recompile, same convention as lpert / lelv / nfft.
-         integer, parameter, public :: kmax_ctrl = 4
+         integer, parameter, public :: kmax_t2Dh = 4
       !! Maximum number of harmonics K.
-         integer, parameter, public :: lfc = 2*kmax_ctrl + 1
+         integer, parameter, public :: lfc = 2*kmax_t2Dh + 1
       !! Number of real forcing components, one mean + two per harmonic.
-         integer, parameter, public :: lmfc = kmax_ctrl + 1
+         integer, parameter, public :: lmfc = kmax_t2Dh + 1
       !! Number of amplitude unknowns / constraints, one mean + one per harmonic.
 
          real(dp), parameter, public :: c_inertial = 0.3_dp
@@ -101,7 +111,7 @@
       !-----     THE CONTROL TYPE                                     -----
       !--------------------------------------------------------------------
 
-         type, public :: nek_control
+         type, public :: nek_t2Dh
             private
       ! --- regime. NOTE the polarity: this module has if_unsteady, neklab_helix
       !     has is_steady(). Do not mix them up.
@@ -153,13 +163,13 @@
             logical :: is_initialized = .false.
          contains
             private
-      ! neklab_newton_control (this file)
+      ! neklab_t2Dh (this file)
             procedure, pass(self), public :: init_flow
             procedure, pass(self), public :: amplitude
             procedure, pass(self), public :: forcing
             procedure, pass(self), public :: is_unsteady
             procedure, pass(self), public :: is_initialised
-      ! control_gs
+      ! t2Dh_gs
             procedure, pass(self), public :: get_dpds
             procedure, pass(self), public :: set_dpds
             procedure, pass(self), public :: get_dpds_helix
@@ -172,12 +182,12 @@
             procedure, pass(self), public :: rotate_in_time
             procedure, pass(self), public :: get_target
             procedure, pass(self), public :: set_target
-            procedure, pass(self), public :: set_target_helix
+            procedure, pass(self), public :: set_target_ratio
             procedure, pass(self), public :: get_slope
             procedure, pass(self), public :: set_slope
             procedure, pass(self), public :: has_slope
             procedure, pass(self), public :: get_mflow
-            procedure, pass(self), public :: get_mflow_helix
+            procedure, pass(self), public :: get_mflow_ratio
             procedure, pass(self), public :: get_omega
             procedure, pass(self), public :: get_period
             procedure, pass(self), public :: get_womersley
@@ -187,7 +197,7 @@
             procedure, pass(self), public :: summary
             procedure, pass(self), public :: forcing_summary
             procedure, pass(self), public :: mflow_summary
-      ! control_flowrate
+      ! t2Dh_flowrate
             procedure, pass(self), public :: build_area_weights
             procedure, pass(self), public :: get_area
             procedure, pass(self), public :: get_delta
@@ -200,220 +210,220 @@
             procedure, pass(self), public :: close_mflow
             procedure, pass(self), public :: measure_mflow
             procedure, pass(self), public :: seed_jacobian
-         end type nek_control
+         end type nek_t2Dh
 
-         type(nek_control), public :: ctrl
+         type(nek_t2Dh), public :: t2Dh
       !! The one instance. Everything talks to this.
 
-         public :: ctrl_basis
+         public :: t2Dh_basis
       !! Temporal basis function, exposed for the analysis driver's diagnostics.
 
       !--------------------------------------------------------------------
       !-----     SUBMODULE INTERFACES                                 -----
       !--------------------------------------------------------------------
 
-      ! --- control_gs
+      ! --- t2Dh_gs
          interface
             module subroutine get_dpds(self, dpds, amp, phase)
-               class(nek_control), intent(in) :: self
+               class(nek_t2Dh), intent(in) :: self
                real(dp), dimension(lfc), intent(out) :: dpds
                real(dp), dimension(lmfc), optional, intent(out) :: amp
                real(dp), dimension(lmfc), optional, intent(out) :: phase
             end subroutine get_dpds
 
             module subroutine set_dpds(self, dpds)
-               class(nek_control), intent(inout) :: self
+               class(nek_t2Dh), intent(inout) :: self
                real(dp), dimension(:), intent(in) :: dpds
             end subroutine set_dpds
 
             module subroutine get_dpds_helix(self, dpds)
-               class(nek_control), intent(in) :: self
+               class(nek_t2Dh), intent(in) :: self
                real(dp), dimension(:), intent(out) :: dpds
             end subroutine get_dpds_helix
 
             module subroutine set_dpds_helix(self, dpds)
-               class(nek_control), intent(inout) :: self
+               class(nek_t2Dh), intent(inout) :: self
                real(dp), dimension(:), intent(in) :: dpds
             end subroutine set_dpds_helix
 
             module subroutine get_amp_phase(self, amp, phase)
-               class(nek_control), intent(in) :: self
+               class(nek_t2Dh), intent(in) :: self
                real(dp), dimension(lmfc), intent(out) :: amp
                real(dp), dimension(lmfc), intent(out) :: phase
             end subroutine get_amp_phase
 
             module subroutine add_amplitude_step(self, da)
-               class(nek_control), intent(inout) :: self
+               class(nek_t2Dh), intent(inout) :: self
                real(dp), dimension(:), intent(in) :: da
             end subroutine add_amplitude_step
 
             module function probe_dpds(self, i, eps) result(d)
-               class(nek_control), intent(in) :: self
+               class(nek_t2Dh), intent(in) :: self
                integer, intent(in) :: i
                real(dp), intent(in) :: eps
                real(dp), dimension(lfc) :: d
             end function probe_dpds
 
             module subroutine ensure_nonzero_mean(self, probe)
-               class(nek_control), intent(inout) :: self
+               class(nek_t2Dh), intent(inout) :: self
                real(dp), intent(in) :: probe
             end subroutine ensure_nonzero_mean
 
             module subroutine seed_harmonics(self, force)
-               class(nek_control), intent(inout) :: self
+               class(nek_t2Dh), intent(inout) :: self
                logical, optional, intent(in) :: force
             end subroutine seed_harmonics
 
             module subroutine rotate_in_time(self, shift)
-               class(nek_control), intent(inout) :: self
+               class(nek_t2Dh), intent(inout) :: self
                real(dp), intent(in) :: shift
             end subroutine rotate_in_time
 
             module function get_target(self) result(tgt)
-               class(nek_control), intent(in) :: self
+               class(nek_t2Dh), intent(in) :: self
                real(dp), dimension(lmfc) :: tgt
             end function get_target
 
             module subroutine set_target(self, tgt)
-               class(nek_control), intent(inout) :: self
+               class(nek_t2Dh), intent(inout) :: self
                real(dp), dimension(:), intent(in) :: tgt
             end subroutine set_target
 
-            module subroutine set_target_helix(self, tgt)
-               class(nek_control), intent(inout) :: self
+            module subroutine set_target_ratio(self, tgt)
+               class(nek_t2Dh), intent(inout) :: self
                real(dp), dimension(:), intent(in) :: tgt
-            end subroutine set_target_helix
+            end subroutine set_target_ratio
 
             module function get_slope(self) result(g)
-               class(nek_control), intent(in) :: self
+               class(nek_t2Dh), intent(in) :: self
                real(dp) :: g
             end function get_slope
 
             module subroutine set_slope(self, g)
-               class(nek_control), intent(inout) :: self
+               class(nek_t2Dh), intent(inout) :: self
                real(dp), intent(in) :: g
             end subroutine set_slope
 
             module function has_slope(self) result(l)
-               class(nek_control), intent(in) :: self
+               class(nek_t2Dh), intent(in) :: self
                logical :: l
             end function has_slope
 
             module subroutine get_mflow(self, mflow, amp, phase, qerr)
-               class(nek_control), intent(in) :: self
+               class(nek_t2Dh), intent(in) :: self
                real(dp), dimension(lfc), intent(out) :: mflow
                real(dp), dimension(lmfc), optional, intent(out) :: amp
                real(dp), dimension(lmfc), optional, intent(out) :: phase
                real(dp), dimension(lmfc), optional, intent(out) :: qerr
             end subroutine get_mflow
 
-            module subroutine get_mflow_helix(self, amp, phase)
-               class(nek_control), intent(in) :: self
+            module subroutine get_mflow_ratio(self, amp, phase)
+               class(nek_t2Dh), intent(in) :: self
                real(dp), dimension(:), intent(out) :: amp
                real(dp), dimension(:), optional, intent(out) :: phase
-            end subroutine get_mflow_helix
+            end subroutine get_mflow_ratio
 
             module function get_omega(self) result(w)
-               class(nek_control), intent(in) :: self
+               class(nek_t2Dh), intent(in) :: self
                real(dp) :: w
             end function get_omega
 
             module function get_period(self) result(T)
-               class(nek_control), intent(in) :: self
+               class(nek_t2Dh), intent(in) :: self
                real(dp) :: T
             end function get_period
 
             module function get_womersley(self) result(Wo)
-               class(nek_control), intent(in) :: self
+               class(nek_t2Dh), intent(in) :: self
                real(dp) :: Wo
             end function get_womersley
 
             module function get_nf(self) result(n)
-               class(nek_control), intent(in) :: self
+               class(nek_t2Dh), intent(in) :: self
                integer :: n
             end function get_nf
 
             module function get_nmf(self) result(n)
-               class(nek_control), intent(in) :: self
+               class(nek_t2Dh), intent(in) :: self
                integer :: n
             end function get_nmf
 
             module function get_kharm(self) result(k)
-               class(nek_control), intent(in) :: self
+               class(nek_t2Dh), intent(in) :: self
                integer :: k
             end function get_kharm
 
             module subroutine summary(self)
-               class(nek_control), intent(in) :: self
+               class(nek_t2Dh), intent(in) :: self
             end subroutine summary
 
             module subroutine forcing_summary(self)
-               class(nek_control), intent(in) :: self
+               class(nek_t2Dh), intent(in) :: self
             end subroutine forcing_summary
 
             module subroutine mflow_summary(self)
-               class(nek_control), intent(in) :: self
+               class(nek_t2Dh), intent(in) :: self
             end subroutine mflow_summary
          end interface
 
-      ! --- control_flowrate
+      ! --- t2Dh_flowrate
          interface
             module subroutine build_area_weights(self, force, radius)
-               class(nek_control), intent(inout) :: self
+               class(nek_t2Dh), intent(inout) :: self
                logical, optional, intent(in) :: force
                real(dp), optional, intent(in) :: radius
             end subroutine build_area_weights
 
             module function get_area(self) result(a)
-               class(nek_control), intent(in) :: self
+               class(nek_t2Dh), intent(in) :: self
                real(dp) :: a
             end function get_area
 
             module function get_delta(self) result(d)
-               class(nek_control), intent(in) :: self
+               class(nek_t2Dh), intent(in) :: self
                real(dp) :: d
             end function get_delta
 
             module function get_curv_radius(self) result(r)
-               class(nek_control), intent(in) :: self
+               class(nek_t2Dh), intent(in) :: self
                real(dp) :: r
             end function get_curv_radius
 
             module function get_radius(self) result(r)
-               class(nek_control), intent(in) :: self
+               class(nek_t2Dh), intent(in) :: self
                real(dp) :: r
             end function get_radius
 
             module function ubar_arr(self, theta) result(Q)
-               class(nek_control), intent(in) :: self
+               class(nek_t2Dh), intent(in) :: self
                real(dp), dimension(lv), intent(in) :: theta
                real(dp) :: Q
             end function ubar_arr
 
             module function ubar(self) result(Q)
-               class(nek_control), intent(in) :: self
+               class(nek_t2Dh), intent(in) :: self
                real(dp) :: Q
             end function ubar
 
             module subroutine reset_mflow(self, Q0)
-               class(nek_control), intent(inout) :: self
+               class(nek_t2Dh), intent(inout) :: self
                real(dp), intent(in) :: Q0
             end subroutine reset_mflow
 
             module subroutine accumulate_mflow(self, Q, tval, dtn)
-               class(nek_control), intent(inout) :: self
+               class(nek_t2Dh), intent(inout) :: self
                real(dp), intent(in) :: Q
                real(dp), intent(in) :: tval
                real(dp), intent(in) :: dtn
             end subroutine accumulate_mflow
 
             module subroutine close_mflow(self, period)
-               class(nek_control), intent(inout) :: self
+               class(nek_t2Dh), intent(inout) :: self
                real(dp), optional, intent(in) :: period
             end subroutine close_mflow
 
             module subroutine measure_mflow(self, theta, mf, phase, qerr)
-               class(nek_control), intent(inout) :: self
+               class(nek_t2Dh), intent(inout) :: self
                real(dp), dimension(lv), intent(in) :: theta
                real(dp), dimension(:), intent(out) :: mf
                real(dp), dimension(:), optional, intent(out) :: phase
@@ -421,7 +431,7 @@
             end subroutine measure_mflow
 
             module subroutine seed_jacobian(self, J, mf)
-               class(nek_control), intent(inout) :: self
+               class(nek_t2Dh), intent(inout) :: self
                real(dp), dimension(:, :), intent(out) :: J
                real(dp), dimension(:), intent(in) :: mf
             end subroutine seed_jacobian
@@ -446,7 +456,7 @@
       !!
       !! Wo is fixed for the whole run: the driver calls this once and the
       !! period never changes afterwards.
-            class(nek_control), intent(inout) :: self
+            class(nek_t2Dh), intent(inout) :: self
             real(dp), dimension(:), intent(in) :: dpds
       !! Forcing components, native convention, nf = 2K+1 of them.
             real(dp), optional, intent(in) :: womersley
@@ -468,7 +478,7 @@
      &            this_module, this_procedure)
             end if
             if (n > lfc) then
-               write (msg, '(A,I0,A,I0,A)') 'nf= ', n, ' > lfc= ', lfc, '. Increase kmax_ctrl and recompile.'
+               write (msg, '(A,I0,A,I0,A)') 'nf= ', n, ' > lfc= ', lfc, '. Increase kmax_t2Dh and recompile.'
                call nek_stop_error(msg, this_module, this_procedure)
             end if
             if (mod(n, 2) == 0) then
@@ -518,7 +528,6 @@
             call self%build_area_weights(force=.true., radius=radius)
 
             self%is_initialized = .true.
-            call self%summary()
          end subroutine init_flow
 
       !====================================================================
@@ -529,7 +538,7 @@
       !! Instantaneous streamwise forcing amplitude in the native convention.
       !! This is the analogue of neklab_helix % forcing_amplitude and it is the
       !! ONLY place the temporal shape of the forcing is defined.
-            class(nek_control), intent(in) :: self
+            class(nek_t2Dh), intent(in) :: self
             real(dp), intent(in) :: tval
       ! internal
             integer :: k, i
@@ -548,7 +557,7 @@
       !! Streamwise source term for a single grid point of the 2Dh mesh, where
       !! u_phi is carried by the temperature field. Call from userq as
       !!
-      !!    qvol = ctrl%forcing(time, ym1(ix, iy, iz, gllel(ieg)))
+      !!    qvol = t2Dh%forcing(time, ym1(ix, iy, iz, gllel(ieg)))
       !!
       !! Note that Nek's makeq evaluates userq at t_n (it shifts 'time' by -dt
       !! internally), which is what the linearisation requires. There is no
@@ -557,7 +566,7 @@
       !! jp > 0.
       !!
       !! f_phi = amplitude/R is irrotational; a uniform f_phi is not.
-            class(nek_control), intent(in) :: self
+            class(nek_t2Dh), intent(in) :: self
             real(dp), intent(in) :: tval
             real(dp), intent(in) :: y
             f = self%amplitude(tval)/y
@@ -568,16 +577,16 @@
       !====================================================================
 
          logical function is_unsteady(self) result(l)
-            class(nek_control), intent(in) :: self
+            class(nek_t2Dh), intent(in) :: self
             l = self%if_unsteady
          end function is_unsteady
 
          logical function is_initialised(self) result(l)
-            class(nek_control), intent(in) :: self
+            class(nek_t2Dh), intent(in) :: self
             l = self%is_initialized
          end function is_initialised
 
-         real(dp) function ctrl_basis(i, omega, tval) result(phi)
+         real(dp) function t2Dh_basis(i, omega, tval) result(phi)
       !! i-th temporal basis function: 1, cos(wt), sin(wt), cos(2wt), ...
       !! Module-level rather than type-bound so that the accumulator can call
       !! it without a self reference in an inner loop.
@@ -596,6 +605,6 @@
                   phi = sin(k*omega*tval)
                end if
             end if
-         end function ctrl_basis
+         end function t2Dh_basis
 
-      end module neklab_newton_control
+      end module neklab_t2Dh

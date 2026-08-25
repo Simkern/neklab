@@ -1,9 +1,12 @@
-$(OBJDIR)/neklab_newton_control.o		:$(NEKLAB_SOURCE_ROOT)/src/neklab_newton_control.f90					;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_vectors.o					:$(NEKLAB_SOURCE_ROOT)/src/vectors/neklab_vectors.f90					;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/real_vectors.o					:$(NEKLAB_SOURCE_ROOT)/src/vectors/real_vectors.f90					;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/real_extended_vectors.o		:$(NEKLAB_SOURCE_ROOT)/src/vectors/real_extended_vectors.f90		;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/bordered_vectors.o				:$(NEKLAB_SOURCE_ROOT)/src/vectors/bordered_vectors.f90				;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/complex_vectors.o				:$(NEKLAB_SOURCE_ROOT)/src/vectors/complex_vectors.f90				;$(FC) -c $(FL2) $< -o $@
+$(OBJDIR)/neklab_newton_control.o		:$(NEKLAB_SOURCE_ROOT)/src/torus_2Dh/neklab_newton_control.f90		;$(FC) -c $(FL2) $< -o $@
+$(OBJDIR)/bf_buffer_io.o					:$(NEKLAB_SOURCE_ROOT)/src/torus_2Dh/bf_buffer_io.f90				   ;$(FC) -c $(FL2) $< -o $@
+$(OBJDIR)/neklab_bf_buffer_io.o			:$(NEKLAB_SOURCE_ROOT)/src/torus_2Dh/neklab_bf_buffer.f90			;$(FC) -c $(FL2) $< -o $@
+$(OBJDIR)/neklab_2Dh_axisym.o				:$(NEKLAB_SOURCE_ROOT)/src/torus_2Dh/neklab_2Dh_axisym.f90			;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_nek_setup.o				:$(NEKLAB_SOURCE_ROOT)/src/neklab_nek_setup.f90							;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_utils.o					:$(NEKLAB_SOURCE_ROOT)/src/neklab_utils.f90								;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_2Dh.o						:$(NEKLAB_SOURCE_ROOT)/src/neklab_2Dh.f90									;$(FC) -c $(FL2) $< -o $@

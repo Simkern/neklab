@@ -114,16 +114,18 @@ export FFLAGS
 echo "include $NEKLAB_SOURCE_ROOT/src/makefile_neklab" > makefile_usr.inc
 
 # User-specified object files
-USR_NEKLAB="neklab_newton_control.o"
-USR_NEKLAB+=" neklab_vectors.o"
+USR_NEKLAB="neklab_vectors.o"
 USR_NEKLAB+=" real_vectors.o"
 USR_NEKLAB+=" real_extended_vectors.o"
 USR_NEKLAB+=" complex_vectors.o"
+USR_NEKLAB+=" neklab_newton_control.o"
+USR_NEKLAB+=" bf_buffer_io.o"
+USR_NEKLAB+=" neklab_bf_buffer.o"
+USR_NEKLAB+=" neklab_2Dh_axisym.o"
 USR_NEKLAB+=" neklab_utils.o"
 USR_NEKLAB+=" neklab_nek_setup.o"
 USR_NEKLAB+=" neklab_nek_forcing.o"
 USR_NEKLAB+=" neklab_2Dh.o"
-USR_NEKLAB+=" neklab_2Dh_axisym.o"
 USR_NEKLAB+=" neklab_helix.o"
 USR_NEKLAB+=" helix_io.o"
 USR_NEKLAB+=" helix_utils.o"

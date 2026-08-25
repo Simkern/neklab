@@ -169,7 +169,7 @@
             integer, allocatable :: elmap(:), gmap_index(:)
             real(dp), allocatable :: fdata(:, :, :, :)
             real(dp), allocatable :: xr(:, :, :), yr(:, :, :)
-            real(dp) :: timer, xyavg, xyavgr
+            real(dp) :: timer(1), xyavg, xyavgr
             real(dp), parameter :: mesh_tol = 1.0e-10_dp
             character(len=132) :: hdr
             character(len=256) :: msg
@@ -224,7 +224,7 @@
                   call byte_reverse(nelfr, 1, ierr)
                   call byte_reverse(nsaver, 1, ierr)
                   call byte_reverse(lbufr, 1, ierr)
-                  call reverse_real(timer, 1, wdsizr, ierr)
+                  call reverse_real(timer(1), 1, wdsizr, ierr)
                end if
             end if
             call bcast(ierr, isize)
@@ -340,7 +340,7 @@
             integer :: hdrsize, wdsl, isl, wdsizr
             integer :: nxr, nyr, nelfr, lbufr, nsaver
             real*4 :: test_pattern
-            real(dp) :: timer
+            real(dp) :: timer(1)
             character(len=132) :: hdr
             character(len=256) :: msg
             character(len=4) :: sdummy
@@ -387,7 +387,7 @@
                call byte_read(nxr, isl, ierr)
                call byte_read(nyr, isl, ierr)
                call byte_read(nelfr, isl, ierr)
-               call byte_read(timer, wdsl, ierr)
+               call byte_read(timer(1), wdsl, ierr)
                call byte_read(nsaver, isl, ierr)
                call byte_read(lbufr, isl, ierr)
                if (if_byte_sw) then
@@ -396,10 +396,10 @@
                   call byte_reverse(nelfr, 1, ierr)
                   call byte_reverse(nsaver, 1, ierr)
                   call byte_reverse(lbufr, 1, ierr)
-                  call reverse_real(timer, 1, wdsizr, ierr)
+                  call reverse_real(timer(1), 1, wdsizr, ierr)
                end if
                write (msg, '(A,A,3(1X,I0),1X,E15.7,2(1X,I0))') trim(fname), ':',
-     &            nxr, nyr, nelfr, timer, nsaver, lbufr
+     &            nxr, nyr, nelfr, timer(1), nsaver, lbufr
                call nek_log_debug(msg, this_module, this_procedure)
                call byte_close(ierr)
             end if

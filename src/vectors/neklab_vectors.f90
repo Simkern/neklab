@@ -3,7 +3,6 @@
          use LightKrylov, only: dp
          use LightKrylov, only: abstract_vector_rdp, abstract_vector_cdp
          use LightKrylov_Logger
-         use neklab_newton_control, only: lg, nctrl, wg    
 
          implicit none
          include "SIZE"

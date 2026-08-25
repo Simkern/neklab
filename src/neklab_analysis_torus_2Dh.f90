@@ -36,6 +36,7 @@
          integer, parameter, private :: lv = lx1*ly1*lz1*lelv
          real(dp), private :: dpds_ = 0.0_dp       ! streamwise forcing
       
+         public :: get_dpds, set_dpds
          public :: solve_fixed_point
          public :: steady_flowrate_newton
          public :: unsteady_flowrate_newton
@@ -125,7 +126,7 @@
 
       ! ---- geometry
             call build_area_weights()
-            if (area_cs <= 0.0_dp) then
+            if (get_area() <= 0.0_dp) then
                call nek_stop_error('Cross-section area is not positive.', this_module, this_procedure)
             end if
 
@@ -238,7 +239,7 @@
       !      accuracy needed to see the current flow-rate error.
                tol_inner = tol
                if (inexact_ .and. abs(res) > 10.0_dp*tol_Q) then
-                  tol_inner = max(tol, min(maxtol, 0.05_dp*abs(res)/area_cs))
+                  tol_inner = max(tol, min(maxtol, 0.05_dp*abs(res)/get_area()))
                end if
                write (msg, '(A,A,1X,E16.8)') step_id, padr('inner tol:', pad), tol_inner
                call nek_log_information(msg, this_module, this_procedure)
@@ -252,7 +253,7 @@
       !      Only accept it if the measured change in Q is well above the noise
       !      floor set by the inner tolerance, and if it keeps the physically
       !      required sign (Q is monotone increasing in dpds).
-               noise_floor = max(10.0_dp*tol_inner*area_cs, atol_dp)
+               noise_floor = max(10.0_dp*tol_inner*get_area(), atol_dp)
                if (abs(Q - Q_old) > noise_floor) then
                   dQdf_new = (Q - Q_old)/df
                   if (dQdf_new > 0.0_dp) then
@@ -306,7 +307,7 @@
                call nek_log_message(lmsg, this_module, this_procedure)
             end subroutine log_state
 
-         end subroutine flowrate_newton
+         end subroutine steady_flowrate_newton
 
          subroutine unsteady_flowrate_newton(sys, bf, Wo, kharm, dpds, mflow_target,
      &                                  tol, tol_mf, tol_mode, maxiter, maxiter_inner,
@@ -397,7 +398,7 @@
       !      The DRIVER owns the buffer lifetime: the system's nonlinear map
       !      only consumes it, and fails through check_init if this is skipped.
             call init_pulsatile(Wo, kharm, dpds)
-            period = get_period()
+            period = get_pulsation_period()
             call bf_init(base=optval(buffer_base, '2dtorus'), write_chunks=.true., min_steps=50)
             call bf_set_prefix('n')
             sys%jacobian = nek_jacobian_torus_upo_2Dh()
@@ -695,7 +696,7 @@
             real(dp), parameter :: tol_shift = 1.0e-08_dp
 
             omega = get_omega()
-            period = get_period()
+            period = get_pulsation_period()
             kc = get_kctrl()
             nf = get_nf()
             if (kc < 1) then

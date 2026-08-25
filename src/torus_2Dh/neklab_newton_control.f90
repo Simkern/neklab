@@ -87,7 +87,7 @@
          public :: reset_qfft, accumulate_qfft, extract_qfft
          public :: init_pulsatile, forcing_summary
          public :: set_dpds_fourier, get_dpds_fourier, get_nf
-         public :: get_period, get_womersley, forcing_amplitude
+         public :: get_pulsation_period, get_womersley, forcing_amplitude
          public :: reset_qfft_trap, accumulate_qfft_trap
          public :: extract_mflow
 
@@ -448,9 +448,9 @@
             call logger%log_message(msg, this_module, this_procedure)
          end subroutine init_pulsatile
  
-         real(dp) function get_period() result(T)
+         real(dp) function get_pulsation_period() result(T)
             T = pulse_T
-         end function get_period
+         end function get_pulsation_period
  
          real(dp) function get_womersley() result(Wo)
             Wo = womersley_

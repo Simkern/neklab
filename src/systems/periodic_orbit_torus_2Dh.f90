@@ -80,7 +80,7 @@
          type is (nek_dvector)
             select type (vec_out)
             type is (nek_dvector)
-               period = get_period()
+               period = get_pulsation_period()
                if (period <= 0.0_dp) then
                   call nek_stop_error('Period is not set. The driver must call init_pulsatile first.',
      &               this_module, this_procedure)
@@ -183,7 +183,7 @@
                call setup_linear_solver(solve_baseflow = .false.,
      &                                  solve_temperature = .true.,
      &                                  variable_dt    = .true.,
-     &                                  endtime        = get_period(),
+     &                                  endtime        = get_pulsation_period(),
      &                                  cfl_limit      = cfl_upo,
      &                                  vtol           = atol*0.5,
      &                                  ptol           = atol*0.5)
@@ -251,7 +251,7 @@
      &                                  solve_baseflow = .false.,
      &                                  solve_temperature = .true.,
      &                                  variable_dt    = .true.,
-     &                                  endtime        = get_period(),
+     &                                  endtime        = get_pulsation_period(),
      &                                  cfl_limit      = cfl_upo,
      &                                  vtol           = atol*0.5,
      &                                  ptol           = atol*0.5)

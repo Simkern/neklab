@@ -11,7 +11,6 @@
          use LightKrylov, only: abstract_vector, abstract_vector_rdp
       ! Neklab vectors
          use neklab_vectors
-         use neklab_newton_control, only: lg, nctrl
       
          implicit none
          include "SIZE"
@@ -32,9 +31,6 @@
       ! utilities for extended nek vectors
          public :: nek2ext_vec, ext_vec2nek, abs_ext_vec2nek, outpost_ext_dnek
          public :: get_period, get_period_abs
-      ! utilities for control vectors
-         public :: nek2brd_vec, brd_vec2nek, abs_brd_vec2nek, outpost_brd_dnek
-         public :: get_control, get_control_abs
       ! utility for outposting
          public :: outpost_nek, outpost_2Dh
       ! miscellaneous

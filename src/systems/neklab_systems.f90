@@ -9,10 +9,9 @@
       ! Default real kind.
          use LightKrylov, only: dp, qr
       ! Abstract types for real-valued vectors and utilities
-         use LightKrylov, only: atol_dp
-         use LightKrylov, only: abstract_linop_rdp, abstract_vector_rdp
-         use LightKrylov, only: orthonormalize_basis, orthogonalize_against_basis, 
-     &                          zero_basis, copy, rand_basis, linear_combination
+         use LightKrylov, only: atol_dp, abstract_linop_rdp, abstract_vector_rdp,
+     &                          orthonormalize_basis, orthogonalize_against_basis, 
+     &                          zero_basis, copy, rand_basis, linear_combination,
      &                          abstract_system_rdp, abstract_jacobian_linop_rdp
          use LightKrylov_Logger
          use LightKrylov_utils, only: assert_shape
@@ -23,7 +22,7 @@
          use neklab_nek_setup
          use neklab_helix
          use neklab_2Dh_axisym
-         use neklab_newton_control, only: get_period, clear_control_pert, 
+         use neklab_newton_control, only: get_pulsation_period, clear_control_pert, 
      &                                    get_flowrate_nek, reset_qfft_trap,
      &                                    accumulate_qfft_trap
          use neklab_bf_buffer, only: bf_reset, bf_begin_step, bf_end_step,

@@ -105,13 +105,13 @@
             real(dp), optional, intent(in) :: dQdf_guess
       !! Optional initial slope dQ/d(dpds). Default: Stokes estimate Q/dpds 
             ! internal
-            character(len=*), parameter :: this_procedure = 'flowrate_newton'
+            character(len=*), parameter :: this_procedure = 'steady_flowrate_newton'
             type(nek_dvector) :: Xold, dX
             integer :: tol_mode_, maxiter_, inwt, info
             logical :: inexact_
             real(dp) :: f, df, df_old, dfmax, ratio
             real(dp) :: Q, Q_old, res, dQdf, dQdf_new
-            real(dp) :: tol_inner, noise_floor
+            real(dp) :: tol_inner, tol_prev, noise_floor
             character(len=256) :: msg
             character(len=10) :: step_id
             integer, parameter :: pad = 18
@@ -122,7 +122,7 @@
       ! ---- optional arguments
             tol_mode_ = optval(tol_mode, 1)
             maxiter_ = optval(maxiter, 10)
-            inexact_ = optval(if_inexact, .true.)
+            inexact_ = optval(if_inexact, .false.)
 
       ! ---- geometry
             call build_area_weights()
@@ -239,7 +239,7 @@
       !      accuracy needed to see the current flow-rate error.
                tol_inner = tol
                if (inexact_ .and. abs(res) > 10.0_dp*tol_Q) then
-                  tol_inner = max(tol, min(maxtol, 0.05_dp*abs(res)/get_area()))
+                  tol_inner = max(tol, min(tol_inner, 0.05_dp*abs(res)/get_area()))
                end if
                write (msg, '(A,A,1X,E16.8)') step_id, padr('inner tol:', pad), tol_inner
                call nek_log_information(msg, this_module, this_procedure)
@@ -253,8 +253,11 @@
       !      Only accept it if the measured change in Q is well above the noise
       !      floor set by the inner tolerance, and if it keeps the physically
       !      required sign (Q is monotone increasing in dpds).
-               noise_floor = max(10.0_dp*tol_inner*get_area(), atol_dp)
-               if (abs(Q - Q_old) > noise_floor) then
+               noise_floor = max(10.0_dp*max(tol_inner, tol_prev)*get_area(), atol_dp)
+               ! refuse the secant across a tolerance change
+               if (abs(tol_inner - tol_prev) > 0.1_dp*tol_prev) then
+                  call nek_log_warning(step_id//'Tolerance changed. Slope kept. Slope kept.', this_module, this_procedure)
+               else if (abs(Q - Q_old) > noise_floor) then
                   dQdf_new = (Q - Q_old)/df
                   if (dQdf_new > 0.0_dp) then
                      dQdf = dQdf_new
@@ -269,6 +272,7 @@
 
                df_old = df
                call log_state(inwt, f, Q, res)
+               tol_prev = tol_inner
 
       ! ---- save intermediate solution
                call outpost_dnek(bf, 'nwq')

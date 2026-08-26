@@ -367,9 +367,9 @@
          character(len=*), parameter :: this_procedure = 'summary'
          character(len=256) :: msg
          integer :: i
-         integer, parameter :: pad = 20
+         integer, parameter :: pad = 16
          call nek_log_message('', this_module, this_procedure)
-         call nek_log_message('Newton control configuration:', this_module, this_procedure)
+         call nek_log_message('Newton configuration:', this_module, this_procedure)
          call nek_log_message('', this_module, this_procedure)
          write (msg, '(3X,A,1X,L16)') padl('unsteady:',pad), self%if_unsteady
          call nek_log_message(msg, this_module, this_procedure)
@@ -398,7 +398,7 @@
             call nek_log_message(msg, this_module, this_procedure)
          end if
          if (self%target_defined) then
-            write (msg, '(3X,A,*(1X,F16.10))') padl('target:',pad), (self%mf_target(i), i=1, self%nmf)
+            write (msg, '(3X,A,*(1X,F16.10))') padl('Q_target:',pad), (self%mf_target(i), i=1, self%nmf)
             call nek_log_message(msg, this_module, this_procedure)
          end if
          call nek_log_message('', this_module, this_procedure)

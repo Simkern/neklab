@@ -9,6 +9,7 @@ $(OBJDIR)/neklab_utils.o					:$(NEKLAB_SOURCE_ROOT)/src/neklab_utils.f90								
 $(OBJDIR)/neklab_2Dh.o						:$(NEKLAB_SOURCE_ROOT)/src/neklab_2Dh.f90									;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_2Dh_axisym.o				:$(NEKLAB_SOURCE_ROOT)/src/neklab_2Dh_axisym.f90						;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_t2Dh.o						:$(NEKLAB_SOURCE_ROOT)/src/torus_2Dh/neklab_t2Dh.f90					;$(FC) -c $(FL2) $< -o $@
+$(OBJDIR)/t2Dh_newton_io.o					:$(NEKLAB_SOURCE_ROOT)/src/torus_2Dh/t2Dh_newton_io.f90				;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/t2Dh_gs.o							:$(NEKLAB_SOURCE_ROOT)/src/torus_2Dh/t2Dh_gs.f90						;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/t2Dh_flowrate.o					:$(NEKLAB_SOURCE_ROOT)/src/torus_2Dh/t2Dh_flowrate.f90				;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/t2Dh_bf_buffer.o					:$(NEKLAB_SOURCE_ROOT)/src/torus_2Dh/t2Dh_bf_buffer.f90				;$(FC) -c $(FL2) $< -o $@

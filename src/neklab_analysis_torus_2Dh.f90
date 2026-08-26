@@ -62,6 +62,7 @@
      &                             bf_set_prefix, bf_get_dt_minmax,
      &                             bf_get_nsteps, bf_get_time, bf_summary,
      &                             bf_write_t2Dh
+         use t2Dh_newton_io, only: t2Dh_nwt_record, nwt_open, nwt_close
 
          implicit none
          include "SIZE"
@@ -134,10 +135,10 @@
       !! solve at every outer step; the forcing is never part of the inner
       !! unknown.
       !!
-      !! t2Dh must be configured (init_flow) and its targets set before this is
-      !! called, and any harmonic that is exactly zero must have been seeded --
-      !! a zero harmonic has no phase, and the frozen-phase directions this
-      !! iteration steps along would then be arbitrary.
+      !! t2Dh must be configured (init_geom, then init_flow) and its targets set
+      !! before this is called, and any harmonic that is exactly zero must have
+      !! been seeded -- a zero harmonic has no phase, and the frozen-phase
+      !! directions this iteration steps along would then be arbitrary.
             class(abstract_system_rdp), intent(inout) :: sys
       !! Inner system. Its jacobian must already be assigned by the caller.
             type(nek_dvector), intent(inout) :: bf
@@ -171,10 +172,12 @@
             real(dp), dimension(:, :), allocatable :: Jac, Jnew
             real(dp), dimension(:), allocatable :: da, da_old, Jda, resid
             integer :: nmf, tol_mode_, maxiter_, maxiter_inner_, inwt, i, j, info_, ierr
-            logical :: inexact_, have_pred, first_update, ok
+            logical :: inexact_, have_pred, first_update, ok, converged_
             real(dp) :: enorm, eabs, noise, tol_inner, tol_prev
             real(dp) :: dscale, fac, dmax, nda, nda_old, ratio, denom
             integer, parameter :: pad = 20
+      ! recording
+            type(t2Dh_nwt_record) :: nwt
 
       ! ---- optional arguments
             tol_mode_ = optval(tol_mode, 1)
@@ -187,8 +190,8 @@
 
       ! ---- sizes, targets and the norm scaling
             if (.not. t2Dh%is_initialised()) then
-               call nek_stop_error('t2Dh is not configured. Call t2Dh%init_flow first.',
-     &            this_module, this_procedure)
+               call nek_stop_error('t2Dh is not configured. Call t2Dh%init_geom and '//
+     &            't2Dh%init_flow first.', this_module, this_procedure)
             end if
             nmf = t2Dh%get_nmf()
             tgt = t2Dh%get_target()
@@ -226,6 +229,11 @@
             write (msg, '(3X,A,*(1X,F16.10))') padl('norm scale:', pad), (scal(i), i=1, nmf)
             call nek_log_message(msg, this_module, this_procedure)
             call nek_log_message('', this_module, this_procedure)
+
+      ! ---- capture the settings for the restart record. Writes nothing: the
+      !      record is emitted in one shot by nwt_close at the end.
+            call nwt_open(prefix_, tol, rtol_mf, tol_mode_, maxiter_,
+     &                    maxiter_inner_, inexact_, jac0_, scal(1:nmf))
 
       !
       ! ---- Baseline solve at the incoming forcing
@@ -421,7 +429,8 @@
       ! ---- Output
       !
             call nek_log_message('Exiting flowrate Newton iteration.', this_module, this_procedure)
-            if (enorm > rtol_mf) then
+            converged_ = (enorm <= rtol_mf)
+            if (.not. converged_) then
                write (msg, '(A,I0,A)') 'Flow rate not converged after ', maxiter_, ' steps.'
                if (present(info)) then
                   info = -1
@@ -441,6 +450,12 @@
                write (msg, '(6X,*(1X,E16.8))') (Jac(i, j), j=1, nmf)
                call nek_log_message(msg, this_module, this_procedure)
             end do
+
+      ! ---- the restart record. Written before set_slope, so the file carries
+      !      the same (1,1) entry the next run will be seeded from.
+            call fill_record()
+            call nwt_close(nwt, converged_)
+
             call t2Dh%forcing_summary()
             call t2Dh%mflow_summary()
       ! the (1,1) entry is the steady resistance an unsteady run will inherit
@@ -472,6 +487,22 @@
                write (lmsg, '(A,I3,A,2(1X,E16.8))') ' it= ', istp, ' | err (rel, abs) =', enorm, eabs
                call nek_log_message(lmsg, this_module, this_procedure)
             end subroutine log_state
+
+            subroutine fill_record()
+      !! Snapshots the outer iteration into the restart record. Called once,
+      !! after the loop, so it picks up the polished state if the loop exited
+      !! through the polishing branch. from_t2Dh pulls the sizes, geometry,
+      !! Reynolds number, time scales, forcing and targets straight off t2Dh;
+      !! the lines below are the only things this driver knows that it does not.
+               call nwt%from_t2Dh()
+               nwt%mflow(1:nmf) = mf(1:nmf)
+               nwt%mf_err(1:nmf) = mf_err(1:nmf)
+               nwt%qerr(1:nmf) = qerr(1:nmf)
+               nwt%enorm = enorm
+               nwt%eabs = eabs
+               nwt%noise = noise
+               nwt%jac(1:nmf, 1:nmf) = Jac(1:nmf, 1:nmf)
+            end subroutine fill_record
 
             subroutine seed_diagnostic()
       !! Compares the measured directional response with the one the initial
@@ -593,12 +624,16 @@
       !==========================================================================
 
          subroutine steady_flowrate_newton(sys, bf, dpds, Q_target, tol, rtol_Q,
-     &                                     tol_mode, maxiter, if_inexact, dQdf_guess, radius)
+     &                                     tol_mode, maxiter, if_inexact, dQdf_guess)
       !! Steady fixed point at a prescribed bulk velocity.
       !!
       !! This is the nmf = 1 instance of flowrate_newton: one unknown (the mean
       !! forcing) and one constraint (the mean flow rate). Nothing regime
       !! specific happens here beyond configuring t2Dh.
+      !!
+      !! The cross-section geometry is NOT configured here: call t2Dh%init_geom
+      !! once from the deck, before this. init_flow below fails loudly if that
+      !! was skipped.
             class(abstract_system_rdp), intent(inout) :: sys
       !! Steady 2Dh torus system (nek_system_torus_2Dh).
             type(nek_dvector), intent(inout) :: bf
@@ -617,8 +652,6 @@
             real(dp), optional, intent(in) :: dQdf_guess
       !! Initial slope dQ/d(dpds). Default: the Stokes estimate Q/dpds, taken
       !! from the baseline solve.
-            real(dp), optional, intent(in) :: radius
-      !! Cross-section radius. Measured from the mesh if absent.
       ! internal
             character(len=*), parameter :: this_procedure = 'steady_flowrate_newton'
             character(len=256) :: msg
@@ -627,7 +660,7 @@
 
             d0(1) = dpds
             tgt(1) = Q_target
-            call t2Dh%init_flow(d0, radius=radius)
+            call t2Dh%init_flow(d0)
             call t2Dh%set_target(tgt)
       ! Q(0) = 0 for a steady flow, so a zero forcing yields no slope: probe.
             call t2Dh%ensure_nonzero_mean(1.0e-03_dp)
@@ -652,7 +685,7 @@
 
          subroutine unsteady_flowrate_newton(sys, bf, Wo, kharm, dpds, mflow_target,
      &                                       tol, rtol_mf, tol_mode, maxiter, maxiter_inner,
-     &                                       buffer_base, if_save_orbit, if_gauge, jac0, radius)
+     &                                       buffer_base, if_save_orbit, if_gauge, jac0)
       !! Pulsatile periodic orbit at a prescribed flowrate spectrum.
       !!
       !! CONVENTIONS AT THIS INTERFACE
@@ -669,6 +702,8 @@
       !!
       !! A helix deck quotes Q(k) itself, i.e. HALF the peak excursion, so a
       !! number copied from one must be doubled before it lands here.
+      !!
+      !! As with the steady wrapper, t2Dh%init_geom must have been called first.
             class(abstract_system_rdp), intent(inout) :: sys
       !! Pulsatile 2Dh system (nek_system_torus_upo_2Dh). Its jacobian is set here.
             type(nek_dvector), intent(inout) :: bf
@@ -699,7 +734,6 @@
       !! returning. Default .true.
             character(len=*), optional, intent(in) :: jac0
       !! 'fd' (default) or 'seed'.
-            real(dp), optional, intent(in) :: radius
       ! internal
             character(len=*), parameter :: this_procedure = 'unsteady_flowrate_newton'
             character(len=256) :: msg
@@ -734,7 +768,7 @@
 
       ! ---- configure. helix -> native on the forcing and on the targets.
             d_native = helix2native(dpds, nf)
-            call t2Dh%init_flow(d_native(1:nf), womersley=Wo, radius=radius)
+            call t2Dh%init_flow(d_native(1:nf), womersley=Wo)
             call t2Dh%set_target_ratio(mflow_target)
 
       ! ---- a cold start from a steady solve arrives with every harmonic at

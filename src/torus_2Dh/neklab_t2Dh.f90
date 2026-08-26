@@ -164,6 +164,7 @@
          contains
             private
       ! neklab_t2Dh (this file)
+            procedure, pass(self), public :: init_geom
             procedure, pass(self), public :: init_flow
             procedure, pass(self), public :: amplitude
             procedure, pass(self), public :: forcing
@@ -198,7 +199,7 @@
             procedure, pass(self), public :: forcing_summary
             procedure, pass(self), public :: mflow_summary
       ! t2Dh_flowrate
-            procedure, pass(self), public :: build_area_weights
+            procedure, pass(self) :: build_area_weights
             procedure, pass(self), public :: get_area
             procedure, pass(self), public :: get_delta
             procedure, pass(self), public :: get_curv_radius
@@ -368,10 +369,9 @@
 
       ! --- t2Dh_flowrate
          interface
-            module subroutine build_area_weights(self, force, radius)
+            module subroutine build_area_weights(self, force)
                class(nek_t2Dh), intent(inout) :: self
                logical, optional, intent(in) :: force
-               real(dp), optional, intent(in) :: radius
             end subroutine build_area_weights
 
             module function get_area(self) result(a)
@@ -443,7 +443,75 @@
       !     CONFIGURATION
       !====================================================================
 
-         subroutine init_flow(self, dpds, womersley, radius)
+         subroutine init_geom(self, radius, delta, force, verbose)
+      !! Configures the cross-section geometry: the area weights, the area, the
+      !! mean radius R_c, the cross-section radius r and the curvature ratio
+      !! delta = r/R_c.
+      !!
+      !! SEPARATE FROM init_flow because the two answer different questions on
+      !! different timescales. The geometry is a property of the MESH: measured
+      !! once, identical for every forcing the outer Newton tries, and re-
+      !! measured on a restart so it can be checked against the record. The
+      !! forcing is a property of the SOLVE: it changes at every outer step. The
+      !! old init_flow rebuilt the area weights on every call, so a restart that
+      !! only wanted to set a forcing paid for a global reduction over the mesh
+      !! -- and, worse, could quietly adopt a geometry different from the one
+      !! the caller had already checked.
+      !!
+      !! Call it once, after the mesh and the boundary conditions are available.
+            class(nek_t2Dh), intent(inout) :: self
+            real(dp), intent(in) :: radius
+            real(dp), intent(in) :: delta
+            logical, optional, intent(in) :: force
+      !! Re-measure even if the geometry is already defined. Default .false.
+            logical, optional, intent(in) :: verbose
+      !! Log the measured and adopted values. Default .true.
+      ! internal
+            character(len=*), parameter :: this_procedure = 'init_geom'
+            character(len=256) :: msg
+            real(dp) :: delta_measured
+            logical :: verbose_
+            integer, parameter :: pad = 20
+
+            verbose_ = optval(verbose, .true.)
+            if (self%area_defined .and. .not. optval(force, .false.)) then
+               call nek_log_debug('Geometry already defined. Ignoring.', this_module, this_procedure)
+               return
+            end if
+
+      ! ---- override
+            if (radius <= atol_dp) then
+               call nek_stop_error('radius must be positive.', this_module, this_procedure)
+            end if
+            self%radius = radius
+
+            if (delta <= atol_dp) then
+               call nek_stop_error('delta must be positive.', this_module, this_procedure)
+            end if
+            self%delta = delta
+
+            ! compute curvature radius from the two inputs.
+            self%curv_radius = self%radius/self%delta
+
+      ! ---- measure. Sets bm_area, area.
+            call self%build_area_weights(force=.true.)
+
+            if (verbose_) then
+               call nek_log_message('', this_module, this_procedure)
+               call nek_log_message(' Cross-section geometry:', this_module, this_procedure)
+               write (msg, '(3X,A,1X,E16.8)') padl('area A:', pad), self%area
+               call nek_log_message(msg, this_module, this_procedure)
+               write (msg, '(3X,A,1X,E16.8)') padl('mean radius R_c:', pad), self%curv_radius
+               call nek_log_message(msg, this_module, this_procedure)
+               write (msg, '(3X,A,1X,E16.8)') padl('radius r:', pad), self%radius
+               call nek_log_message(msg, this_module, this_procedure)
+               write (msg, '(3X,A,1X,E16.8)') padl('curvature delta:', pad), self%delta
+               call nek_log_message(msg, this_module, this_procedure)
+               call nek_log_message('', this_module, this_procedure)
+            end if
+         end subroutine init_geom
+
+         subroutine init_flow(self, dpds, womersley)
       !! Configures the control from a forcing vector in the NATIVE convention
       !! and a Womersley number, mirroring neklab_helix % init_flow.
       !!
@@ -461,8 +529,6 @@
       !! Forcing components, native convention, nf = 2K+1 of them.
             real(dp), optional, intent(in) :: womersley
       !! Womersley number of the fundamental. Zero or absent: steady problem.
-            real(dp), optional, intent(in) :: radius
-      !! Cross-section radius. Measured from the mesh if absent.
       ! internal
             character(len=*), parameter :: this_procedure = 'init_flow'
             character(len=256) :: msg
@@ -524,8 +590,10 @@
             self%mf_extracted = .false.
             self%accumulating = .false.
 
-      ! geometry. Forced, because a restart may have re-read the mesh.
-            call self%build_area_weights(force=.true., radius=radius)
+            if (.not. self%area_defined) then
+               call nek_stop_error('The cross-section geometry is not configured. Call '//
+     &            't2Dh%init_geom before t2Dh%init_flow.', this_module, this_procedure)
+            end if
 
             self%is_initialized = .true.
          end subroutine init_flow

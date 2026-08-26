@@ -60,17 +60,12 @@
       !! metric lives entirely in the coefficient arrays of neklab_2Dh_axisym on
       !! a plain 2D mesh, bm1 is already correct.
       !!
-      !! Also measures the curvature ratio delta = r/R_c, which the Jacobian
-      !! seed needs. R_c is the area-weighted mean radius; r is taken from the
-      !! radial extent of the mesh, which is exact for a circular cross-section
-      !! and, unlike sqrt(A/pi), stays correct on a half (symmetric) mesh. The
-      !! two are compared and a disagreement is reported rather than silently
-      !! resolved.
          character(len=*), parameter :: this_procedure = 'build_area_weights'
          character(len=256) :: msg
          real(dp), external :: glsum, glsc2, glmax, glmin
          real(dp) :: r_area, r_extent, pi
          integer :: n
+         integer, parameter :: pad = 10
          if (self%area_defined .and. .not. optval(force, .false.)) return
          pi = 4.0_dp*atan(1.0_dp)
          n = lx1*ly1*lz1*nelv
@@ -83,29 +78,7 @@
          if (self%area <= 0.0_dp) then
             call nek_stop_error('Cross-section area is not positive.', this_module, this_procedure)
          end if
-         self%curv_radius = glsc2(ym1, self%bm_area, n)/self%area
-         r_extent = 0.5_dp*(glmax(ym1, n) - glmin(ym1, n))
-         r_area = sqrt(self%area/pi)
-         self%radius = optval(radius, r_extent)
-         if (self%curv_radius <= atol_dp) then
-            call nek_stop_error('Mean radius R_c is not positive: is ym1 the torus radial coordinate?',
-     &         this_module, this_procedure)
-         end if
-         self%delta = self%radius/self%curv_radius
          self%area_defined = .true.
-         write (msg, '(A,E16.8,A,E16.8)') 'Cross-section: A= ', self%area, ', R_c= ', self%curv_radius
-         call nek_log_information(msg, this_module, this_procedure)
-         write (msg, '(A,E16.8,A,E16.8,A,E16.8)') '   r(extent)= ', r_extent,
-     &      ', r(area)= ', r_area, ', r(used)= ', self%radius
-         call nek_log_information(msg, this_module, this_procedure)
-         if (abs(r_extent - r_area) > 0.05_dp*max(r_extent, atol_dp)) then
-            call nek_log_warning('The radial extent and the area disagree by more than 5%: the '//
-     &         'cross-section is not a full circle, or the mesh is symmetric. delta uses the '//
-     &         'extent; override it with the radius argument of init_flow if that is wrong.',
-     &         this_module, this_procedure)
-         end if
-         write (msg, '(A,E16.8)') '   curvature ratio delta= ', self%delta
-         call nek_log_information(msg, this_module, this_procedure)
          end procedure build_area_weights
 
          module procedure get_area
@@ -134,7 +107,7 @@
          real(dp), external :: glsc2
          integer :: n
          if (.not. self%area_defined) then
-            call nek_stop_error('Area weights are not built. Call t2Dh%init_flow first.',
+            call nek_stop_error('Area weights are not built. Call t2Dh%init_geom first.',
      &         this_module, this_procedure)
          end if
          n = lx1*ly1*lz1*nelv

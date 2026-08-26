@@ -9,10 +9,10 @@
       ! Default real kind.
          use LightKrylov, only: dp, qr
       ! Abstract types for real-valued vectors and utilities
-         use LightKrylov, only: atol_dp
-         use LightKrylov, only: abstract_linop_rdp, abstract_vector_rdp
-         use LightKrylov, only: orthonormalize_basis, orthogonalize_against_basis, zero_basis, copy, rand_basis, linear_combination
-         use LightKrylov, only: abstract_system_rdp, abstract_jacobian_linop_rdp
+         use LightKrylov, only: atol_dp, abstract_linop_rdp, abstract_vector_rdp,
+     &                          orthonormalize_basis, orthogonalize_against_basis, 
+     &                          zero_basis, copy, rand_basis, linear_combination,
+     &                          abstract_system_rdp, abstract_jacobian_linop_rdp
          use LightKrylov_Logger
          use LightKrylov_utils, only: assert_shape
       ! Extensions of the abstract vector types to nek data format.
@@ -22,6 +22,16 @@
          use neklab_nek_setup
          use neklab_helix
          use neklab_2Dh_axisym
+         use neklab_t2Dh, only: t2Dh
+         use t2Dh_bf_buffer, only: bf_reset, bf_begin_step, bf_end_step,
+     &                             bf_close_record, bf_replay_start,
+     &                             bf_replay_end, bf_set, bf_set_window,
+     &                             bf_get_nsteps
+      ! Host-associated by the submodules below, which is where the map-level
+      ! CSV rows are emitted.
+         use neklab_timing, only: neklab_timer_start, neklab_timer_stop, neklab_timer_dump,
+     &                            t_nl_step, t_close_mflow
+
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -234,7 +244,50 @@
                class(abstract_vector_rdp), intent(out) :: vec_out
             end Subroutine jac_adjoint_map_torus_2Dh
          end interface
-      
+
+      !--------------------------------------------------------------------
+      !-----     NEKLAB SYSTEM FOR PERIODIC ORBITS IN TORI 2Dh      -------
+      !--------------------------------------------------------------------
+      !
+      !  Pulsatile (time-periodic, non-autonomous) orbit on the 2Dh mesh.  The
+      !  forcing is driven by the segregated outer Newton and is not part of
+      !  the unknown vector.
+ 
+         type, extends(abstract_system_rdp), public :: nek_system_torus_upo_2Dh
+         contains
+            private
+            procedure, pass(self), public :: response => nonlinear_map_torus_upo_2Dh
+         end type nek_system_torus_upo_2Dh
+ 
+         type, extends(abstract_jacobian_linop_rdp), public :: nek_jacobian_torus_upo_2Dh
+         contains
+            private
+            procedure, pass(self), public :: matvec => jac_direct_map_torus_upo_2Dh
+            procedure, pass(self), public :: rmatvec => jac_adjoint_map_torus_upo_2Dh
+         end type nek_jacobian_torus_upo_2Dh
+ 
+      ! --> Type-bound procedures for nek_system_torus_upo_2Dh & nek_jacobian_torus_upo_2Dh
+         interface
+            module subroutine nonlinear_map_torus_upo_2Dh(self, vec_in, vec_out, atol)
+               class(nek_system_torus_upo_2Dh), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+               real(dp), intent(in) :: atol
+            end subroutine nonlinear_map_torus_upo_2Dh
+ 
+            module subroutine jac_direct_map_torus_upo_2Dh(self, vec_in, vec_out)
+               class(nek_jacobian_torus_upo_2Dh), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+            end subroutine jac_direct_map_torus_upo_2Dh
+ 
+            module subroutine jac_adjoint_map_torus_upo_2Dh(self, vec_in, vec_out)
+               class(nek_jacobian_torus_upo_2Dh), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+            end subroutine jac_adjoint_map_torus_upo_2Dh
+         end interface
+
       contains
       
          subroutine compute_fdot(vec)

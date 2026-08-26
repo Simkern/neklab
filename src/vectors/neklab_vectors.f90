@@ -3,7 +3,7 @@
          use LightKrylov, only: dp
          use LightKrylov, only: abstract_vector_rdp, abstract_vector_cdp
          use LightKrylov_Logger
-      
+
          implicit none
          include "SIZE"
          include "TOTAL"

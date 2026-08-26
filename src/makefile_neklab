@@ -1,8 +1,10 @@
+$(OBJDIR)/neklab_timing.o					:$(NEKLAB_SOURCE_ROOT)/src/neklab_timing.f90								;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_vectors.o					:$(NEKLAB_SOURCE_ROOT)/src/vectors/neklab_vectors.f90					;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/real_vectors.o					:$(NEKLAB_SOURCE_ROOT)/src/vectors/real_vectors.f90					;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/real_extended_vectors.o		:$(NEKLAB_SOURCE_ROOT)/src/vectors/real_extended_vectors.f90		;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/complex_vectors.o				:$(NEKLAB_SOURCE_ROOT)/src/vectors/complex_vectors.f90				;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_nek_setup.o				:$(NEKLAB_SOURCE_ROOT)/src/neklab_nek_setup.f90							;$(FC) -c $(FL2) $< -o $@
+$(OBJDIR)/neklab_nek_forcing.o			:$(NEKLAB_SOURCE_ROOT)/src/neklab_nek_forcing.f90						;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_utils.o					:$(NEKLAB_SOURCE_ROOT)/src/neklab_utils.f90								;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_2Dh.o						:$(NEKLAB_SOURCE_ROOT)/src/neklab_2Dh.f90									;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_2Dh_axisym.o				:$(NEKLAB_SOURCE_ROOT)/src/neklab_2Dh_axisym.f90						;$(FC) -c $(FL2) $< -o $@
@@ -11,7 +13,6 @@ $(OBJDIR)/t2Dh_gs.o							:$(NEKLAB_SOURCE_ROOT)/src/torus_2Dh/t2Dh_gs.f90						
 $(OBJDIR)/t2Dh_flowrate.o					:$(NEKLAB_SOURCE_ROOT)/src/torus_2Dh/t2Dh_flowrate.f90				;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/t2Dh_bf_buffer.o					:$(NEKLAB_SOURCE_ROOT)/src/torus_2Dh/t2Dh_bf_buffer.f90				;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/t2Dh_bf_buffer_io.o				:$(NEKLAB_SOURCE_ROOT)/src/torus_2Dh/t2Dh_bf_buffer_io.f90			;$(FC) -c $(FL2) $< -o $@
-$(OBJDIR)/neklab_nek_forcing.o			:$(NEKLAB_SOURCE_ROOT)/src/neklab_nek_forcing.f90						;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/neklab_linops.o					:$(NEKLAB_SOURCE_ROOT)/src/linops/neklab_linops.f90					;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/exponential_propagator.o		:$(NEKLAB_SOURCE_ROOT)/src/linops/exponential_propagator.f90		;$(FC) -c $(FL2) $< -o $@
 $(OBJDIR)/exponential_propagator_2Dh.o	:$(NEKLAB_SOURCE_ROOT)/src/linops/exponential_propagator_2Dh.f90	;$(FC) -c $(FL2) $< -o $@

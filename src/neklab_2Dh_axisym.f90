@@ -2,6 +2,12 @@
          use LightKrylov, only: dp
          use neklab_2Dh, only: wmask, wmask_defined, build_wmask
          use neklab_nek_setup, only: nek_log_debug, nek_log_message, nek_stop_error
+         use neklab_timing, only: neklab_timer_start, neklab_timer_stop, neklab_clock_tic, neklab_clock_toc,
+     &                            t_advance, t_adv_setup, t_adv_advection, t_adv_rhs,
+     &                            t_adv_uz, t_adv_urphi, t_adv_pressure, t_adv_correction,
+     &                            t_makefp, t_solve_hmh, t_solve_cpl, t_solve_pres,
+     &                            t_pres_precond, t_pres_proj, t_hmh_matvec, t_cpl_matvec,
+     &                            t_pres_matvec, t_gs_comm
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -44,9 +50,9 @@
             real(dp), dimension(lx2*ly2*lz2*lelv,lpert) :: dpr
             real(dp), dimension(lx2*ly2*lz2*lelv) :: prextr, frc_div, onep, ep
             real(dp), dimension(lx1*ly1*lz1*lelv) :: dw
-            real(dp) :: ebar, etime, etime_all, csign_jp
+            real(dp) :: ebar, csign_jp
          
-            character(len=*), parameter :: this_procedure = 'nek_advance_axisym'
+            character(len=*), parameter :: this_procedure = 'nek_advance_2Dh_axisym'
             character(len=256) :: msg
             character(len=2) :: info_str
             character(len=7) :: hmh_info
@@ -54,7 +60,7 @@
             logical :: ifprjp
             integer :: igeom, iter, intype, ipert
             integer :: ntot1, ntot2, istart
-            real, external :: glsum, dnekclock  
+            real, external :: glsum
          
             ntot1 = lx1*ly1*lz1*nelv
             ntot2 = lx2*ly2*lz2*nelv
@@ -72,7 +78,15 @@
             end if
          
             if (istep == 1) nprev(:) = 0
-         
+
+      ! Timing. The `@` regions below partition this routine exactly; the
+      ! solver and kernel timers they contain are the drill-down and overlap
+      ! them on purpose. neklab_clock_tic/toc accumulate an independent
+      ! wall/cpu pair over the same span as the cross-check on cpu_time.
+            call neklab_timer_start(t_advance)
+            call neklab_clock_tic()
+
+            call neklab_timer_start(t_adv_setup)
             call nekgsync
             call settime
             call setup_convect(2)
@@ -84,18 +98,20 @@
             imesh  = 1
             call unorm
             call settolv
-            etime_all = dnekclock()
+            call neklab_timer_stop(t_adv_setup)
          
             ! --- pressure-gradient / alpha-R coupling forcing (analog of gradz_p)
 
             msg = 'Compute explicit pressure gradient term for w'
             call nek_log_debug(msg,this_module,this_procedure)
 
+            call neklab_timer_start(t_adv_advection)
             do jp = 1, npert
                call extrapprp(prextr)
                call compute_gradp_axisym(gradp, prextr, alphaR_coef)
                call compute_torus_s_advection(advZ, advR, advPhi, jp)
             end do
+            call neklab_timer_stop(t_adv_advection)
          
             ! --- assemble RHS for both jp; solve u_Z immediately (uncoupled across jp);
             !     stash u_R/u_phi RHS for the deferred, jointly-solved transform step.
@@ -105,6 +121,7 @@
          
             do jp = 1, npert
                info_str = merge('Re', 'Im', jp == 1)
+               call neklab_timer_start(t_adv_rhs)
                igeom = 1
                !
                !  Old geometry, old velocity
@@ -135,20 +152,24 @@
 
                call dssum(resv1, lx1, ly1, lz1)
                call col2 (resv1, v1mask, ntot1)
-               hmh_info = info_str//' VELX'
+               hmh_info = info_str//' V_Z  '
                if (istep < 10) call chktcg1(tolhv, resv1, h1, h2, v1mask, vmult, imesh, 1)
-               etime = dnekclock()
+               call neklab_timer_stop(t_adv_rhs)
+
+               call neklab_timer_start(t_adv_uz)
                call solve_helmholtz_2Dh_axisym(dv1, resv1, h1, h2, v1mask, vmult, imesh,
      &                                              tolhv, nmxv, 1, binvm1, hmh_info, h2z_shift)
-               etime = dnekclock() - etime
-               !if (nid == 0) print '(A,I2,A,I8,A,E17.8)', 'Solve      u_Z ',jp,', step', istep, ' time ', etime
                call add2(vxp(1,jp), dv1, ntot1)
-               
+               call neklab_timer_stop(t_adv_uz)
+
                ! stash u_R/u_phi RHS for the joint transform+solve below
+               call neklab_timer_start(t_adv_rhs)
                call copy(resv2_jp(1,1,1,1,jp), resv2, ntot1)
                call copy(resv3_jp(1,1,1,1,jp), resv3, ntot1)
+               call neklab_timer_stop(t_adv_rhs)
             end do ! jp
 
+            call neklab_timer_start(t_adv_urphi)
             if (if_alpha_zero) then
                do jp = 1, npert
                   call helmholtz_matvec_2Dh_axisym(w2, vyp(1,jp), h1, h2, diag_shift, 1)
@@ -171,25 +192,20 @@
  
             if (if_alpha_zero) then
                do jp = 1, npert
+                  info_str = merge('Re', 'Im', jp == 1)
                   call dssum(resv2_jp(1,1,1,1,jp), lx1, ly1, lz1)
                   call col2 (resv2_jp(1,1,1,1,jp), v2mask, ntot1)
-                  hmh_info = 'VELR   '
+                  hmh_info = info_str//' V_R  '
                   if (istep < 10) call chktcg1(tolhv, resv2_jp(1,1,1,1,jp), h1, h2, v2mask, vmult, imesh, 1)
-                  etime = dnekclock()
                   call solve_helmholtz_2Dh_axisym(dv2, resv2_jp(1,1,1,1,jp), h1, h2, v2mask, vmult, imesh,
      &                                             tolhv, nmxv, 1, binvm1, hmh_info, diag_shift)
-                  etime = dnekclock() - etime
-                  if (nid == 0) print '(A,I0,A,I8,A,E17.8)', 'Solve      u_R ',jp,', step', istep, ' time ', etime
 
                   call dssum(resv3_jp(1,1,1,1,jp), lx1, ly1, lz1)
                   call col2 (resv3_jp(1,1,1,1,jp), wmask, ntot1)
-                  hmh_info = 'VELPHI '
+                  hmh_info = info_str//' V_PHI'
                   if (istep < 10) call chktcg1(tolhv, resv3_jp(1,1,1,1,jp), h1, h2, wmask, vmult, imesh, 1)
-                  etime = dnekclock()
                   call solve_helmholtz_2Dh_axisym(dv3, resv3_jp(1,1,1,1,jp), h1, h2, wmask, vmult, imesh,
      &                                             tolhv, nmxv, 1, binvm1, hmh_info, diag_shift)
-                  etime = dnekclock() - etime
-                  if (nid == 0) print '(A,I0,A,I8,A,E17.8)', 'Solve    u_phi ',jp,', step', istep, ' time ', etime
 
                   call add2(vyp(1,jp),  dv2, ntot1)
                   call add2(tp(1,1,jp), dv3, ntot1)
@@ -198,24 +214,23 @@
                do jp = 1, npert
                   ipert = npert + 1 - jp
                   csign_jp = merge(1.0_dp, -1.0_dp, jp == 1)
-                  hmh_info = merge('BLKA   ', 'BLKB   ', jp == 1)
-                  etime = dnekclock()
+                  hmh_info = merge('BLK A  ', 'BLK B  ', jp == 1)
                   call solve_coupled_helmholtz_2Dh_axisym(dv2, dv3, resv2_jp(1,1,1,1,jp), resv3_jp(1,1,1,1,ipert), 
      &                                                     h1, h2, wmask, vmult, imesh, tolhv, nmxv, binvm1, hmh_info, 
      &                                                     diag_shift, couple_coef, csign_jp)
-                  etime = dnekclock() - etime
-                  if (nid == 0) print '(A,I0,A,I8,A,E17.8)', 'Solve     cpl'//merge('A','B',jp==1),0,', step', istep, ' time ', etime
          
                   call add2(vyp(1,jp),     dv2, ntot1)
                   call add2(tp(1,1,ipert), dv3, ntot1)
                end do
             end if
+            call neklab_timer_stop(t_adv_urphi)
          
             ! --- pressure correction stage: identical structure to the beta case,
             !     field routines substituted for the beta_z ones
             msg = 'Compute pressure correction to enforce mass balance'
             call nek_log_debug(msg, this_module, this_procedure)
          
+            call neklab_timer_start(t_adv_pressure)
             ifield = 1
             intype = 1
             dtbd   = bd(1)/dt
@@ -248,17 +263,24 @@
 
                if (if_alpha_zero) call ortho(dpr(1,jp))
 
-               etime = dnekclock()
-               if (ifprjp) call  setrhs_pressure_2Dh_axisym(dpr(1,jp), h1, h2, h2inv, pbasis(1,1,jp), nprev(jp), alphaR_coef, info_str)
-               call               solve_pressure_2Dh_axisym(dpr(1,jp), h1, h2, h2inv, alphaR_coef, alpha, intype, iter, ebar, info_str)
-               if (ifprjp) call gensoln_pressure_2Dh_axisym(dpr(1,jp), h1, h2, h2inv, pbasis(1,1,jp), nprev(jp), alphaR_coef)
-               etime = dnekclock() - etime
-               !if (nid == 0) print '(A,I2,A,I8,A,E17.8)', 'Solve pressure ',jp,', step', istep, ' time ', etime
+               if (ifprjp) then
+                  call neklab_timer_start(t_pres_proj)
+                  call setrhs_pressure_2Dh_axisym(dpr(1,jp), h1, h2, h2inv, pbasis(1,1,jp), nprev(jp), alphaR_coef, info_str)
+                  call neklab_timer_stop(t_pres_proj)
+               end if
+               call solve_pressure_2Dh_axisym(dpr(1,jp), h1, h2, h2inv, alphaR_coef, alpha, intype, iter, ebar, info_str)
+               if (ifprjp) then
+                  call neklab_timer_start(t_pres_proj)
+                  call gensoln_pressure_2Dh_axisym(dpr(1,jp), h1, h2, h2inv, pbasis(1,1,jp), nprev(jp), alphaR_coef)
+                  call neklab_timer_stop(t_pres_proj)
+               end if
             end do
+            call neklab_timer_stop(t_adv_pressure)
          
             msg = 'Compute velocity correction based on pressure correction'
             call nek_log_debug(msg, this_module, this_procedure)
          
+            call neklab_timer_start(t_adv_correction)
             do jp = 1, npert
                call opgradt(w1, w2, w3, dpr(1,jp))
                call opbinv (dv1, dv2, dv3, w1, w2, w3, h2inv)
@@ -271,8 +293,10 @@
                call lagpresp
                call add3(prp(1,jp), prextr, dpr(1,jp), ntot2)
             end do
-            etime_all = dnekclock() - etime_all
-            if (nid == 0) print '(A,I8,A,E17.8)', 'Solve total time ', istep, ' time ', etime_all
+            call neklab_timer_stop(t_adv_correction)
+
+            call neklab_clock_toc()
+            call neklab_timer_stop(t_advance)
 
             ! reset jp = 0 in case we switch to the nonlinear solver next
             jp = 0
@@ -313,6 +337,7 @@
             integer, intent(in) :: isd
             real, dimension(lx1,ly1,lz1,lelv) :: tmp
             integer :: imesh, ntot1
+            call neklab_timer_start(t_hmh_matvec)
             imesh = 1
             ntot1 = lx1*ly1*lz1*nelv
             call axhelm(Au, u, h1, h2, imesh, isd)
@@ -320,6 +345,7 @@
             call col2 (tmp, shift, ntot1)              ! field multiply, replaces beta_z**2 scalar
             call col2 (tmp, bm1, ntot1)
             call add2 (Au, tmp, ntot1)
+            call neklab_timer_stop(t_hmh_matvec)
          end subroutine helmholtz_matvec_2Dh_axisym
 
          subroutine compute_gradp_axisym(gradp, prextr, alphaR)
@@ -426,6 +452,7 @@
             character(len=*), parameter :: this_procedure = 'makefp_2Dh_axisym'
             integer :: ifield_bak, ntot1
 
+            call neklab_timer_start(t_makefp)
             ntot1 = lx1*ly1*lz1*nelv
             ifield_bak = ifield
 
@@ -463,6 +490,7 @@
             call lagscalp
 
             ifield = ifield_bak
+            call neklab_timer_stop(t_makefp)
          end subroutine makefp_2Dh_axisym
 
          subroutine add_torus_curv_R(rhs, jp_)
@@ -561,9 +589,13 @@
             real(dp), dimension(lx2,ly2,lz2,lelv) :: wdivm2
             integer :: ie, ntot1, ntot2
          
+            call neklab_timer_start(t_pres_matvec)
             call cdabdtp(Ap, wp, h1, h2, h2inv, intype)   ! core Nek, already ifaxis-correct globally
 
-            if (if_alpha_zero) return
+            if (if_alpha_zero) then
+               call neklab_timer_stop(t_pres_matvec)
+               return
+            end if
          
             ntot1 = lx1*ly1*lz1*nelv
             ntot2 = lx2*ly2*lz2*nelv
@@ -581,6 +613,7 @@
             end do
             call col2(wdivm2, bm2, ntot2)
             call sub2(ap, wdivm2, ntot2)
+            call neklab_timer_stop(t_pres_matvec)
          end subroutine pressure_matvec_2Dh_axisym
 
          subroutine coupled_helmholtz_matvec_2Dh_axisym(y1, y2, x1, x2, h1, h2, diag_shift, couple_coef, csign)
@@ -597,6 +630,7 @@
             integer :: ntot1
             ntot1 = lx1*ly1*lz1*nelv
    
+            call neklab_timer_start(t_cpl_matvec)
             call helmholtz_matvec_2Dh_axisym(y1, x1, h1, h2, diag_shift, 1)
             call helmholtz_matvec_2Dh_axisym(y2, x2, h1, h2, diag_shift, 1)
    
@@ -609,6 +643,7 @@
             call col2   (tmp, vdiff(1,1,1,1,1), ntot1)
             call col2   (tmp, bm1, ntot1)
             call add2s2 (y2, tmp, csign, ntot1)
+            call neklab_timer_stop(t_cpl_matvec)
          end subroutine coupled_helmholtz_matvec_2Dh_axisym
    
          subroutine solve_coupled_helmholtz_2Dh_axisym(x1,x2,f1,f2,h1,h2,mask,mult,imsh,tin,maxit,binv,name,diag_shift,couple_coef,csign)
@@ -647,6 +682,7 @@
    
             real, dimension(lg) :: w1a, w2a, p1a, p2a, z1a, z2a
    
+            call neklab_timer_start(t_solve_cpl)
             rho = 0.0
             NXYZ = lx1*ly1*lz1
             NEL  = NELV
@@ -667,8 +703,10 @@
             call setprec(d(1),   h1,h2,imsh,1)
             call setprec(d(n+1), h1,h2,imsh,1)
    
+            call neklab_timer_start(t_gs_comm)
             call dssum(f1, lx1, ly1, lz1)
             call dssum(f2, lx1, ly1, lz1)
+            call neklab_timer_stop(t_gs_comm)
             call copy(r(1),   f1, n);  call col2(r(1),   mask, n)
             call copy(r(n+1), f2, n);  call col2(r(n+1), mask, n)
    
@@ -676,7 +714,13 @@
             call rzero(p,2*n)
    
             fmax = max(glamax(r(1),n), glamax(r(n+1),n))
-            if (fmax == 0.0) return
+            if (fmax == 0.0) then
+      ! Zero RHS: nothing to solve. The stop MUST happen here -- a timer left
+      ! running is not restarted by the next `start` (Timer_Utils.f90:185), so
+      ! a missed stop silently loses every subsequent call as well.
+               call neklab_timer_stop(t_solve_cpl)
+               return
+            end if
    
             krylov = 0
             rtz1 = 1.0
@@ -692,7 +736,9 @@
                else
                   scalar(2) = vlsc32(r(1),mult,binv,n) + vlsc32(r(n+1),mult,binv,n)
                endif
+               call neklab_timer_start(t_gs_comm)
                call gop(scalar,w,'+  ',2)
+               call neklab_timer_stop(t_gs_comm)
                rtz1 = scalar(1)
                rbn2 = sqrt(scalar(2)/(2.0*vol))
                if (iter.eq.1) rbn0 = rbn2
@@ -717,8 +763,10 @@
                call copy(p1a, p(1),   n)
                call copy(p2a, p(n+1), n)
                call coupled_helmholtz_matvec_2Dh_axisym(w1a, w2a, p1a, p2a, h1, h2, diag_shift, couple_coef, csign)
+               call neklab_timer_start(t_gs_comm)
                call dssum(w1a, lx1, ly1, lz1); call col2(w1a, mask, n)
                call dssum(w2a, lx1, ly1, lz1); call col2(w2a, mask, n)
+               call neklab_timer_stop(t_gs_comm)
                call copy(w(1),   w1a, n)
                call copy(w(n+1), w2a, n)
    
@@ -739,6 +787,7 @@
  9999       continue
             niterhm = niter
             ifsolv = .false.
+            call neklab_timer_stop(t_solve_cpl)
          end subroutine solve_coupled_helmholtz_2Dh_axisym
 
          subroutine solve_helmholtz_2Dh_axisym(x,f,h1,h2,mask,mult,imsh,tin,maxit,isd,binv,name,shift)
@@ -772,6 +821,7 @@
             common /iterhm/ niterhm
             real, external :: glamax, glmax, glmin, glsum, glsc2, glsc3, vlsc3, vlsc32
          
+            call neklab_timer_start(t_solve_hmh)
             call rzero(diagt,maxcg)
             call rzero(upper,maxcg)
             rho = 0.00
@@ -795,7 +845,10 @@
             call rzero(x,n)
             call rzero(p,n)
             fmax = glamax(f,n)
-            if (fmax == 0.0) return
+            if (fmax == 0.0) then
+               call neklab_timer_stop(t_solve_hmh)
+               return
+            end if
          
             krylov = 0
             rtz1=1.0
@@ -810,7 +863,9 @@
                else
                 scalar(2)=vlsc32(r,mult,binv,n)
                endif
+               call neklab_timer_start(t_gs_comm)
                call gop(scalar,w,'+  ',2)
+               call neklab_timer_stop(t_gs_comm)
                rtz1=scalar(1)
                rbn2=sqrt(scalar(2)/vol)
                if (iter.eq.1) rbn0 = rbn2
@@ -832,7 +887,9 @@
                if (iter.eq.1) beta=0.0
                call add2s1 (p,z,beta,n)
                call helmholtz_matvec_2Dh_axisym(w,p,h1,h2,shift,isd)
+               call neklab_timer_start(t_gs_comm)
                call dssum  (w,lx1,ly1,lz1)
+               call neklab_timer_stop(t_gs_comm)
                call col2   (w,mask,n)
          
                rho0 = rho
@@ -859,6 +916,7 @@
  9999       continue
             niterhm = niter
             ifsolv = .false.
+            call neklab_timer_stop(t_solve_hmh)
          end subroutine solve_helmholtz_2Dh_axisym
 
          subroutine solve_pressure_2Dh_axisym(res,h1,h2,h2inv,alphaR,alpha,intype,iter,ebar,info_str)
@@ -892,6 +950,7 @@
             real, external :: vlsc2, glsc2, glsum
             integer, parameter :: gmres_imax = 1000
          
+            call neklab_timer_start(t_solve_pres)
             if(.not.iflag) then
                iflag=.true.
                call uzawa_gmres_split0(ml_gmres,mu_gmres,bm2,bm2inv,lx2*ly2*lz2*nelv)
@@ -933,10 +992,12 @@
                   iter = iter+1
                   call col3(w_gmres,mu_gmres,v_gmres(1,j),ntot2)
                   etime2 = dnekclock()
+                  call neklab_timer_start(t_pres_precond)
                   call hsmg_solve(z_gmres(1,j),w_gmres)
                   if (ebar /= 0.0_dp) then
                      call cadd(z_gmres(1,j), glsum(w_gmres,ntot2)/ebar, ntot2)
                   end if
+                  call neklab_timer_stop(t_pres_precond)
                   etime_p = etime_p + dnekclock()-etime2
                   call pressure_matvec_2Dh_axisym(w_gmres,z_gmres(1,j),h1,h2,h2inv,alphaR,intype)
                   call col2(w_gmres,ml_gmres,ntot2)
@@ -993,11 +1054,11 @@
          
             etime1 = dnekclock()-etime1
             if (present(info_str)) then
-               if (nio.eq.0) write(6,9998) istep,'  U-PRES gmres  alpha= ', alpha,info_str, iter,divex,div0,tolpss,etime_p,etime1
+               if (nio.eq.0) write(6,9998) istep,'  U-PRES  '//info_str//' gmres  alpha= ', alpha, iter,divex,div0,tolpss,etime_p,etime1
             else
-               if (nio.eq.0) write(6,9999) istep,'  U-PRES gmres  ', iter,divex,div0,tolpss,etime_p,etime1
+               if (nio.eq.0) write(6,9999) istep,'  U-PRES  gmres  ', iter,divex,div0,tolpss,etime_p,etime1
             end if
- 9998       format(i11,a,F5.1,1X,A,1X,I6,1p5e13.4)
+ 9998       format(i11,a,F5.1,1X,I6,1p5e13.4)
  9999       format(i11,a,I6,1p5e13.4)
          end subroutine solve_pressure_2Dh_axisym
 
@@ -1057,7 +1118,7 @@
                alpha2 = sqrt(alpha2/volvm2)
                ratio  = alpha1/alpha2
                n10=min(10,niprev)
-               if (nio.eq.0) write(6,13) istep,'  Project PRES '//info_str,
+               if (nio.eq.0) write(6,13) istep,'  Project '//info_str//' PRES',
      &                         alpha2,alpha1,ratio,niprev,mxprev
             endif
  13         format(i11,a,6x,1p3e13.4,i4,i4)

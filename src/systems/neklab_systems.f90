@@ -27,6 +27,10 @@
      &                             bf_close_record, bf_replay_start,
      &                             bf_replay_end, bf_set, bf_set_window,
      &                             bf_get_nsteps
+      ! Host-associated by the submodules below, which is where the map-level
+      ! CSV rows are emitted.
+         use neklab_timing, only: neklab_timer_start, neklab_timer_stop, neklab_timer_dump,
+     &                            t_nl_step, t_close_mflow
 
          implicit none
          include "SIZE"

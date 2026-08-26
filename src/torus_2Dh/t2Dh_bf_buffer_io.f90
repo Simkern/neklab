@@ -53,7 +53,7 @@
             real*4 :: test
             parameter(test=6.54321)
 
-            call lk_timer%start('neklab_bf_write_chunk')
+            call neklab_timer_start(t_bf_write)
             wdsl = wdsize/4
             isl = isize/4
             only_mesh_ = optval(only_mesh, .false.)
@@ -153,7 +153,7 @@
             if (ierr /= 0) call nek_stop_error('Error closing '//trim(fname), this_module, this_procedure)
 
             deallocate (ngown, elmap)
-            call lk_timer%stop('neklab_bf_write_chunk')
+            call neklab_timer_stop(t_bf_write)
          end procedure bf_write_chunk
 
       !====================================================================
@@ -177,7 +177,7 @@
             logical, external :: if_byte_swap_test
             integer, external :: iglsum
 
-            call lk_timer%start('neklab_bf_read_chunk')
+            call neklab_timer_start(t_bf_read)
             hdrsize = 116
             nxy = lx1*ly1
             isl = isize/4
@@ -328,7 +328,7 @@
             call nek_log_debug(msg, this_module, this_procedure)
 
             deallocate (elmap, gmap_index, xr, yr, fdata)
-            call lk_timer%stop('neklab_bf_read_chunk')
+            call neklab_timer_stop(t_bf_read)
          end procedure bf_read_chunk
 
       !====================================================================

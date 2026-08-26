@@ -135,7 +135,9 @@
                      end if
                   end if
                   call bf_begin_step()
+                  call neklab_timer_start(t_nl_step)
                   call nek_advance()
+                  call neklab_timer_stop(t_nl_step)
       ! The landing steps are sized by the period constraint, not by the CFL
       ! condition, so they must not pollute the dt statistics the driver uses
       ! to report the resolution of the orbit.
@@ -149,11 +151,17 @@
       ! Close the flow-rate accumulation. This normalises both quadrature rules,
       ! forms the amplitudes and phases and measures the quadrature error, which
       ! is what floors the outer Newton's tolerance.
+               call neklab_timer_start(t_close_mflow)
                call t2Dh%close_mflow(period=period)
+               call neklab_timer_stop(t_close_mflow)
       ! Copy the final solution to vector.
                call nek2vec(vec_out, vx, vy, vz, pr, t)
       ! Evaluate residual F(X) - X.
                call vec_out%sub(vec_in)
+      ! One CSV row for this F evaluation. Every timer read there is idle at
+      ! this point; get_data would STOP a running one.
+               call neklab_timer_dump('F', eval=self%get_eval_counter(),
+     &                                nsteps=bf_get_nsteps())
             class default
                call nek_stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'",
      & this_module, this_procedure)
@@ -211,6 +219,8 @@
       ! Evaluate [ M_T - I ] @ dx.
                call vec_out%sub(vec_in)
                param(22) = atol
+               call neklab_timer_dump('J', matvec=self%get_counter(.false.),
+     &                                nsteps=nsteps_bf)
             class default
                call nek_stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'",
      & this_module, this_procedure)
@@ -275,6 +285,8 @@
       ! Evaluate [ M_T^T - I ] @ dx.
                call vec_out%sub(vec_in)
                param(22) = atol
+               call neklab_timer_dump('JT', rmatvec=self%get_counter(.true.),
+     &                                nsteps=nsteps_bf)
             class default
                call nek_stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'",
      & this_module, this_procedure)

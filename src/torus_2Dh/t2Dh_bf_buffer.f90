@@ -61,7 +61,9 @@
          use stdlib_sorting, only: sort_index
          use LightKrylov, only: dp
          use LightKrylov_Logger
-         use LightKrylov_Timing, only: lk_timer => global_lightkrylov_timer
+         use neklab_timing, only: neklab_timer_start, neklab_timer_stop,
+     &                            t_bf_push, t_bf_set, t_bf_window,
+     &                            t_bf_write, t_bf_read
          use neklab_nek_setup, only: nek_log_message, nek_log_information,
      &                               nek_log_warning, nek_log_debug, nek_stop_error
          implicit none
@@ -241,11 +243,12 @@
             allocate (x2d(nbf)); call copy(x2d, xm1, nbf)
             allocate (y2d(nbf)); call copy(y2d, ym1, nbf)
 
-            call lk_timer%add_timer('neklab_bf_push', start=.false.)
-            call lk_timer%add_timer('neklab_bf_set', start=.false.)
-            call lk_timer%add_timer('neklab_bf_write_chunk', start=.false.)
-            call lk_timer%add_timer('neklab_bf_read_chunk', start=.false.)
-
+      ! NOTE: the buffer timers used to be registered here as USER timers on the
+      ! LightKrylov watch. They are now private timers of the neklab watch,
+      ! declared once in set_neklab_timers. That is not cosmetic: add_timer
+      ! aborts through stop_error on a duplicate name, so a second bf_init in
+      ! the same run (a steady solve followed by an unsteady one, or any
+      ! bf_finalize_module/bf_init pair) used to kill the job.
             is_initialized = .true.
 
             mbytes = 3.0_dp*real(nbf, dp)*real(lbuf, dp)*8.0_dp/1024.0_dp**2
@@ -339,7 +342,7 @@
             if (.not. is_recording) then
                call nek_stop_error('bf_begin_step called outside a recording.', this_module, this_procedure)
             end if
-            call lk_timer%start('neklab_bf_push')
+            call neklab_timer_start(t_bf_push)
 
       ! Buffer full: flush before overwriting. bufdt is complete at this point
       ! because bf_end_step filled slot lbuf on the previous step.
@@ -352,7 +355,7 @@
             call copy(bufy(1, nsave), vy, nbf)
             call copy(bufs(1, nsave), t(1, 1, 1, 1, 1), nbf)
 
-            call lk_timer%stop('neklab_bf_push')
+            call neklab_timer_stop(t_bf_push)
          end subroutine bf_begin_step
 
          subroutine bf_end_step(count_stats)
@@ -497,7 +500,7 @@
                call nek_stop_error(msg, this_module, this_procedure)
             end if
             if_lag_ = optval(if_lag, .true.)
-            call lk_timer%start('neklab_bf_set')
+            call neklab_timer_start(t_bf_set)
 
             c = (k - 1)/lbuf + 1
             j = k - (c - 1)*lbuf
@@ -520,7 +523,7 @@
       ! sees param(12) < 0, after which dt = abs(param(12)) on every step.
             param(12) = -abs(bufdt(j))
 
-            call lk_timer%stop('neklab_bf_set')
+            call neklab_timer_stop(t_bf_set)
          end subroutine bf_set
 
          subroutine bf_set_window(k)
@@ -546,7 +549,7 @@
                write (msg, '(A,I0,A,I0,A)') 'Requested step ', k, ' outside [1, ', nsteps_rec, '].'
                call nek_stop_error(msg, this_module, this_procedure)
             end if
-            call lk_timer%start('neklab_bf_set')
+            call neklab_timer_start(t_bf_window)
 
             c = (k - 1)/lbuf + 1
             j = k - (c - 1)*lbuf
@@ -575,7 +578,7 @@
 
             param(12) = -abs(bufdt(j))
 
-            call lk_timer%stop('neklab_bf_set')
+            call neklab_timer_stop(t_bf_window)
          end subroutine bf_set_window
 
       !====================================================================

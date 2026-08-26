@@ -44,7 +44,9 @@
          use LightKrylov, only: linear_combination, innerprod
          use LightKrylov, only: newton, newton_dp_opts, gmres_rdp, gmres_dp_opts
          use LightKrylov_Logger
-         use LightKrylov_Timing, only: timer => global_lightkrylov_timer
+         use neklab_timing, only: neklab_timer_start, neklab_timer_stop, neklab_timer_tag,
+     &                            neklab_reset_timers, t_fp_solve, t_fr_iter,
+     &                            t_fd_jac, t_shift_phase, t_save_orbit, t_nl_step
          use LightKrylov_AbstractSystems, only: abstract_system_rdp
          use LightKrylov_AbstractVectors, only: abstract_vector_rdp
          use neklab_2Dh_axisym, only: nek_advance_2Dh_axisym
@@ -112,11 +114,13 @@
       ! internal
             type(newton_dp_opts) :: opts
             opts = newton_dp_opts(maxiter=optval(maxiter, 40), ifbisect=.false.)
+            call neklab_timer_start(t_fp_solve)
             if (tol_mode == 1) then
                call newton(sys, X, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_constant_tol)
             else
                call newton(sys, X, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_dynamic_tol)
             end if
+            call neklab_timer_stop(t_fp_solve)
          end subroutine solve_fixed_point
 
       !==========================================================================
@@ -227,6 +231,7 @@
       ! ---- Baseline solve at the incoming forcing
       !
             call nek_log_message('Baseline solve ...', this_module, this_procedure)
+            call neklab_timer_tag(phase='baseline', outer=0)
             tol_inner = tol
             tol_prev = tol
             call solve_fixed_point(sys, bf, tol_inner, tol_mode_, info_, maxiter=maxiter_inner_)
@@ -286,6 +291,8 @@
                end if
                if (inwt > maxiter_) exit newton_loop
                write (step_id, '("Step ",I3,": ")') inwt
+               call neklab_timer_tag(phase='newton', outer=inwt)
+               call neklab_timer_start(t_fr_iter)
 
       ! ---- Newton step, Jac da = -mf_err
                call lusolve(nmf, Jac, -mf_err(1:nmf), da, dscale, ierr)
@@ -402,6 +409,12 @@
                have_pred = .true.
                call log_state(inwt)
                call outpost_dnek(bf, prefix_)
+      ! Close the iteration and snapshot the timers. The soft reset is what
+      ! turns the finalize summary into a per-outer-iteration table; it must
+      ! come AFTER t_fr_iter is stopped, because reset_all refuses to reset a
+      ! running timer and logs a line every time it meets one.
+               call neklab_timer_stop(t_fr_iter)
+               call neklab_reset_timers()
             end do newton_loop
 
       !
@@ -510,6 +523,10 @@
 
                call nek_log_message('Building the outer Jacobian by finite differences ...',
      &            this_module, this_procedure)
+      ! Tag the rows: nmf full inner solves that are NOT Newton steps and would
+      ! otherwise be attributed to whichever outer iteration they sit next to.
+               call neklab_timer_tag(phase='fdjac')
+               call neklab_timer_start(t_fd_jac)
                call refv%zero(); call refv%add(bf)
                call t2Dh%get_dpds(d0)
       ! The mean responds most strongly, so it gets the smallest probe; the
@@ -565,6 +582,8 @@
                   write (lmsg, '(6X,*(1X,E16.8))') (Jac(ii, jj), jj=1, nmf)
                   call nek_log_message(lmsg, this_module, this_procedure)
                end do
+               call neklab_timer_stop(t_fd_jac)
+               call neklab_timer_tag(phase='newton')
             end subroutine fd_jacobian
 
          end subroutine flowrate_newton
@@ -756,7 +775,10 @@
                call nek_log_message('Recording the converged orbit under prefix b ...',
      &            this_module, this_procedure)
                call bf_set_prefix('b')
+               call neklab_timer_tag(phase='saveorbit')
+               call neklab_timer_start(t_save_orbit)
                call sys%response(bf, res, tol)
+               call neklab_timer_stop(t_save_orbit)
                write (msg, '(3X,A,1X,E16.8)') 'converged |F(X)| :', res%norm()
                call nek_log_message(msg, this_module, this_procedure)
                call bf_summary()
@@ -826,11 +848,14 @@
             integer :: k, kc
             real(dp), parameter :: tol_shift = 1.0e-08_dp
 
+            call neklab_timer_tag(phase='gauge')
+            call neklab_timer_start(t_shift_phase)
             omega = t2Dh%get_omega()
             period = t2Dh%get_period()
             kc = t2Dh%get_kharm()
             if (kc < 1) then
                call nek_log_warning('No harmonics: nothing to gauge.', this_module, this_procedure)
+               call neklab_timer_stop(t_shift_phase)
                return
             end if
 
@@ -842,6 +867,7 @@
             if (abs(shift) < tol_shift) then
                call nek_log_message('Fundamental is already in phase. Nothing to do.',
      &            this_module, this_procedure)
+               call neklab_timer_stop(t_shift_phase)
                return
             end if
       ! Time only runs forward, so a negative shift is taken modulo the period.
@@ -863,7 +889,9 @@
             istep = 0
             do while (lastep == 0)
                istep = istep + 1
+               call neklab_timer_start(t_nl_step)
                call nek_advance()
+               call neklab_timer_stop(t_nl_step)
             end do
             call nek2vec(bf, vx, vy, vz, pr, t)
 
@@ -875,6 +903,7 @@
                call nek_log_warning('Only the fundamental has been gauged. Higher harmonics keep '//
      &            'their relative phases, which are physical.', this_module, this_procedure)
             end if
+            call neklab_timer_stop(t_shift_phase)
          end subroutine shift_mflow_phase_upo
 
       !====================================================================

@@ -19,12 +19,16 @@
       ! Intgrate the nonlinear equations forward
                time = 0.0_dp
                do istep = 1, nsteps
+                  call neklab_timer_start(t_nl_step)
                   call nek_advance()
+                  call neklab_timer_stop(t_nl_step)
                end do
       ! Copy the final solution to vector.
                call nek2vec(vec_out, vx, vy, vz, pr, t)
       ! Evaluate residual F(X) - X.
                call vec_out%sub(vec_in)
+               call neklab_timer_dump('F', eval=self%get_eval_counter(),
+     &                                nsteps=nsteps)
             class default
                call nek_stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'",
      & this_module, this_procedure)
@@ -65,6 +69,8 @@
       ! Evaluate [ exp(tau*J) - I ] @ dx.
                call vec_out%sub(vec_in)
                param(22) = atol
+               call neklab_timer_dump('J', matvec=self%get_counter(.false.),
+     &                                nsteps=nsteps)
             class default
                call nek_stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'",
      & this_module, this_procedure)
@@ -106,6 +112,8 @@
       ! Evaluate [ exp(tau*J) - I ] @ dx.
                call vec_out%sub(vec_in)
                param(22) = atol
+               call neklab_timer_dump('JT', rmatvec=self%get_counter(.true.),
+     &                                nsteps=nsteps)
             class default
                call nek_stop_error("The intent [OUT] argument 'vec_out' must be of type 'nek_dvector'",
      & this_module, this_procedure)

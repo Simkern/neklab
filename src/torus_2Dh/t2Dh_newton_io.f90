@@ -522,8 +522,8 @@
             call bcast_record(rec)
          end subroutine nwt_read
 
-         subroutine nwt_restore(fname, ierr, if_womersley, womersley,
-     &                          if_seed_jacobian, if_check, rec_out)
+         subroutine nwt_restore(fname, rec, ierr, if_womersley, womersley,
+     &                          if_seed_jacobian, if_check)
       !! Reads a record and configures t2Dh from it: the one call a userchk
       !! needs to pick a run up where the last one stopped.
       !!
@@ -538,6 +538,7 @@
       !! finding that out from a diverging Newton three hours in is worse than
       !! finding it out here.
             character(len=*), intent(in) :: fname
+            type(t2Dh_nwt_record), intent(out) :: rec
             integer, intent(out) :: ierr
             logical, optional, intent(in) :: if_womersley
       !! Take the Womersley number from the file. Default .true. Set .false. to
@@ -553,11 +554,9 @@
             logical, optional, intent(in) :: if_check
       !! Enforce the geometry and Reynolds checks. Default .true. Turn it off
       !! only to deliberately carry a forcing onto a different mesh.
-            type(t2Dh_nwt_record), optional, intent(out) :: rec_out
       ! internal
             character(len=*), parameter :: this_procedure = 'nwt_restore'
             character(len=256) :: msg
-            type(t2Dh_nwt_record) :: rec
             real(dp) :: Wo, Re_run
             logical :: use_file_Wo, seed_, check_
 
@@ -626,7 +625,6 @@
      &            this_module, this_procedure)
             end if
             call t2Dh%summary()
-            if (present(rec_out)) rec_out = rec
          end subroutine nwt_restore
 
       !--------------------------------------------------------------------

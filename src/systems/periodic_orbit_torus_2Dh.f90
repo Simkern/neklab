@@ -84,6 +84,7 @@
          character(len=256) :: msg
          real(dp) :: period, trem, dtland
          logical :: landing
+         integer :: iland
          select type (vec_in)
          type is (nek_dvector)
             select type (vec_out)
@@ -113,16 +114,9 @@
                time = 0.0_dp
                istep = 0
                landing = .false.
-               do while (lastep == 0)
+               iland = 0
+               do 
                   istep = istep + 1
-      ! --- landing: force the last n_land steps to be equal and to land
-      !     exactly on T. Setting param(12) < 0 latches iffxdt in setdt, after
-      !     which dt = abs(param(12)) on every step. Crucially, subs1.f:306
-      !     ('if (iffxdt) dt=dtopf') runs AFTER the fintim clipping at label
-      !     200, so LASTEP still fires when the horizon is reached but dt is
-      !     no longer cut down to the remainder -- which is exactly what makes
-      !     n_land equal steps land on T. The istep > 2 guard keeps this away
-      !     from the BDF/EXT order ramp (nab = min(istep,3)).
                   if (.not. landing .and. istep > 2) then
                      trem = period - time
                      if (trem <= land_factor*dt) then
@@ -143,7 +137,21 @@
       ! to report the resolution of the orbit.
                   call bf_end_step(count_stats = .not. landing)
                   call t2Dh%accumulate_mflow(t2Dh%ubar(), time, dt)
+      ! The landing consumes exactly n_land steps by construction. Do not let
+      ! setdt's TIME+DT >= FINTIM test decide: n_land equal steps sum to T only
+      ! in exact arithmetic, and a shortfall of one ulp costs a whole extra
+      ! step because subs1.f:306 undoes the clipping of dt to the remainder.
+                  if (landing) then
+                     iland = iland + 1
+                     if (iland == n_land) exit
+                  else if (lastep /= 0) then
+                     exit   ! safety net: landing never engaged
+                  end if
                end do
+               lastep = 1
+               write (msg, '(A,I0,A,E16.8)') 'Landed in ', iland,
+     &            ' steps, period - time= ', period - time
+               call nek_log_debug(msg, this_module, this_procedure)
       ! Close the recording. This is where sum(dt) == T and the minimum step
       ! count are enforced: both failures would otherwise show up much later as
       ! an inconsistency between F and dF.

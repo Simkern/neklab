@@ -11,9 +11,20 @@
       !!                       fly, because the perturbation fields are not
       !!                       stored anywhere.
       !!
-      !! Both are meant to be called from userchk AFTER the Newton solve (and,
-      !! for the second, after the stability analysis has produced a mode and
-      !! its multiplier). Both leave the Nek state as they found it.
+      !! Both wrappers work in TWO modes:
+      !!
+      !!   in-solver (default): the buffer is already live from the Newton or
+      !!      stability run that just finished; pass no extra arguments.
+      !!
+      !!   post-processing: call from a fresh job (or after nek_end / userchk
+      !!      at the very end of the run) by passing base= and prefix= to
+      !!      point at an existing set of chunk files. The wrapper calls bf_init
+      !!      (a no-op if the buffer is already up) and then bf_read_t2Dh to
+      !!      restore nsteps, nchunk, T and omega from the sidecar file
+      !!      <prefix><base>.t2Dh, after which the chunk files are readable.
+      !!
+      !! Both leave the Nek state, the buffer prefix, and param(12) as they
+      !! found them.
       !!
       !!--------------------------------------------------------------------
       !! WHY THE PERTURBATION NEEDS THE MULTIPLIER
@@ -54,15 +65,16 @@
          use LightKrylov, only: dp, atol_dp
          use neklab_vectors, only: nek_zvector
          use neklab_utils, only: vec2nek
-         use neklab_t2Dh, only: t2Dh
+         use neklab_t2Dh, only: t2Dh, lfc
          use neklab_2Dh, only: nek_advance_2Dh
          use neklab_2Dh_axisym, only: nek_advance_2Dh_axisym
          use neklab_nek_setup, only: setup_linear_solver, nek_log_message,
      &                               nek_log_information, nek_log_warning,
      &                               nek_log_debug, nek_stop_error
-         use t2Dh_bf_buffer, only: bf_get_nsteps, bf_get_time, bf_get_dt,
+         use t2Dh_bf_buffer, only: bf_init, bf_get_nsteps, bf_get_time, bf_get_dt,
      &                             bf_set, bf_set_prefix, bf_get_prefix,
-     &                             bf_replay_start, bf_replay_end, bf_is_recording
+     &                             bf_replay_start, bf_replay_end, bf_is_recording,
+     &                             bf_read_t2Dh
          use t2Dh_tfft, only: tfft_start, tfft_add, tfft_close, tfft_free,
      &                        tfft_demodulate, tfft_outpost, tfft_spectrum,
      &                        tfft_check_ubar, tfft_mharm, mfft_max
@@ -82,20 +94,27 @@
       !     BASEFLOW
       !====================================================================
 
-         subroutine tfft_baseflow(mmax, prefix, if_outpost, if_check)
+         subroutine tfft_baseflow(mmax, prefix, base, if_outpost, if_check)
       !! Temporal Fourier transform of the recorded orbit.
       !!
-      !! Reads the chunk files under `prefix` (default 'b', the converged orbit
-      !! the driver re-records for the Floquet run) and projects every snapshot
-      !! onto the temporal basis. Nothing is integrated: the recording already
-      !! holds u(x,t_k) and dt_k for every step, which is exactly and only what
-      !! the quadrature needs.
+      !! In-solver: call with no extra arguments (or just prefix) immediately
+      !! after the Newton solve. The buffer is already live.
       !!
-      !! Because the transform is a post-processing sweep rather than something
-      !! bolted into the time loop, the number of harmonics is a choice you
-      !! make here and can change without re-running anything.
+      !! Post-processing: supply base= (the filename stem, e.g. '2dtorus') and
+      !! prefix= (the one-character prefix, default 'b'). The wrapper calls
+      !! bf_init then reads the sidecar file <prefix><base>.t2Dh to recover
+      !! nsteps, nchunk and T, and the chunk files become readable with the
+      !! existing load_chunk machinery. t2Dh must be initialised separately
+      !! (read the sidecar first, call t2Dh%init_flow with the dpds from it).
+      !!
+      !! The number of harmonics is a post-processing choice and can be changed
+      !! without re-running anything.
             integer, intent(in) :: mmax
             character(len=1), optional, intent(in) :: prefix
+      !! One-character filename prefix. Default 'b' (the converged orbit).
+            character(len=*), optional, intent(in) :: base
+      !! Filename stem. Only needed in post-processing mode. If absent the
+      !! buffer's current stem is used (set by bf_init in the solver run).
             logical, optional, intent(in) :: if_outpost
             logical, optional, intent(in) :: if_check
       ! internal
@@ -107,7 +126,7 @@
             real(dp) :: tk, dtk, T
             integer :: k, n, nbf
 
-            call guard_buffer(this_procedure)
+            call bf_attach(prefix, base, this_procedure)
             n = bf_get_nsteps()
             T = bf_get_time()
             nbf = lx1*ly1*lz1*nelv
@@ -157,10 +176,17 @@
       !     PERTURBATION
       !====================================================================
 
-         subroutine tfft_perturbation(mmax, zmode, alpha, mu, prefix, vtol, ptol,
+         subroutine tfft_perturbation(mmax, zmode, alpha, mu, prefix, base, vtol, ptol,
      &                                if_outpost, if_normalise, if_axisym)
       !! Re-runs the linear solver over one period on the replayed baseflow and
       !! transforms the Floquet mode on the fly.
+      !!
+      !! In-solver: call immediately after the stability analysis. The buffer is
+      !! already live.
+      !!
+      !! Post-processing: supply base= and prefix= as for tfft_baseflow. The
+      !! t2Dh and the mode vector must also be reconstructed from the sidecars
+      !! before calling.
       !!
       !! zmode is the eigenvector as the stability analysis returned it, mu its
       !! multiplier. alpha is the azimuthal wavenumber: alpha = 0 needs npert=1
@@ -173,6 +199,9 @@
       !! Floquet multiplier. Default (1,0), i.e. no demodulation, which is only
       !! right for a forced linear response with no homogeneous growth.
             character(len=1), optional, intent(in) :: prefix
+      !! One-character filename prefix. Default 'b'.
+            character(len=*), optional, intent(in) :: base
+      !! Filename stem. Only needed in post-processing mode.
             real(dp), optional, intent(in) :: vtol
             real(dp), optional, intent(in) :: ptol
             logical, optional, intent(in) :: if_outpost
@@ -189,7 +218,7 @@
             integer :: k, n, nbf, nblk, nf, i
             logical :: axisym_
 
-            call guard_buffer(this_procedure)
+            call bf_attach(prefix, base, this_procedure)
             n = bf_get_nsteps()
             T = bf_get_time()
             nbf = lx1*ly1*lz1*nelv
@@ -317,21 +346,54 @@
       !     PRIVATE HELPERS
       !====================================================================
 
-         subroutine guard_buffer(caller)
+         subroutine bf_attach(prefix, base, caller)
+      !! Ensures the buffer module has its metadata. In-solver (buffer already
+      !! live, nsteps_rec > 0): a no-op beyond the recording guard.
+      !! Post-processing (fresh job or buffer empty): calls bf_init (a silent
+      !! no-op if already initialised) then bf_read_t2Dh with the given prefix
+      !! and base, which restores nsteps_rec, nchunk and trec from the sidecar.
+      !! The sidecar also carries omega and the forcing dpds; we read them only
+      !! to check that t2Dh has been initialised (it must happen separately so
+      !! the caller controls which dpds and Wo end up in t2Dh).
+            character(len=1), optional, intent(in) :: prefix
+            character(len=*), optional, intent(in) :: base
             character(len=*), intent(in) :: caller
+      ! internal
+            real(dp), dimension(lfc) :: dpds_dummy
+            real(dp) :: omega_scar, period_scar
+            integer :: nf_scar, ierr
             if (bf_is_recording()) then
                call nek_stop_error('The buffer is still recording. Close the nonlinear pass first.',
      &            this_module, caller)
             end if
             if (bf_get_nsteps() == 0) then
-               call nek_stop_error('Nothing recorded: run the Newton solve (or attach an '//
-     &            'existing recording) before asking for its transform.', this_module, caller)
+      ! Post-processing path: init buffer (no-op if already done) and read
+      ! the sidecar for the metadata (nsteps, nchunk, T).
+               if (.not. present(base)) then
+                  call nek_stop_error('Buffer is empty and no base= was given. In post-processing '//
+     &               'mode supply base= (e.g. base=''2dtorus'') and prefix= so the sidecar '//
+     &               '<prefix><base>.t2Dh can be located.', this_module, caller)
+               end if
+               call bf_set_prefix(optval(prefix, 'b'))
+               call bf_init(base=base, write_chunks=.false.)
+               call bf_read_t2Dh(dpds_dummy, nf_scar, omega_scar, period_scar, ierr)
+               if (ierr /= 0) then
+                  call nek_stop_error('Could not read the t2Dh sidecar. Run the Newton solve '//
+     &               'first (it writes <prefix><base>.t2Dh), or check the prefix and base '//
+     &               'arguments.', this_module, caller)
+               end if
+               if (bf_get_nsteps() == 0) then
+                  call nek_stop_error('Sidecar was read but nsteps is still zero. The sidecar '//
+     &               'and the chunk files are inconsistent.', this_module, caller)
+               end if
             end if
             if (.not. t2Dh%is_initialised()) then
-               call nek_stop_error('t2Dh is not initialised: no omega to project onto.',
+               call nek_stop_error('t2Dh is not initialised: no omega to project onto. '//
+     &            'In post-processing mode call t2Dh%init_flow with the dpds from the sidecar '//
+     &            '(use bf_read_t2Dh) before calling the transform wrapper.',
      &            this_module, caller)
             end if
-         end subroutine guard_buffer
+         end subroutine bf_attach
 
          subroutine pack_base(w, nbf)
       !! (u_z, u_R, u_phi) from the Nek baseflow fields. u_phi lives in the

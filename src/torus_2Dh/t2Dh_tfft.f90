@@ -96,7 +96,7 @@
          real(dp), allocatable :: flg(:, :)
       !! (nbf, nfld). Left endpoint of the current trapezoidal interval.
          real(dp) :: omega = 0.0_dp
-         real(dp) :: tlag = 0.0_dp
+         real(dp) :: tlagv = 0.0_dp
          real(dp) :: tacc = 0.0_dp
          real(dp) :: period = 0.0_dp
          integer :: nbf = 0
@@ -162,7 +162,7 @@
             do i = 1, nfld
                call copy(flg(1, i), f0(1, i), nbf)
             end do
-            tlag = 0.0_dp
+            tlagv = 0.0_dp
             tacc = 0.0_dp
             period = 0.0_dp
             nacc = 0
@@ -175,7 +175,7 @@
          end subroutine tfft_start
 
          subroutine tfft_add(f, tval, dtn)
-      !! One trapezoidal interval [tlag, tval]. Call once per step, AFTER the
+      !! One trapezoidal interval [tlagv, tval]. Call once per step, AFTER the
       !! advance, with tval the time at the END of the step and dtn the step
       !! just taken -- the same arguments accumulate_mflow takes, and
       !! deliberately so: the two transforms then share a grid and a rule.
@@ -194,7 +194,7 @@
      &            this_module, this_procedure)
             end if
             do j = 1, nb
-               wo = 0.5_dp*dtn*t2Dh_basis(j, omega, tlag)
+               wo = 0.5_dp*dtn*t2Dh_basis(j, omega, tlagv)
                wn = 0.5_dp*dtn*t2Dh_basis(j, omega, tval)
                do i = 1, nfld
                   call add2s2(fh(1, i, j), flg(1, i), wo, nbf)
@@ -204,7 +204,7 @@
             do i = 1, nfld
                call copy(flg(1, i), f(1, i), nbf)
             end do
-            tlag = tval
+            tlagv = tval
             tacc = tacc + dtn
             nacc = nacc + 1
          end subroutine tfft_add

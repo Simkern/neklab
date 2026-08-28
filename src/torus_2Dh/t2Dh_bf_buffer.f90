@@ -139,7 +139,7 @@
          public :: bf_reset, bf_begin_step, bf_end_step, bf_close_record
          public :: bf_replay_start, bf_replay_end, bf_set, bf_set_window
          public :: bf_get_nsteps, bf_get_dt, bf_get_dt_minmax, bf_get_nchunk
-         public :: bf_get_time, bf_is_recording, bf_get_nsteps_min
+         public :: bf_get_time, bf_is_recording, bf_is_initialised, bf_get_nsteps_min
          public :: bf_set_prefix, bf_get_prefix, bf_fname
          public :: bf_write_mesh, bf_summary
          public :: bf_write_t2Dh, bf_read_t2Dh
@@ -243,12 +243,6 @@
             allocate (x2d(nbf)); call copy(x2d, xm1, nbf)
             allocate (y2d(nbf)); call copy(y2d, ym1, nbf)
 
-      ! NOTE: the buffer timers used to be registered here as USER timers on the
-      ! LightKrylov watch. They are now private timers of the neklab watch,
-      ! declared once in set_neklab_timers. That is not cosmetic: add_timer
-      ! aborts through stop_error on a duplicate name, so a second bf_init in
-      ! the same run (a steady solve followed by an unsteady one, or any
-      ! bf_finalize_module/bf_init pair) used to kill the job.
             is_initialized = .true.
 
             mbytes = 3.0_dp*real(nbf, dp)*real(lbuf, dp)*8.0_dp/1024.0_dp**2
@@ -320,7 +314,7 @@
             character(len=1), optional, intent(in) :: prefix
       ! internal
             character(len=*), parameter :: this_procedure = 'bf_reset'
-            call check_init(this_procedure)
+            if (.not. is_initialized) return
             if (present(prefix)) fprefix = prefix
             nsave = 0
             nsteps_rec = 0
@@ -338,7 +332,7 @@
       !! Stores the state ENTERING the current step. Call immediately before
       !! nek_advance(). Spills the chunk first if the buffer is full.
             character(len=*), parameter :: this_procedure = 'bf_begin_step'
-            call check_init(this_procedure)
+            if (.not. is_initialized) return
             if (.not. is_recording) then
                call nek_stop_error('bf_begin_step called outside a recording.', this_module, this_procedure)
             end if
@@ -369,7 +363,7 @@
       !! unconditionally for the same reason.
       ! internal
             character(len=*), parameter :: this_procedure = 'bf_end_step'
-            call check_init(this_procedure)
+            if (.not. is_initialized) return
             if (nsave == 0) then
                call nek_stop_error('bf_end_step without a matching bf_begin_step.', this_module, this_procedure)
             end if
@@ -392,7 +386,7 @@
             character(len=*), parameter :: this_procedure = 'bf_close_record'
             character(len=256) :: msg
             real(dp) :: terr
-            call check_init(this_procedure)
+            if (.not. is_initialized) return
             if (.not. is_recording) then
                call nek_log_warning('bf_close_record without an active recording.', this_module, this_procedure)
                return
@@ -610,6 +604,11 @@
             logical :: rec
             rec = is_recording
          end function bf_is_recording
+
+         pure function bf_is_initialised() result(ini)
+            logical :: ini
+            ini = is_initialized
+         end function bf_is_initialised
 
          subroutine bf_get_dt_minmax(dtmm)
       !! Extremes of the physical (non-landing) timesteps of the last recording.

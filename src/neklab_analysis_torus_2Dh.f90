@@ -58,7 +58,7 @@
          use neklab_systems
          use neklab_analysis
          use neklab_t2Dh
-         use t2Dh_bf_buffer, only: bf_init, bf_finalize_module,
+         use t2Dh_bf_buffer, only: bf_init, bf_is_recording, bf_finalize_module,
      &                             bf_set_prefix, bf_get_dt_minmax,
      &                             bf_get_nsteps, bf_get_time, bf_summary,
      &                             bf_write_t2Dh
@@ -97,6 +97,8 @@
          public :: steady_flowrate_newton
          public :: unsteady_flowrate_newton
          public :: shift_mflow_phase_upo
+         public :: warmstart_torus_2Dh
+         public :: helix2native
 
       contains
 
@@ -658,6 +660,14 @@
             real(dp), dimension(lfc) :: d
             real(dp), dimension(1) :: d0, tgt
 
+            select type (sys)
+               type is (nek_system_torus_2Dh)
+                  ! correct type, proceed
+               class default
+                  call nek_stop_error("The intent [INOUT] argument 'sys' must be of type "//
+     &               "'nek_system_torus_2Dh'", this_module, this_procedure)
+            end select
+
             d0(1) = dpds
             tgt(1) = Q_target
             call t2Dh%init_flow(d0)
@@ -705,7 +715,7 @@
       !!
       !! As with the steady wrapper, t2Dh%init_geom must have been called first.
             class(abstract_system_rdp), intent(inout) :: sys
-      !! Pulsatile 2Dh system (nek_system_torus_upo_2Dh). Its jacobian is set here.
+      !! Pulsatile 2Dh system (nek_system_torus_upo_2Dh).
             type(nek_dvector), intent(inout) :: bf
       !! In: initial guess for the orbit. Out: converged orbit.
             real(dp), intent(in) :: Wo
@@ -747,6 +757,14 @@
             gauge_ = optval(if_gauge, .true.)
 
       ! ---- sizes and checks
+            select type (sys)
+               type is (nek_system_torus_upo_2Dh)
+                  ! correct type, proceed
+               class default
+                  call nek_stop_error("The intent [INOUT] argument 'sys' must be of type "//
+     &               "'nek_system_torus_upo_2Dh'", this_module, this_procedure)
+            end select
+
             nf = 2*kharm + 1
             nmf = kharm + 1
             if (kharm < 1) then
@@ -842,6 +860,123 @@
             write (msg, '(3X,A,1X,I0)')        'steps/period     :', bf_get_nsteps()
             call nek_log_message(msg, this_module, this_procedure)
          end subroutine unsteady_flowrate_newton
+
+         !====================================================================
+         !     WARM START: Advance a state by nperiods nonlinear periods
+         !====================================================================
+
+         subroutine warmstart_torus_2Dh(sys, x, nperiods, atol, if_write_residual,
+     &                                  if_write_mflow, if_outpost_fld, prefix)
+            implicit none
+      !! Advance x by nperiods nonlinear periods using Picard iteration.
+      !!
+      !!   sys       -- the system under consideration.
+      !!   x         -- on entry: initial guess. On exit: state after nperiods
+      !!                periods of the nonlinear flow.
+      !!   nperiods  -- number of periods to integrate (>= 1).
+      !!   atol      -- tolerance forwarded to sys%response.
+      !!   if_write_residual  -- Print residual norm at each period. Default .true.
+      !!   if_write_residual  -- Print mass flow and phase at each period. Default .true.
+      !!   if_outpost         -- write the state to disk after each period. Default .false.
+      !!   prefix             -- prefix for the output files. Default 'wst'.
+            class(abstract_system_rdp), intent(inout) :: sys
+            type(nek_dvector),          intent(inout) :: x
+            integer,                    intent(in)    :: nperiods
+            real(dp),                   intent(in)    :: atol
+            logical,          optional, intent(in)    :: if_write_residual
+            logical,          optional, intent(in)    :: if_write_mflow
+            logical,          optional, intent(in)    :: if_outpost_fld
+            character(len=3), optional, intent(in)    :: prefix
+      ! internal
+            character(len=*), parameter :: this_procedure = 'warmstart_torus_2Dh'
+            character(len=256) :: msg
+            type(nek_dvector) :: res
+            character(len=3)  :: pfx_warm
+            real(dp) :: rnrm, T
+            real(dp), dimension(:), allocatable :: mf
+            integer  :: k
+            logical  :: do_out, do_mflow, do_res, is_unsteady
+ 
+            do_res   = optval(if_write_residual, .true.)
+            do_mflow = optval(if_write_mflow, .true.)
+            do_out   = optval(if_outpost_fld, .false.)
+            pfx_warm = optval(prefix, 'wst')
+ 
+      ! --- pre-conditions
+            select type (sys)
+               type is (nek_system_torus_2Dh)
+                  is_unsteady = .false.
+               type is (nek_system_torus_upo_2Dh)
+                  is_unsteady = .true.
+               class default
+                  call nek_stop_error("The intent [INOUT] argument 'sys' must be of type"//
+     &             "'nek_system_torus_2Dh' or 'nek_system_torus_upo_2Dh'",
+     &              this_module, this_procedure)
+            end select
+
+            if (nperiods < 1) then
+               call nek_stop_error('nperiods must be >= 1.', this_module, this_procedure)
+            end if
+            if (.not. t2Dh%is_initialised()) then
+               call nek_stop_error('t2Dh is not initialised. Call t2Dh%init_flow before '//
+     &            'the warm start.', this_module, this_procedure)
+            end if
+            if (is_unsteady) then
+               if (bf_is_recording()) then
+                  call nek_stop_error('Buffer is still recording.', this_module, this_procedure)
+               end if
+               T = t2Dh%get_period()
+            else
+               T = param(10)
+            end if
+            if (T <= 0.0_dp) then
+               call nek_stop_error('Integration time must be > 0.0.', this_module, this_procedure)
+            end if
+ 
+      ! --- header
+            call nek_log_message('', this_module, this_procedure)
+            call nek_log_message('################## WARM START ####################',
+     &                           this_module, this_procedure)
+            write (msg, '(3X,A,I0,A,E16.8)') 'nperiods= ', nperiods, ', T= ', T
+            call nek_log_message(msg, this_module, this_procedure)
+            call nek_log_message('', this_module, this_procedure)
+
+            if (do_out) call set_fldindex(pfx_warm, k)
+ 
+            do k = 1, nperiods
+ 
+               call sys%response(x, res, atol)
+ 
+               if (do_res) then
+                  rnrm = res%norm()
+                  write (msg, '(3X,A,E16.8,A,I0,A,I0,A,E16.8)') 'time ', k*T, ' period ', k, '/', 
+     &               nperiods, ' : |F(x)| = ', rnrm
+               else
+                  write (msg, '(3X,A,E16.8,A,I0,A,I0)') 'time ', k*T, ' period ', k, '/', nperiods
+               end if
+               call nek_log_message(msg, this_module, this_procedure)
+ 
+               call x%add(res)
+               
+               if (do_mflow) then
+                  if (.not. is_unsteady) call t2Dh%measure_mflow(x%theta(:, 1), mf)
+                  call t2Dh%mflow_summary()
+               end if
+               if (do_out) call outpost_dnek(x, pfx_warm)
+ 
+            end do
+ 
+      ! --- footer
+            call nek_log_message('', this_module, this_procedure)
+            rnrm = res%norm()
+            write (msg, '(3X,A,I0,A,E16.8)') 'warm start done after ',
+     &            nperiods, ' period(s), final |F(x)| = ', rnrm
+            call nek_log_message(msg, this_module, this_procedure)
+            call nek_log_message('##################################################',
+     &                           this_module, this_procedure)
+            call nek_log_message('', this_module, this_procedure)
+ 
+         end subroutine warmstart_torus_2Dh
 
       !====================================================================
       !     PHASE GAUGE

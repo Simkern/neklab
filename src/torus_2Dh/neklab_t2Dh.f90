@@ -511,7 +511,7 @@
             end if
          end subroutine init_geom
 
-         subroutine init_flow(self, dpds, womersley)
+         subroutine init_flow(self, dpds, womersley, overwrite)
       !! Configures the control from a forcing vector in the NATIVE convention
       !! and a Womersley number, mirroring neklab_helix % init_flow.
       !!
@@ -529,15 +529,44 @@
       !! Forcing components, native convention, nf = 2K+1 of them.
             real(dp), optional, intent(in) :: womersley
       !! Womersley number of the fundamental. Zero or absent: steady problem.
+            logical, optional, intent(in) :: overwrite
       ! internal
             character(len=*), parameter :: this_procedure = 'init_flow'
             character(len=256) :: msg
             real(dp) :: Wo, pi
             integer :: n
+            logical :: overwrite_
+            integer, parameter :: pad = 10
 
             pi = 4.0_dp*atan(1.0_dp)
             n = size(dpds)
             Wo = optval(womersley, 0.0_dp)
+            overwrite_ = optval(overwrite, .false.)
+
+            if (self%is_initialized) then
+               call nek_log_message('init_flow called on an already-initialized t2Dh.',
+     &            this_module, this_procedure)
+               write (msg, '(A,A)') 'Current configuration: ', merge('unsteady','  steady', self%if_unsteady)
+               call nek_log_message(msg, this_module, this_procedure)
+               write (msg, '(3X,A,1X,2(1X,I7))') padl('K, nf:',pad), self%kharm, self%nf
+               call nek_log_message(msg, this_module, this_procedure)
+               if (self%if_unsteady) then
+                  write (msg, '(3X,A,1X,E16.8)') padl('Wo:',pad), self%womersley
+                  call nek_log_message(msg, this_module, this_procedure)
+                  write (msg, '(3X,A,1X,E16.8)') padl('omega:',pad), self%omega
+                  call nek_log_message(msg, this_module, this_procedure)
+                  write (msg, '(3X,A,1X,E16.8)') padl('T:',pad), self%period
+                  call nek_log_message(msg, this_module, this_procedure)
+               end if
+               call self%forcing_summary()
+               if (overwrite_) then
+                  call nek_log_warning('Overwriting the existing configuration.', this_module, this_procedure)
+               else
+                  call nek_log_message('Use existing configuration. Use overwrite=.true. to force reconfiguration.', 
+     &               this_module, this_procedure)
+                  return
+               end if
+            end if
 
             if (n < 1) then
                call nek_stop_error('init_flow requires at least one forcing component.',

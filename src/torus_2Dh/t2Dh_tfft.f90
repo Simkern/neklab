@@ -472,79 +472,106 @@
             end do
          end subroutine tfft_check_ubar
 
-         subroutine tfft_outpost(letters, mlist)
-      !! One field file per (harmonic, spatial block, real/imaginary part).
+         subroutine tfft_outpost(tags, mlist, if_mesh)
+      !! ONE file series per (spatial block, real/imaginary part). The harmonic
+      !! is the FILE NUMBER inside the series, not part of the name:
       !!
-      !! The 3-character name is <letter><mm>, with mm the harmonic index and
-      !! the letter chosen by the caller:
+      !!   nfld = 3   r__  Re fhat_m        i__  Im fhat_m
+      !!   nfld = 6   rRe  Re_t of Re_x     iRe  Im_t of Re_x
+      !!              rIm  Re_t of Im_x     iIm  Im_t of Im_x
       !!
-      !!   nfld = 3   letters = 'ri'    r = Re fhat_m,      i = Im fhat_m
-      !!   nfld = 6   letters = 'abcd'  a = Re_t of Re_x,   b = Im_t of Re_x
-      !!                                c = Re_t of Im_x,   d = Im_t of Im_x
+      !! so r__2dtorus0.f00001 is the mean and r__2dtorus0.f00017 is m = 16,
+      !! and a post-processor opens the series once and steps through m.
+      !! The harmonic also rides on the time stamp, so m is the time axis.
       !!
       !! Field slots inside each file are (u_z, u_R, --, --, u_phi): the third
       !! velocity component and the pressure are written as zeros because the
       !! 2Dh mesh has no third direction and the buffer stores no pressure.
-      !!
-      !! The harmonic index is also written into the file's time stamp, so a
-      !! post-processor that reads the series sees m on the time axis.
-            character(len=*), intent(in) :: letters
+            character(len=3), dimension(:), optional, intent(in) :: tags
+      !! 2*nblk series names, overriding the defaults above.
             integer, dimension(:), optional, intent(in) :: mlist
+            logical, optional, intent(in) :: if_mesh
+      !! Write the geometry into the first file of each series. Default .true.
       ! internal
             character(len=*), parameter :: this_procedure = 'tfft_outpost'
             character(len=256) :: msg
-            character(len=3) :: nam3
+            character(len=3), dimension(4) :: name
             real(dp), dimension(:, :), allocatable :: fre, fim
             real(dp), dimension(:), allocatable :: vzero, pzero
             real(dp) :: time_save
-            logical :: ifto_save, ifpo_save
-            integer :: m, mm, nblk, ib, i0, nout
+            logical :: ifto_save, ifpo_save, ifxyo_save, mesh_
+            integer :: m, mm, nblk, nser, ib, i0, nout
+
             call check_closed(this_procedure)
             nblk = nfld/3
             if (nblk*3 /= nfld) then
                call nek_stop_error('tfft_outpost expects nfld to be a multiple of 3.',
      &            this_module, this_procedure)
             end if
-            if (len_trim(letters) < 2*nblk) then
-               write (msg, '(A,I0,A)') 'letters must supply ', 2*nblk, ' characters.'
-               call nek_stop_error(msg, this_module, this_procedure)
+            nser = 2*nblk
+            mesh_ = optval(if_mesh, .true.)
+
+            if (present(tags)) then
+               if (size(tags) < nser) then
+                  write (msg, '(A,I0,A)') 'tags must supply ', nser, ' names.'
+                  call nek_stop_error(msg, this_module, this_procedure)
+               end if
+               do ib = 1, nser
+                  name(ib) = tags(ib)
+               end do
+            else if (nblk == 1) then
+               name(1) = 'r__'
+               name(2) = 'i__'
+            else
+               name(1) = 'rRe'
+               name(2) = 'iRe'
+               name(3) = 'rIm'
+               name(4) = 'iIm'
             end if
+
             allocate (fre(lv, nfld), fim(lv, nfld), vzero(lv), pzero(lp2))
             call rzero(vzero, lv)
             call rzero(pzero, lp2)
             time_save = time
             ifto_save = ifto
             ifpo_save = ifpo
+            ifxyo_save = ifxyo
             ifto = .true.
             ifpo = .false.
+
             if (present(mlist)) then
                nout = size(mlist)
             else
                nout = mharm + 1
             end if
+
             do mm = 1, nout
                m = merge_index(mm, mlist)
                if (m < 0 .or. m > mharm) cycle
                call tfft_get(m, fre, fim)
-      ! The harmonic rides on the time stamp rather than on the name, which
-      ! only has room for one integer.
                time = real(m, dp)
+      ! Geometry in the first file of each series only: it is the same mesh
+      ! every time, and 2*nblk copies of it is already one too many.
+               ifxyo = mesh_ .and. (mm == 1)
                do ib = 1, nblk
                   i0 = 3*(ib - 1)
-                  write (nam3, '(A1,I2.2)') letters(2*ib - 1:2*ib - 1), m
-                  call set_fldindex(nam3, m + 1)
-                  call outpost(fre(1, i0 + 1), fre(1, i0 + 2), vzero, pzero, fre(1, i0 + 3), nam3)
-                  write (nam3, '(A1,I2.2)') letters(2*ib:2*ib), m
-                  call set_fldindex(nam3, m + 1)
-                  call outpost(fim(1, i0 + 1), fim(1, i0 + 2), vzero, pzero, fim(1, i0 + 3), nam3)
+      ! Name fixed, harmonic carried by the file index: m -> f<m+1>.
+                  call set_fldindex(name(2*ib - 1), m + 1)
+                  call outpost(fre(1, i0 + 1), fre(1, i0 + 2), vzero, pzero,
+     &                         fre(1, i0 + 3), name(2*ib - 1))
+                  call set_fldindex(name(2*ib), m + 1)
+                  call outpost(fim(1, i0 + 1), fim(1, i0 + 2), vzero, pzero,
+     &                         fim(1, i0 + 3), name(2*ib))
                end do
             end do
+
             time = time_save
             ifto = ifto_save
             ifpo = ifpo_save
+            ifxyo = ifxyo_save
             deallocate (fre, fim, vzero, pzero)
-            write (msg, '(A,I0,A,A,A)') 'wrote ', nout*2*nblk, ' harmonic files for [',
-     &         trim(label), ']'
+            write (msg, '(A,I0,A,I0,A,A,A)') 'wrote ', nser, ' series x ', nout,
+     &         ' harmonics for [', trim(label), ']'
             call nek_log_message(msg, this_module, this_procedure)
          end subroutine tfft_outpost
 

@@ -120,7 +120,7 @@
       ! internal
             character(len=*), parameter :: this_procedure = 'tfft_baseflow'
             character(len=256) :: msg
-            real(dp), dimension(:, :), allocatable :: w, vsave
+            real(dp), dimension(:, :), allocatable :: w, w0, vsave
             real(dp), dimension(0:mfft_max) :: spec
             character(len=1) :: pfx_save
             real(dp) :: tk, dtk, T
@@ -134,7 +134,7 @@
      &         ', prefix ''', optval(prefix, 'b'), ''''
             call nek_log_message(msg, this_module, this_procedure)
 
-            allocate (w(lv, 3), vsave(lv, 3))
+            allocate (w(lv, 3), w0(lv, 3), vsave(lv, 3))
       ! The sweep overwrites vx/vy/t with recorded snapshots, so put back what
       ! the caller had. userchk is not a place to leave the state disturbed.
             call pack_base(vsave, nbf)
@@ -143,18 +143,25 @@
             call bf_set_prefix(optval(prefix, 'b'))
             call bf_replay_start()
 
-      ! Left endpoint of the first interval. For a converged orbit u(0) = u(T),
-      ! so the last snapshot is it; the error of that identity is |F(X)|.
-            call bf_set(n, if_lag=.false.)
-            call pack_base(w, nbf)
-            call tfft_start(mmax, 3, w, 'baseflow')
+      ! bf_begin_step stores the state ENTERING step k, so snapshot k is
+      ! u(t_{k-1}): snapshot 1 IS u(0), and u(T) is not stored at all --
+      ! snapshot n is u(T - dt_n). Interval k therefore runs from snapshot k
+      ! to snapshot k+1, and the last one closes on u(T) = u(0), whose error
+      ! is |F(X)| carried by a single dt/T weight.
+            call bf_set(1, if_lag=.false.)
+            call pack_base(w0, nbf)
+            call tfft_start(mmax, 3, w0, 'baseflow')
 
             tk = 0.0_dp
             do k = 1, n
                dtk = bf_get_dt(k)
-               call bf_set(k, if_lag=.false.)
                tk = tk + dtk
-               call pack_base(w, nbf)
+               if (k < n) then
+                  call bf_set(k + 1, if_lag=.false.)
+                  call pack_base(w, nbf)
+               else
+                  call copy(w, w0, lv*3)
+               end if
                call tfft_add(w, tk, dtk)
             end do
 
@@ -163,13 +170,13 @@
             call tfft_close(T)
 
             call unpack_base(vsave, nbf)
-            deallocate (w, vsave)
+            deallocate (w, w0, vsave)
 
             call tfft_spectrum(spec)
       ! The bulk average of the field harmonics IS the flow-rate harmonic.
       ! Cheap, and it catches every sign and factor-of-two in the chain.
-            if (optval(if_check, .true.)) call tfft_check_ubar(3)
-            if (optval(if_outpost, .true.)) call tfft_outpost('ri')
+            if (optval(if_check, .true.)) call tfft_check_ubar(5)
+            if (optval(if_outpost, .true.)) call tfft_outpost()
          end subroutine tfft_baseflow
 
       !====================================================================
@@ -210,6 +217,7 @@
       ! internal
             character(len=*), parameter :: this_procedure = 'tfft_perturbation'
             character(len=256) :: msg
+            character(len=3), dimension(4) :: tg
             real(dp), dimension(:, :), allocatable :: w, w0
             real(dp), dimension(0:mfft_max) :: spec
             complex(dp) :: mu_
@@ -286,7 +294,7 @@
 
       ! --- replay
             pfx_save = bf_get_prefix()
-            call bf_set_prefix(optval(prefix, 'b'))
+            call bf_set_prefix(optval(prefix, 'n'))
             call bf_replay_start()
 
             time = 0.0_dp
@@ -334,11 +342,8 @@
 
             call tfft_spectrum(spec)
             if (optval(if_outpost, .true.)) then
-               if (nblk == 1) then
-                  call tfft_outpost('ri')
-               else
-                  call tfft_outpost('abcd')
-               end if
+               tg = [ 'rRe', 'iRe', 'rIm', 'iIm' ]
+               call tfft_outpost(tg(1:2*nblk))
             end if
          end subroutine tfft_perturbation
 

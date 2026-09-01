@@ -63,6 +63,8 @@
      &                             bf_get_nsteps, bf_get_time, bf_summary,
      &                             bf_write_t2Dh
          use t2Dh_newton_io, only: t2Dh_nwt_record, nwt_open, nwt_close
+         use t2Dh_tfft, only: tfft_free, mfft_max
+         use t2Dh_tfft_run, only: tfft_baseflow
 
          implicit none
          include "SIZE"
@@ -97,7 +99,7 @@
          public :: steady_flowrate_newton
          public :: unsteady_flowrate_newton
          public :: shift_mflow_phase_upo
-         public :: warmstart_torus_2Dh
+         public :: warmup_torus_2Dh
          public :: helix2native
 
       contains
@@ -183,9 +185,9 @@
 
       ! ---- optional arguments
             tol_mode_ = optval(tol_mode, 1)
-            maxiter_ = optval(maxiter, 10)
             maxiter_inner_ = optval(maxiter_inner, 40)
             inexact_ = optval(if_inexact, .true.)
+            maxiter_ = optval(maxiter, merge(40, 10, inexact_))
             jac0_ = optval(jac0, 'fd')
             prefix_ = optval(prefix, 'nwq')
             if (present(info)) info = 0
@@ -222,7 +224,7 @@
             call nek_log_message(msg, this_module, this_procedure)
             write (msg, '(3X,A,1X,A)') padl('tol. scheduling:', pad), padl(merge('constant', ' dynamic', tol_mode_ == 1), 16)
             call nek_log_message(msg, this_module, this_procedure)
-            write (msg, '(3X,A,1X,A)') padl('inexact outer:', pad), padl(merge('yes', 'no ', inexact_), 16)
+            write (msg, '(3X,A,1X,A)') padl('inexact outer:', pad), padl(merge('yes', ' no', inexact_), 16)
             call nek_log_message(msg, this_module, this_procedure)
             write (msg, '(3X,A,1X,A)') padl('initial jacobian:', pad), padl(trim(jac0_), 16)
             call nek_log_message(msg, this_module, this_procedure)
@@ -695,7 +697,8 @@
 
          subroutine unsteady_flowrate_newton(sys, bf, Wo, kharm, dpds, mflow_target,
      &                                       tol, rtol_mf, tol_mode, maxiter, maxiter_inner,
-     &                                       buffer_base, if_save_orbit, if_gauge, jac0)
+     &                                       buffer_base, if_save_orbit, if_gauge, if_inexact,
+     &                                       jac0, nfft_out)
       !! Pulsatile periodic orbit at a prescribed flowrate spectrum.
       !!
       !! CONVENTIONS AT THIS INTERFACE
@@ -742,8 +745,12 @@
             logical, optional, intent(in) :: if_gauge
       !! Put the fundamental flowrate harmonic on a pure cosine before
       !! returning. Default .true.
+            logical, optional, intent(in) :: if_inexact
+      !! Loosen the inner tolerance while far from the target. Default .true.
             character(len=*), optional, intent(in) :: jac0
       !! 'fd' (default) or 'seed'.
+            integer, optional, intent(in) :: nfft_out
+      !! Number of temporal harmonics for the orbit transform. Default 16.
       ! internal
             character(len=*), parameter :: this_procedure = 'unsteady_flowrate_newton'
             character(len=256) :: msg
@@ -751,10 +758,16 @@
             real(dp), dimension(lfc) :: d_native
             real(dp), dimension(lmfc) :: amp, phase
             logical :: save_orbit_, gauge_
-            integer :: nmf, nf, i, k
+            integer :: nmf, nf, i, k, nfft
 
             save_orbit_ = optval(if_save_orbit, .true.)
             gauge_ = optval(if_gauge, .true.)
+            nfft = optval(nfft_out, 16)
+            if (nfft < 0 .or. nfft > mfft_max) then
+               write (msg, '(A,I0,A,I0,A)') 'nfft= ', nfft, 
+     &            ' outside [0, ', mfft_max, ']. Raise mfft_max.'
+               call nek_stop_error(msg, this_module, this_procedure)
+            end if
 
       ! ---- sizes and checks
             select type (sys)
@@ -815,26 +828,28 @@
             call bf_set_prefix('n')
 
             call flowrate_newton(sys, bf, tol, rtol_mf, tol_mode=tol_mode, maxiter=maxiter,
-     &                           maxiter_inner=maxiter_inner, jac0=optval(jac0, 'fd'), prefix='nwf')
+     &                           maxiter_inner=maxiter_inner, if_inexact=if_inexact,
+     &                           jac0=optval(jac0, 'fd'), prefix='nwf')
 
       ! ---- gauge the time origin
             if (gauge_) call shift_mflow_phase_upo(bf, tol)
 
-      ! ---- record the converged orbit under its own prefix, so the Floquet run
-      !      reads a set of chunk files the next Newton solve will not
-      !      overwrite. This costs one extra nonlinear pass.
+      ! ---- one recorded nonlinear pass over the converged orbit, transformed
+      !      in time. The pass is what fills the buffer; the only files kept
+      !      are the 2*(M+1) harmonic fields.
             if (save_orbit_) then
-               call nek_log_message('Recording the converged orbit under prefix b ...',
-     &            this_module, this_procedure)
-               call bf_set_prefix('b')
-               call neklab_timer_tag(phase='saveorbit')
+               write (msg, '(A,I0)') 'Transforming the converged orbit, M= ', nfft
+               call nek_log_message(msg, this_module, this_procedure)
+               call bf_set_prefix('n')
+               call neklab_timer_tag(phase='tfft')
                call neklab_timer_start(t_save_orbit)
                call sys%response(bf, res, tol)
                call neklab_timer_stop(t_save_orbit)
                write (msg, '(3X,A,1X,E16.8)') 'converged |F(X)| :', res%norm()
                call nek_log_message(msg, this_module, this_procedure)
                call bf_summary()
-               call bf_set_prefix('n')
+               call tfft_baseflow(nfft, prefix='n', if_outpost=.true., if_check=.true.)
+               call tfft_free()
             end if
 
       ! ---- hand the forcing back in helix units and leave a restart sidecar
@@ -862,13 +877,13 @@
          end subroutine unsteady_flowrate_newton
 
          !====================================================================
-         !     WARM START: Advance a state by nperiods nonlinear periods
+         !     WARMUP: Advance a state by nperiods nonlinear periods
          !====================================================================
 
-         subroutine warmstart_torus_2Dh(sys, x, nperiods, atol, if_write_residual,
+         subroutine warmup_torus_2Dh(sys, x, nperiods, atol, if_write_residual,
      &                                  if_write_mflow, if_outpost_fld, prefix)
             implicit none
-      !! Advance x by nperiods nonlinear periods using Picard iteration.
+      !! Advance x by nperiods nonlinear periods.
       !!
       !!   sys       -- the system under consideration.
       !!   x         -- on entry: initial guess. On exit: state after nperiods
@@ -888,7 +903,7 @@
             logical,          optional, intent(in)    :: if_outpost_fld
             character(len=3), optional, intent(in)    :: prefix
       ! internal
-            character(len=*), parameter :: this_procedure = 'warmstart_torus_2Dh'
+            character(len=*), parameter :: this_procedure = 'warmup_torus_2Dh'
             character(len=256) :: msg
             type(nek_dvector) :: res
             character(len=3)  :: pfx_warm
@@ -935,7 +950,7 @@
  
       ! --- header
             call nek_log_message('', this_module, this_procedure)
-            call nek_log_message('################## WARM START ####################',
+            call nek_log_message('################## WARMUP ####################',
      &                           this_module, this_procedure)
             write (msg, '(3X,A,I0,A,E16.8)') 'nperiods= ', nperiods, ', T= ', T
             call nek_log_message(msg, this_module, this_procedure)
@@ -947,21 +962,22 @@
  
                call sys%response(x, res, atol)
  
-               if (do_res) then
-                  rnrm = res%norm()
-                  write (msg, '(3X,A,E16.8,A,I0,A,I0,A,E16.8)') 'time ', k*T, ' period ', k, '/', 
-     &               nperiods, ' : |F(x)| = ', rnrm
-               else
-                  write (msg, '(3X,A,E16.8,A,I0,A,I0)') 'time ', k*T, ' period ', k, '/', nperiods
-               end if
-               call nek_log_message(msg, this_module, this_procedure)
- 
                call x%add(res)
-               
+
                if (do_mflow) then
                   if (.not. is_unsteady) call t2Dh%measure_mflow(x%theta(:, 1), mf)
                   call t2Dh%mflow_summary()
                end if
+               
+               if (do_res) then
+                  rnrm = res%norm()
+                  write (msg, '(3X,A,E16.8,A,I0,A,I0,A,E16.8)') 'time ', k*T, ' period ', k, '/', 
+     &               nperiods, ' : res = ', rnrm
+               else
+                  write (msg, '(3X,A,E16.8,A,I0,A,I0)') 'time ', k*T, ' period ', k, '/', nperiods
+               end if
+               call nek_log_message(msg, this_module, this_procedure)
+               
                if (do_out) call outpost_dnek(x, pfx_warm)
  
             end do
@@ -969,14 +985,13 @@
       ! --- footer
             call nek_log_message('', this_module, this_procedure)
             rnrm = res%norm()
-            write (msg, '(3X,A,I0,A,E16.8)') 'warm start done after ',
-     &            nperiods, ' period(s), final |F(x)| = ', rnrm
+            write (msg, '(A,I0,A,E16.8)') ' warmup ', nperiods, ' period(s), final res = ', rnrm
             call nek_log_message(msg, this_module, this_procedure)
             call nek_log_message('##################################################',
      &                           this_module, this_procedure)
             call nek_log_message('', this_module, this_procedure)
  
-         end subroutine warmstart_torus_2Dh
+         end subroutine warmup_torus_2Dh
 
       !====================================================================
       !     PHASE GAUGE

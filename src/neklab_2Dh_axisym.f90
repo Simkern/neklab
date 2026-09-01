@@ -1060,6 +1060,7 @@
             end if
  9998       format(i11,a,F5.1,1X,I6,1p5e13.4)
  9999       format(i11,a,I6,1p5e13.4)
+            call neklab_timer_stop(t_solve_pres)
          end subroutine solve_pressure_2Dh_axisym
 
          subroutine setrhs_pressure_2Dh_axisym(dp,h1,h2,h2inv,proj_set,niprev,alphaR,info_str)

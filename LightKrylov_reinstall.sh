@@ -10,10 +10,10 @@ cd LightKrylov
 
 # Sets the compilation options depending on the detected compiler.
 if command -v mpiifort >/dev/null 2>&1; then
-    FPM_FFLAGS="-Ofast -xHost -g -traceback -DMPI"
+    FPM_FFLAGS="-Ofast -xHost -g -traceback -DLIGHTKRYLOV_MPI"
     FPM_FC="mpiifort"
 else
-    FPM_FFLAGS="-march=native -O3 -funroll-loops -DMPI"
+    FPM_FFLAGS="-march=native -O3 -funroll-loops -DLIGHTKRYLOV_MPI"
     FPM_FC="mpifort"
 fi
 

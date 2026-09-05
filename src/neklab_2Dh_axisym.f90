@@ -1,6 +1,10 @@
       module neklab_2Dh_axisym
          use LightKrylov, only: dp
          use neklab_2Dh, only: wmask, wmask_defined, build_wmask
+         use neklab_2Dh_torsion, only: if_torsion_zero,
+     &                                 build_torsion_coeffs, torsion_shift_add,
+     &                                 dphi_apply, dphi_apply_t,
+     &                                 add_torsion_forcing_RZ, add_torsion_forcing_phi
          use neklab_nek_setup, only: nek_log_debug, nek_log_message, nek_stop_error
          use neklab_timing, only: neklab_timer_start, neklab_timer_stop, neklab_clock_tic, neklab_clock_toc,
      &                            t_advance, t_adv_setup, t_adv_advection, t_adv_rhs,
@@ -17,6 +21,11 @@
          
          real(dp), dimension(lx1,ly1,lz1,lelv), public :: h2z_shift
          real(dp), dimension(lx1,ly1,lz1,lelv), public :: diag_shift, couple_coef
+      ! diag_shift is S_PHI = (alpha^2+1)/R^2. Torsion splits the R equation's
+      ! shift away from it: S_R = (alpha^2+1+lambda^2)/R^2. In the torus the
+      ! two coincide and one field sufficed; diag_shift_r carries the R value
+      ! whenever lambda /= 0, and is byte-identical to diag_shift otherwise.
+         real(dp), dimension(lx1,ly1,lz1,lelv), public :: diag_shift_r
          real(dp), dimension(lx1,ly1,lz1,lelv), public :: alphaR_coef   ! alpha/R, continuity/pressure coupling
          logical, public :: torus_coeffs_defined = .false.
          logical, public :: if_alpha_zero = .false.
@@ -76,7 +85,6 @@
             else
                if (lpert /= 2) call nek_stop_error('alpha /= 0 requires npert = 2.', this_module, this_procedure)
             end if
-         
             if (istep == 1) nprev(:) = 0
 
       ! Timing. The `@` regions below partition this routine exactly; the
@@ -172,7 +180,7 @@
             call neklab_timer_start(t_adv_urphi)
             if (if_alpha_zero) then
                do jp = 1, npert
-                  call helmholtz_matvec_2Dh_axisym(w2, vyp(1,jp), h1, h2, diag_shift, 1)
+                  call helmholtz_matvec_2Dh_axisym(w2, vyp(1,jp), h1, h2, diag_shift_r, 1)
                   call sub2(resv2_jp(1,1,1,1,jp), w2, ntot1)
                   call helmholtz_matvec_2Dh_axisym(w3, tp(1,1,jp), h1, h2, diag_shift, 1)
                   call sub2(resv3_jp(1,1,1,1,jp), w3, ntot1)
@@ -198,7 +206,7 @@
                   hmh_info = info_str//' V_R  '
                   if (istep < 10) call chktcg1(tolhv, resv2_jp(1,1,1,1,jp), h1, h2, v2mask, vmult, imesh, 1)
                   call solve_helmholtz_2Dh_axisym(dv2, resv2_jp(1,1,1,1,jp), h1, h2, v2mask, vmult, imesh,
-     &                                             tolhv, nmxv, 1, binvm1, hmh_info, diag_shift)
+     &                                             tolhv, nmxv, 1, binvm1, hmh_info, diag_shift_r)
 
                   call dssum(resv3_jp(1,1,1,1,jp), lx1, ly1, lz1)
                   call col2 (resv3_jp(1,1,1,1,jp), wmask, ntot1)
@@ -317,13 +325,20 @@
                         alphaR_coef(ix,iy,iz,ie) = alpha / r
                         h2z_shift  (ix,iy,iz,ie) = alpha**2 / r**2
                         diag_shift (ix,iy,iz,ie) = h2z_shift(ix,iy,iz,ie) + 1.0_dp / r**2
+                        diag_shift_r(ix,iy,iz,ie) = diag_shift(ix,iy,iz,ie)
                         couple_coef(ix,iy,iz,ie) = 2.0_dp * alpha / r**2
                      end do
                   end do
                end do
             end do
-            ! Same CG loop as solve_helmholtz_2Dh_axisym, but operating on the
-            ! stacked 2-field vector (x1;x2). dssum/mask applied to x1 and x2
+
+      ! Torsion: adds lambda^2/R^2 to the R and Z shifts, leaves the phi shift
+      ! (diag_shift) alone. Idempotent and cheap after the first call, so it is
+      ! safe to call unconditionally here rather than threading a second cache
+      ! flag through this routine.
+            call build_torsion_coeffs()
+            call torsion_shift_add(diag_shift_r, h2z_shift)
+
             alpha_cached          = alpha
             torus_coeffs_defined  = .true.
          end subroutine build_torus_coeffs
@@ -358,20 +373,36 @@
             real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: alphaR
             integer :: ipert, spert, ntot1
             real(dp), dimension(lx1*ly1*lz1) :: wrk1, wrk2
+            real(dp), dimension(lx1*ly1*lz1*lelv) :: wl1, wl2
          
             ntot1 = lx1*ly1*lz1*nelv
             ipert = npert + 1 - jp
             call rzero(gradp(1,ipert), ntot1)
             
-            if (if_alpha_zero) return
-            
-            ! Same CG loop as solve_helmholtz_2Dh_axisym, but operating on the
-            ! stacked 2-field vector (x1;x2). dssum/mask applied to x1 and x2
-            spert = merge(1, -1, jp == 1)
-            call mappr(gradp(1,ipert), prextr, wrk1, wrk2)
-            call col2 (gradp(1,ipert), bm1, ntot1)
-            call col2 (gradp(1,ipert), alphaR, ntot1)
-            if (spert == -1) call chsign(gradp(1,ipert), ntot1)
+            if (if_alpha_zero .and. if_torsion_zero) return
+
+      ! --- alpha part: skew in slot space (swaps jp <-> ipert). Torus term,
+      !     unchanged, absent entirely at alpha = 0.
+            if (.not. if_alpha_zero) then
+               spert = merge(1, -1, jp == 1)
+               call mappr(gradp(1,ipert), prextr, wrk1, wrk2)
+               call col2 (gradp(1,ipert), bm1, ntot1)
+               call col2 (gradp(1,ipert), alphaR, ntot1)
+               if (spert == -1) call chsign(gradp(1,ipert), ntot1)
+            end if
+
+      ! --- lambda part: real, so it stays in slot jp (never ipert). This is
+      !     the exact transpose of the lambda block compute_frc_div_axisym
+      !     adds to the divergence: dphi_apply_t is deliberately "scale THEN
+      !     transpose", the reverse order of dphi_apply's "transpose THEN
+      !     scale", which is what makes the pair exact adjoints of each other
+      !     rather than merely similar-looking operators.
+            if (.not. if_torsion_zero) then
+               call mappr(wl1, prextr, wrk1, wrk2)
+               call col2 (wl1, bm1, ntot1)
+               call dphi_apply_t(wl2, wl1)
+               call add2 (gradp(1,jp), wl2, ntot1)
+            end if
          end subroutine compute_gradp_axisym
          
          subroutine compute_dw_axisym(dw, dpr, h2inv, alphaR)
@@ -384,18 +415,32 @@
             real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: h2inv, alphaR
             integer :: ipert, spert, ntot1
             real(dp), dimension(lx1*ly1*lz1) :: wrk1, wrk2
+            real(dp), dimension(lx1*ly1*lz1*lelv) :: wl1, wl2
 
             ntot1 = lx1*ly1*lz1*nelv
             call rzero(dw, ntot1)
             
-            if (if_alpha_zero) return
+            if (if_alpha_zero .and. if_torsion_zero) return
             
-            ipert = npert + 1 - jp
-            spert = merge(1, -1, jp == 1)
-            call mappr(dw, dpr(1,ipert), wrk1, wrk2)
-            call col2 (dw, bm1, ntot1)
-            call col2 (dw, alphaR, ntot1)
-            if (spert == 1) call chsign(dw, ntot1)     ! matches -spert*beta_z sign convention
+            if (.not. if_alpha_zero) then
+               ipert = npert + 1 - jp
+               spert = merge(1, -1, jp == 1)
+               call mappr(dw, dpr(1,ipert), wrk1, wrk2)
+               call col2 (dw, bm1, ntot1)
+               call col2 (dw, alphaR, ntot1)
+               if (spert == 1) call chsign(dw, ntot1)     ! matches -spert*beta_z sign convention
+            end if
+
+      ! Lambda part, from THIS slot's own pressure correction. Same operator
+      ! as compute_gradp_axisym's lambda block; the overall correction here
+      ! must UNDO the gradient contribution, hence sub2 rather than add2.
+            if (.not. if_torsion_zero) then
+               call mappr(wl1, dpr(1,jp), wrk1, wrk2)
+               call col2 (wl1, bm1, ntot1)
+               call dphi_apply_t(wl2, wl1)
+               call sub2 (dw, wl2, ntot1)
+            end if
+
             call col2 (dw, wmask, ntot1)
             call dssum(dw, lx1, ly1, lz1)
             call col2 (dw, binvm1, ntot1)
@@ -410,20 +455,35 @@
             real(dp), dimension(lx2,ly2,lz2,lelv), intent(out) :: frc_div
             real(dp), dimension(lx1*ly1*lz1*lelv,ldimt,lpert), intent(in) :: w
             real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: alphaR
-            integer :: ipert, spert, ie, ie1, nxyz1, ntot2
+            integer :: ipert, spert, ie, ie1, nxyz1, ntot1, ntot2
             real(dp), dimension(lx1,ly1,lz1,lelv) :: wtmp
+            real(dp), dimension(lx1*ly1*lz1*lelv) :: wl1
          
+            ntot1 = lx1*ly1*lz1*nelv
             ntot2 = lx2*ly2*lz2*nelv
             call rzero(frc_div, ntot2)
             
-            if (if_alpha_zero) return
+            if (if_alpha_zero .and. if_torsion_zero) return
             
-            ipert = npert + 1 - jp
-            spert = merge(1, -1, jp == 1)
             nxyz1 = lx1*ly1*lz1
-            call copy(wtmp, w(1,1,ipert), nxyz1*nelv)
-            call col2(wtmp, alphaR, nxyz1*nelv)          ! scale on M1 BEFORE mapping to M2 -- see caveat below
-            if (spert == -1) call chsign(wtmp, nxyz1*nelv)
+            call rzero(wtmp, ntot1)
+
+      ! --- alpha part, from the opposite slot
+            if (.not. if_alpha_zero) then
+               ipert = npert + 1 - jp
+               spert = merge(1, -1, jp == 1)
+               call copy(wtmp, w(1,1,ipert), nxyz1*nelv)
+               call col2(wtmp, alphaR, nxyz1*nelv)       ! scale on M1 BEFORE mapping to M2 -- see caveat below
+               if (spert == -1) call chsign(wtmp, nxyz1*nelv)
+            end if
+
+      ! --- lambda part, from THIS slot: -(lambda/R)*dtheta(u_phi). Accumulated
+      !     on M1 alongside the alpha part so a single map12 below carries both.
+            if (.not. if_torsion_zero) then
+               call dphi_apply(wl1, w(1,1,jp))
+               call add2(wtmp, wl1, ntot1)
+            end if
+
             do ie = 1, nelv
                ie1 = (ie-1)*nxyz1 + 1
                call map12(frc_div(1,1,1,ie), wtmp(ie1,1,1,1), ie)
@@ -470,6 +530,7 @@
             call add2(bfxp(1,jp), advZ(1,jp), ntot1)   ! -i*alpha*(U_phi/R)*u_Z
             call add2(bfyp(1,jp), advR(1,jp), ntot1)   ! -i*alpha*(U_phi/R)*u_R
             call add_torus_curv_R(bfyp(1,jp), jp)      ! +2*U_phi*u'_phi/R
+            if (.not. if_torsion_zero) call add_torsion_forcing_RZ(bfxp(1,jp), bfyp(1,jp), jp)
             if (iftran) call makextp                   ! <-- EXT3
             call makebdfp
             call lagfieldp
@@ -484,6 +545,7 @@
             if (ifadvc(ifield) .and. .not. ifchar) call convabp
             call add2(bqp(1,ifield-1,jp), advPhi(1,jp), ntot1)   ! -i*alpha*(U_phi/R)*u_phi
             call add_torus_curv_phi(bqp(1,ifield-1,jp), jp)      ! -(U_phi*u'_R + U_R*u'_phi)/R
+            if (.not. if_torsion_zero) call add_torsion_forcing_phi(bqp(1,ifield-1,jp), jp)
             if (iftran) call makeabqp                            ! <-- EXT3
             if ((iftran .and. .not. ifchar) .or.
      &          (iftran .and. .not. ifadvc(ifield) .and. ifchar)) call makebdqp
@@ -586,33 +648,61 @@
             integer, intent(in) :: intype
             real(dp), dimension(lx1*ly1*lz1) :: wrk1, wrk2
             real(dp), dimension(lx1,ly1,lz1,lelv) :: wdivm1
+            real(dp), dimension(lx1*ly1*lz1*lelv) :: wl1
             real(dp), dimension(lx2,ly2,lz2,lelv) :: wdivm2
             integer :: ie, ntot1, ntot2
          
             call neklab_timer_start(t_pres_matvec)
             call cdabdtp(Ap, wp, h1, h2, h2inv, intype)   ! core Nek, already ifaxis-correct globally
 
-            if (if_alpha_zero) then
+            if (if_alpha_zero .and. if_torsion_zero) then
                call neklab_timer_stop(t_pres_matvec)
                return
             end if
          
             ntot1 = lx1*ly1*lz1*nelv
             ntot2 = lx2*ly2*lz2*nelv
-            call mappr(wdivm1, wp, wrk1, wrk2)
-            call col2 (wdivm1, bm1, ntot1)
-            call col2 (wdivm1, alphaR, ntot1)             ! alpha/R
-            call col2 (wdivm1, wmask, ntot1)
-            call dssum(wdivm1, lx1, ly1, lz1)
-            call col2 (wdivm1, binvm1, ntot1)
-            call col2 (wdivm1, h2inv, ntot1)
-            call col2 (wdivm1, alphaR, ntot1)             ! alpha/R
-            call chsign(wdivm1, ntot1)
-            do ie = 1, nelv
-               call map12(wdivm2(1,1,1,ie), wdivm1(1,1,1,ie), ie)
-            end do
-            call col2(wdivm2, bm2, ntot2)
-            call sub2(ap, wdivm2, ntot2)
+
+      ! --- alpha block: (alpha/R) H^-1 (alpha/R). The two slot swaps of
+      !     D_phi and D_phi^T cancel, so this block is diagonal in slot space
+      !     and each perturbation's pressure can be solved on its own.
+            if (.not. if_alpha_zero) then
+               call mappr(wdivm1, wp, wrk1, wrk2)
+               call col2 (wdivm1, bm1, ntot1)
+               call col2 (wdivm1, alphaR, ntot1)          ! alpha/R
+               call col2 (wdivm1, wmask, ntot1)
+               call dssum(wdivm1, lx1, ly1, lz1)
+               call col2 (wdivm1, binvm1, ntot1)
+               call col2 (wdivm1, h2inv, ntot1)
+               call col2 (wdivm1, alphaR, ntot1)          ! alpha/R
+               call chsign(wdivm1, ntot1)
+               do ie = 1, nelv
+                  call map12(wdivm2(1,1,1,ie), wdivm1(1,1,1,ie), ie)
+               end do
+               call col2(wdivm2, bm2, ntot2)
+               call sub2(ap, wdivm2, ntot2)
+            end if
+
+      ! --- lambda block: [-(lambda/R)*dtheta] H^-1 [-(lambda/R)*dtheta]^T.
+      !     Carries no slot swap either, so at alpha = 0 (the only case
+      !     implemented so far) this is simply a second, additive, symmetric
+      !     positive semi-definite contribution to the same pressure operator.
+            if (.not. if_torsion_zero) then
+               call mappr(wl1, wp, wrk1, wrk2)
+               call col2 (wl1, bm1, ntot1)
+               call dphi_apply_t(wdivm1, wl1)
+               call col2 (wdivm1, wmask, ntot1)
+               call dssum(wdivm1, lx1, ly1, lz1)
+               call col2 (wdivm1, binvm1, ntot1)
+               call col2 (wdivm1, h2inv, ntot1)
+               call dphi_apply(wl1, wdivm1)
+               call chsign(wl1, ntot1)
+               do ie = 1, nelv
+                  call map12(wdivm2(1,1,1,ie), wl1((ie-1)*lx1*ly1*lz1+1), ie)
+               end do
+               call col2(wdivm2, bm2, ntot2)
+               call sub2(ap, wdivm2, ntot2)
+            end if
             call neklab_timer_stop(t_pres_matvec)
          end subroutine pressure_matvec_2Dh_axisym
 

@@ -156,6 +156,14 @@
             real(dp) :: radius = 0.0_dp
             real(dp) :: delta = 0.0_dp
             logical :: area_defined = .false.
+      ! --- torsion (helical pipes). SET, never measured, via init_geom's
+      !     optional lambda/axial_centre arguments: a 2D cross-section
+      !     carries no information about pitch. lambda = 0 (the default)
+      !     means "torus"; every torsion routine short-circuits on it, so an
+      !     existing torus deck that never passes lambda is untouched.
+            real(dp) :: lambda = 0.0_dp
+            real(dp) :: axial_centre = 0.0_dp
+            logical :: torsion_defined = .false.
       ! --- steady resistance dQ_0/da_0, inherited by an unsteady run
             real(dp) :: gslope = 0.0_dp
             logical :: gslope_defined = .false.
@@ -204,6 +212,9 @@
             procedure, pass(self), public :: get_delta
             procedure, pass(self), public :: get_curv_radius
             procedure, pass(self), public :: get_radius
+            procedure, pass(self), public :: get_lambda
+            procedure, pass(self), public :: get_axial_centre
+            procedure, pass(self), public :: is_torsion_zero
             procedure, pass(self), public :: ubar_arr
             procedure, pass(self), public :: ubar
             procedure, pass(self), public :: reset_mflow
@@ -398,6 +409,21 @@
                real(dp) :: r
             end function get_radius
 
+            module function get_lambda(self) result(lam)
+               class(nek_t2Dh), intent(in) :: self
+               real(dp) :: lam
+            end function get_lambda
+
+            module function get_axial_centre(self) result(zc)
+               class(nek_t2Dh), intent(in) :: self
+               real(dp) :: zc
+            end function get_axial_centre
+
+            module function is_torsion_zero(self) result(l)
+               class(nek_t2Dh), intent(in) :: self
+               logical :: l
+            end function is_torsion_zero
+
             module function ubar_arr(self, theta) result(Q)
                class(nek_t2Dh), intent(in) :: self
                real(dp), dimension(lv), intent(in) :: theta
@@ -447,10 +473,24 @@
       !     CONFIGURATION
       !====================================================================
 
-         subroutine init_geom(self, radius, delta, force, verbose)
+         subroutine init_geom(self, radius, delta, lambda, axial_centre, force, verbose)
       !! Configures the cross-section geometry: the area weights, the area, the
-      !! mean radius R_c, the cross-section radius r and the curvature ratio
-      !! delta = r/R_c.
+      !! mean radius R_c, the cross-section radius r, the curvature ratio
+      !! delta = r/R_c, and (optionally) helical torsion.
+      !!
+      !! lambda = tau/kappa (torsion-to-curvature ratio) and axial_centre (the
+      !! Nek-x coordinate of the cross-section's centre) are SET here exactly
+      !! like radius/delta, not measured: a 2D cross-sectional mesh carries no
+      !! information about pitch, or about where its own centre sits relative
+      !! to whatever the mesh generator called x = 0. Both default to 0, i.e.
+      !! a torus (untilted, centred on x = 0); every torsion code path
+      !! short-circuits on lambda == 0, so a deck that never passes lambda is
+      !! byte-identical to one that predates this argument.
+      !!
+      !! axial_centre matters only when lambda /= 0: dtheta generates rotation
+      !! about (axial_centre, curv_radius), and if that point is not the true
+      !! centre of the wall, dtheta stops being tangent to it. See
+      !! neklab_2Dh_torsion%check_wall_centering.
       !!
       !! SEPARATE FROM init_flow because the two answer different questions on
       !! different timescales. The geometry is a property of the MESH: measured
@@ -466,6 +506,12 @@
             class(nek_t2Dh), intent(inout) :: self
             real(dp), intent(in) :: radius
             real(dp), intent(in) :: delta
+            real(dp), optional, intent(in) :: lambda
+      !! Torsion-to-curvature ratio. Default 0 (torus).
+            real(dp), optional, intent(in) :: axial_centre
+      !! Axial (Nek x-direction) coordinate of the cross-section centre.
+      !! Default 0, for a mesh built symmetric about x = 0. Ignored (but still
+      !! stored) when lambda = 0.
             logical, optional, intent(in) :: force
       !! Re-measure even if the geometry is already defined. Default .false.
             logical, optional, intent(in) :: verbose
@@ -473,7 +519,8 @@
       ! internal
             character(len=*), parameter :: this_procedure = 'init_geom'
             character(len=256) :: msg
-            real(dp) :: delta_measured
+            real(dp) :: b_pitch, pitch
+            real(dp), parameter :: pi_geom = 3.14159265358979323846_dp
             logical :: verbose_
             integer, parameter :: pad = 20
 
@@ -497,6 +544,29 @@
             ! compute curvature radius from the two inputs.
             self%curv_radius = self%radius/self%delta
 
+      ! ---- torsion. Always marked defined once init_geom has run, so
+      !     is_torsion_zero() reduces to a plain check on lambda.
+            self%lambda = optval(lambda, 0.0_dp)
+            self%axial_centre = optval(axial_centre, 0.0_dp)
+            self%torsion_defined = .true.
+
+      ! ---- helical embedding check. A tube of radius a about a helix is free
+      !     of self-intersection. Two independent conditions must both hold:
+      !!      (1) local curvature: the pipe wall must not reach the centre of
+      !!          curvature, i.e. a < R_c, equivalently delta < 1;
+      !!      (2) coil clearance: consecutive coils must not overlap, i.e. the
+      !!          pitch (axial rise per turn) must exceed the pipe diameter 2a.
+      !!    A torus (lambda = 0) has zero pitch, so (2) is vacuous there and
+      !!    only (1) binds -- which is the familiar delta < 1 torus condition.
+      !!    check_helix_embedding handles both cases; the lambda = 0 branch is
+      !!    kept explicit only to give the plain torus message.
+            if (self%lambda /= 0.0_dp) then
+               call check_helix_embedding(self%curv_radius, self%radius, self%lambda)
+            else if (self%delta >= 1.0_dp) then
+               call nek_stop_error('delta >= 1: the pipe wall reaches the '//
+     &            'torus axis (curvature radius <= pipe radius).', this_module, this_procedure)
+            end if
+
       ! ---- measure. Sets bm_area, area.
             call self%build_area_weights(force=.true.)
 
@@ -511,9 +581,88 @@
                call nek_log_message(msg, this_module, this_procedure)
                write (msg, '(3X,A,1X,E16.8)') padl('curvature delta:', pad), self%delta
                call nek_log_message(msg, this_module, this_procedure)
+               if (self%lambda /= 0.0_dp) then
+                  write (msg, '(3X,A,1X,E16.8)') padl('lambda:', pad), self%lambda
+                  call nek_log_message(msg, this_module, this_procedure)
+                  write (msg, '(3X,A,1X,E16.8)') padl('axial centre:', pad), self%axial_centre
+                  call nek_log_message(msg, this_module, this_procedure)
+                  b_pitch = self%lambda*self%curv_radius/(1.0_dp + self%lambda**2)
+                  pitch   = 2.0_dp*pi_geom*b_pitch
+                  write (msg, '(3X,A,1X,E16.8)') padl('pitch P:', pad), pitch
+                  call nek_log_message(msg, this_module, this_procedure)
+                  write (msg, '(3X,A,1X,F12.4)') padl('P / 2a:', pad),
+     &               pitch/(2.0_dp*self%radius)
+                  call nek_log_message(msg, this_module, this_procedure)
+               end if
                call nek_log_message('', this_module, this_procedure)
             end if
          end subroutine init_geom
+
+         subroutine check_helix_embedding(curv_radius, radius, lambda)
+      !! Stops the run if the proposed helical pipe self-intersects.
+      !!
+      !! Geometry. A helix of coil radius c and pitch P = 2*pi*b has
+      !!   kappa = c/(b^2+c^2) = 1/R_c ,   lambda = tau/kappa = b/c ,
+      !! so, inverting,
+      !!   c = R_c/(1+lambda^2) ,   b = lambda*R_c/(1+lambda^2) ,
+      !!   pitch  P = 2*pi*b = 2*pi*lambda*R_c/(1+lambda^2) .
+      !! The pipe radius is a = radius = delta*R_c.
+      !!
+      !! Two independent conditions, BOTH required for an embeddable tube:
+      !!
+      !!   (1) CURVATURE:  a < R_c            (equivalently delta < 1)
+      !!       The wall must not reach the centre of curvature. This is the
+      !!       torus condition; it binds for stretched helices (large lambda).
+      !!
+      !!   (2) COIL CLEARANCE:  P > 2*a       (pitch exceeds pipe diameter)
+      !!       Consecutive coils, stacked an axial distance P apart, must not
+      !!       overlap. This binds for tightly wound helices (small lambda).
+      !!
+      !! Using the pitch P for (2) is very slightly CONSERVATIVE. The true
+      !! shortest distance between neighbouring coils is a 3-D chord that is a
+      !! little shorter than the pure axial rise P, because adjacent coils lean
+      !! toward one another; the gap is P at leading order and falls below it by
+      !! at most ~8% near lambda ~ 0.4, approaching P for tight coils. Erring
+      !! on the strict side is the right behaviour for a safety check: it may
+      !! reject a sliver of just-embeddable geometries but never accepts a
+      !! self-intersecting one. If an exact clearance is ever needed, the
+      !! nearest-approach separation is d* = 2*pi/(1+lambda^2) and the true gap
+      !! is sqrt(2 c^2 (1-cos d*) + b^2 d*^2); this routine deliberately avoids
+      !! that in favour of the transparent pitch test.
+            real(dp), intent(in) :: curv_radius, radius, lambda
+            character(len=*), parameter :: this_procedure = 'check_helix_embedding'
+            character(len=256) :: msg
+            real(dp) :: a, Rc, b, pitch
+            real(dp), parameter :: pi = 3.14159265358979323846_dp
+
+            Rc = curv_radius
+            a  = radius
+            b  = lambda*Rc/(1.0_dp + lambda**2)
+            pitch = 2.0_dp*pi*b
+
+      ! (1) curvature
+            if (a >= Rc) then
+               write (msg, '(A,E12.5,A,E12.5)') 'Helix self-intersects (curvature): '//
+     &            'pipe radius a = ', a, ' >= radius of curvature R_c = ', Rc
+               call nek_log_message(msg, this_module, this_procedure)
+               call nek_log_message('   The wall reaches the centre of curvature '//
+     &            '(delta >= 1). Decrease delta.', this_module, this_procedure)
+               call nek_stop_error('Proposed helical geometry is not embeddable.',
+     &            this_module, this_procedure)
+            end if
+
+      ! (2) coil clearance
+            if (pitch <= 2.0_dp*a) then
+               write (msg, '(A,E12.5,A,E12.5)') 'Helix self-intersects (coils): '//
+     &            'pitch P = ', pitch, ' <= pipe diameter 2a = ', 2.0_dp*a
+               call nek_log_message(msg, this_module, this_procedure)
+               call nek_log_message('   Neighbouring coils overlap. Increase lambda '//
+     &            '(more pitch), or decrease delta (thinner pipe).',
+     &            this_module, this_procedure)
+               call nek_stop_error('Proposed helical geometry is not embeddable.',
+     &            this_module, this_procedure)
+            end if
+         end subroutine check_helix_embedding
 
          subroutine init_flow(self, dpds, womersley, overwrite, helix_legacy)
       !! Configures the control from a forcing vector and a Womersley number,

@@ -382,6 +382,12 @@
          call nek_log_message(msg, this_module, this_procedure)
          write (msg, '(3X,A,1X,E16.8)') padl('delta:',pad), self%delta
          call nek_log_message(msg, this_module, this_procedure)
+         if (self%torsion_defined) then
+            write (msg, '(3X,A,1X,E16.8)') padl('lambda:',pad), self%lambda
+            call nek_log_message(msg, this_module, this_procedure)
+            write (msg, '(3X,A,1X,E16.8)') padl('axial centre:',pad), self%axial_centre
+            call nek_log_message(msg, this_module, this_procedure)
+         end if
          call nek_log_message('Dynamics:', this_module, this_procedure)
          write (msg, '(3X,A,2X,3(1X,I4))') padl('K, nf, nmf:',pad), self%kharm, self%nf, self%nmf
          call nek_log_message(msg, this_module, this_procedure)

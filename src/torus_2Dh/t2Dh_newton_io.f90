@@ -76,6 +76,8 @@
             real(dp) :: radius = 0.0_dp
             real(dp) :: curv_radius = 0.0_dp
             real(dp) :: delta = 0.0_dp
+            real(dp) :: lambda = 0.0_dp
+            real(dp) :: axial_centre = 0.0_dp
       ! --- physics
             real(dp) :: Re = 0.0_dp        ! 1/nu, from cpfld(1,1). Checked on restore.
             real(dp) :: Wo = 0.0_dp
@@ -199,6 +201,8 @@
             self%radius = t2Dh%get_radius()
             self%curv_radius = t2Dh%get_curv_radius()
             self%delta = t2Dh%get_delta()
+            self%lambda = t2Dh%get_lambda()
+            self%axial_centre = t2Dh%get_axial_centre()
 
             self%Re = 1.0_dp/cpfld(1,1)
             self%Wo = t2Dh%get_womersley()
@@ -305,6 +309,8 @@
             call put_r(iunit, 'radius', rec%radius, nsig_short)
             call put_r(iunit, 'curv_radius', rec%curv_radius, nsig_short)
             call put_r(iunit, 'delta', rec%delta, nsig_short)
+            call put_r(iunit, 'lambda', rec%lambda, nsig_short)
+            call put_r(iunit, 'axial_centre', rec%axial_centre, nsig_short)
             write (iunit, '(A)') '# --- physics'
             call put_r(iunit, 'Re', rec%Re, nsig_short)
             call put_r(iunit, 'Wo', rec%Wo, nsig_short)
@@ -478,6 +484,8 @@
                      case ('radius'); read (val, *) rec%radius
                      case ('curv_radius'); read (val, *) rec%curv_radius
                      case ('delta'); read (val, *) rec%delta
+                     case ('lambda'); read (val, *) rec%lambda
+                     case ('axial_centre'); read (val, *) rec%axial_centre
                      case ('Re'); read (val, *) rec%Re
                      case ('Wo'); read (val, *) rec%Wo
                      case ('omega'); read (val, *) rec%omega
@@ -597,6 +605,8 @@
                call check_scalar('radius', rec%radius, t2Dh%get_radius())
                call check_scalar('curv_radius', rec%curv_radius, t2Dh%get_curv_radius())
                call check_scalar('delta', rec%delta, t2Dh%get_delta())
+               call check_scalar('lambda', rec%lambda, t2Dh%get_lambda())
+               call check_scalar('axial_centre', rec%axial_centre, t2Dh%get_axial_centre())
             else if (.not. agree(rec%Re, Re_run)) then
                write (msg, '(A,A,A,A)') 'Re differs from the record (file ',
      &            trim(adjustl(rstr(rec%Re, nsig_short))), ', run ',
@@ -690,6 +700,8 @@
             call bcast(rec%radius, wdsize)
             call bcast(rec%curv_radius, wdsize)
             call bcast(rec%delta, wdsize)
+            call bcast(rec%lambda, wdsize)
+            call bcast(rec%axial_centre, wdsize)
             call bcast(rec%Re, wdsize)
             call bcast(rec%Wo, wdsize)
             call bcast(rec%omega, wdsize)

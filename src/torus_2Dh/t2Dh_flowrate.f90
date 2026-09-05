@@ -97,6 +97,18 @@
          r = self%radius
          end procedure get_radius
 
+         module procedure get_lambda
+         lam = self%lambda
+         end procedure get_lambda
+
+         module procedure get_axial_centre
+         zc = self%axial_centre
+         end procedure get_axial_centre
+
+         module procedure is_torsion_zero
+         l = (.not. self%torsion_defined) .or. (self%lambda == 0.0_dp)
+         end procedure is_torsion_zero
+
       !====================================================================
       !     FLOW RATE
       !====================================================================

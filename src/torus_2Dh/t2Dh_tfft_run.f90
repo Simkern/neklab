@@ -24,7 +24,13 @@
       !!      <prefix><base>.t2Dh, after which the chunk files are readable.
       !!
       !! Both leave the Nek state, the buffer prefix, and param(12) as they
-      !! found them.
+      !! found them, and both write two artefacts:
+      !!
+      !!   .fld series      the per-harmonic complex fields (tfft_outpost)
+      !!   .dat text file   the per-harmonic amplitude table (tfft_spectrum)
+      !!
+      !! Filenames are 'spec_baseflow.dat' and 'spec_mode.dat' by default;
+      !! override with spec_file= when several transforms share a directory.
       !!
       !!--------------------------------------------------------------------
       !! WHY THE PERTURBATION NEEDS THE MULTIPLIER
@@ -76,8 +82,7 @@
      &                             bf_replay_start, bf_replay_end, bf_is_recording,
      &                             bf_read_t2Dh
          use t2Dh_tfft, only: tfft_start, tfft_add, tfft_close, tfft_free,
-     &                        tfft_demodulate, tfft_outpost, tfft_spectrum,
-     &                        tfft_check_ubar, tfft_mharm, mfft_max
+     &                        tfft_demodulate, tfft_outpost, tfft_spectrum
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -94,7 +99,7 @@
       !     BASEFLOW
       !====================================================================
 
-         subroutine tfft_baseflow(mmax, prefix, base, if_outpost, if_check)
+         subroutine tfft_baseflow(mmax, prefix, base, if_outpost, spec_file)
       !! Temporal Fourier transform of the recorded orbit.
       !!
       !! In-solver: call with no extra arguments (or just prefix) immediately
@@ -116,12 +121,12 @@
       !! Filename stem. Only needed in post-processing mode. If absent the
       !! buffer's current stem is used (set by bf_init in the solver run).
             logical, optional, intent(in) :: if_outpost
-            logical, optional, intent(in) :: if_check
+            character(len=*), optional, intent(in) :: spec_file
+      !! Override for the spectrum text file. Default 'spec_baseflow.dat'.
       ! internal
             character(len=*), parameter :: this_procedure = 'tfft_baseflow'
             character(len=256) :: msg
             real(dp), dimension(:, :), allocatable :: w, w0, vsave
-            real(dp), dimension(0:mfft_max) :: spec
             character(len=1) :: pfx_save
             real(dp) :: tk, dtk, T
             integer :: k, n, nbf
@@ -172,10 +177,7 @@
             call unpack_base(vsave, nbf)
             deallocate (w, w0, vsave)
 
-            call tfft_spectrum(spec)
-      ! The bulk average of the field harmonics IS the flow-rate harmonic.
-      ! Cheap, and it catches every sign and factor-of-two in the chain.
-            if (optval(if_check, .true.)) call tfft_check_ubar(5)
+            call tfft_spectrum(filename=optval(spec_file, 'spec_baseflow.dat'))
             if (optval(if_outpost, .true.)) call tfft_outpost()
          end subroutine tfft_baseflow
 
@@ -184,7 +186,7 @@
       !====================================================================
 
          subroutine tfft_perturbation(mmax, zmode, alpha, mu, prefix, base, vtol, ptol,
-     &                                if_outpost, if_normalise, if_axisym)
+     &                                if_outpost, if_normalise, if_axisym, spec_file)
       !! Re-runs the linear solver over one period on the replayed baseflow and
       !! transforms the Floquet mode on the fly.
       !!
@@ -214,12 +216,13 @@
             logical, optional, intent(in) :: if_outpost
             logical, optional, intent(in) :: if_normalise
             logical, optional, intent(in) :: if_axisym
+            character(len=*), optional, intent(in) :: spec_file
+      !! Override for the spectrum text file. Default 'spec_mode.dat'.
       ! internal
             character(len=*), parameter :: this_procedure = 'tfft_perturbation'
             character(len=256) :: msg
             character(len=3), dimension(4) :: tg
             real(dp), dimension(:, :), allocatable :: w, w0
-            real(dp), dimension(0:mfft_max) :: spec
             complex(dp) :: mu_
             character(len=1) :: pfx_save
             real(dp) :: T, dtk, mu_abs, mu_arg, nrm0, nrmT, dev, scl
@@ -340,7 +343,7 @@
             call tfft_close(T)
             deallocate (w, w0)
 
-            call tfft_spectrum(spec)
+            call tfft_spectrum(filename=optval(spec_file, 'spec_mode.dat'))
             if (optval(if_outpost, .true.)) then
                tg = [ 'rRe', 'iRe', 'rIm', 'iIm' ]
                call tfft_outpost(tg(1:2*nblk))

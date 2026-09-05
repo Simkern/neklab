@@ -100,7 +100,6 @@
          public :: unsteady_flowrate_newton
          public :: shift_mflow_phase_upo
          public :: warmup_torus_2Dh
-         public :: helix2native
 
       contains
 
@@ -750,7 +749,7 @@
             character(len=*), optional, intent(in) :: jac0
       !! 'fd' (default) or 'seed'.
             integer, optional, intent(in) :: nfft_out
-      !! Number of temporal harmonics for the orbit transform. Default 16.
+      !! Number of temporal harmonics for the orbit transform. Default 32.
       ! internal
             character(len=*), parameter :: this_procedure = 'unsteady_flowrate_newton'
             character(len=256) :: msg
@@ -762,7 +761,7 @@
 
             save_orbit_ = optval(if_save_orbit, .true.)
             gauge_ = optval(if_gauge, .true.)
-            nfft = optval(nfft_out, 16)
+            nfft = optval(nfft_out, 32)
             if (nfft < 0 .or. nfft > mfft_max) then
                write (msg, '(A,I0,A,I0,A)') 'nfft= ', nfft, 
      &            ' outside [0, ', mfft_max, ']. Raise mfft_max.'
@@ -798,7 +797,7 @@
             end if
 
       ! ---- configure. helix -> native on the forcing and on the targets.
-            d_native = helix2native(dpds, nf)
+            d_native = helix2native(dpds)
             call t2Dh%init_flow(d_native(1:nf), womersley=Wo)
             call t2Dh%set_target_ratio(mflow_target)
 
@@ -848,7 +847,7 @@
                write (msg, '(3X,A,1X,E16.8)') 'converged |F(X)| :', res%norm()
                call nek_log_message(msg, this_module, this_procedure)
                call bf_summary()
-               call tfft_baseflow(nfft, prefix='n', if_outpost=.true., if_check=.true.)
+               call tfft_baseflow(nfft, prefix='n', if_outpost=.true.)
                call tfft_free()
             end if
 
@@ -965,7 +964,7 @@
                call x%add(res)
 
                if (do_mflow) then
-                  if (.not. is_unsteady) call t2Dh%measure_mflow(x%theta(:, 1), mf)
+                  !if (.not. is_unsteady) call t2Dh%measure_mflow(x%theta(:, 1), mf)
                   call t2Dh%mflow_summary()
                end if
                
@@ -1093,24 +1092,6 @@
       !====================================================================
       !     PRIVATE HELPERS
       !====================================================================
-
-         function helix2native(d, nf) result(a)
-      !! Forcing conversion, helix -> native:  a_0 = d_0, a_ck = 2 d_ck,
-      !! a_sk = -2 d_sk. The sign flip on the sine is what makes the forcing and
-      !! the flowrate phases rotate together natively.
-            real(dp), dimension(:), intent(in) :: d
-            integer, intent(in) :: nf
-            real(dp), dimension(lfc) :: a
-      ! internal
-            integer :: k, i
-            a = 0.0_dp
-            a(1) = d(1)
-            do k = 1, (nf - 1)/2
-               i = 2*k
-               a(i) = 2.0_dp*d(i)
-               a(i + 1) = -2.0_dp*d(i + 1)
-            end do
-         end function helix2native
 
          subroutine lusolve(n, A, b, x, dscale, ierr)
       !! Dense solve by Gaussian elimination with partial pivoting, plus the

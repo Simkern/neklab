@@ -59,7 +59,7 @@
       !!
       !! which is irrotational, i.e. a genuine mean pressure gradient (a
       !! uniform f_phi is not: curl f = f/R). This matches helix exactly --
-      !! helix_utils divides by curv_radius and then multiplies by
+      !! helix_legacy_utils divides by curv_radius and then multiplies by
       !! fshape = 1/(1 + delta*rr*sin(alpha)), whose product is 1/R -- so the
       !! same dpds means the same physical forcing in both codes. The earlier
       !! 2Dh port carried a spurious reference radius R0 in front; it is gone.
@@ -218,6 +218,10 @@
 
          public :: t2Dh_basis
       !! Temporal basis function, exposed for the analysis driver's diagnostics.
+         public :: helix2native, native2helix
+      !! Forcing-convention converters. The internal storage is always native;
+      !! anything that reads or writes to a user-facing plot, log, or driver
+      !! deck goes through one of these.
 
       !--------------------------------------------------------------------
       !-----     SUBMODULE INTERFACES                                 -----
@@ -511,9 +515,9 @@
             end if
          end subroutine init_geom
 
-         subroutine init_flow(self, dpds, womersley, overwrite)
-      !! Configures the control from a forcing vector in the NATIVE convention
-      !! and a Womersley number, mirroring neklab_helix % init_flow.
+         subroutine init_flow(self, dpds, womersley, overwrite, helix_legacy)
+      !! Configures the control from a forcing vector and a Womersley number,
+      !! mirroring neklab_helix % init_flow.
       !!
       !! The number of harmonics follows from the length of dpds: nf = 2K+1, so
       !! a steady deck passes one component and a K = 1 deck passes three. A
@@ -524,24 +528,37 @@
       !!
       !! Wo is fixed for the whole run: the driver calls this once and the
       !! period never changes afterwards.
+      !!
+      !! CONVENTION: dpds is native by default. Pass helix_legacy=.true. for a deck
+      !! written in the helix_legacy convention (the one physicists write on paper:
+      !! d0 the mean, d_ck + i d_sk the complex amplitude of the k-th harmonic);
+      !! the routine then applies helix2native before storing. This is the
+      !! shape a userchk warm-up deck usually takes.
             class(nek_t2Dh), intent(inout) :: self
             real(dp), dimension(:), intent(in) :: dpds
-      !! Forcing components, native convention, nf = 2K+1 of them.
+      !! Forcing components, nf = 2K+1 of them. Length is not fixed and does
+      !! not need to match lfc: the array is sized by size(dpds).
             real(dp), optional, intent(in) :: womersley
       !! Womersley number of the fundamental. Zero or absent: steady problem.
             logical, optional, intent(in) :: overwrite
+      !! Reconfigure even if already initialised. Default .false.
+            logical, optional, intent(in) :: helix_legacy
+      !! Interpret dpds in the helix_legacy convention and convert before storing.
+      !! Default .false. (native, i.e. what the Newton solver stores back).
       ! internal
             character(len=*), parameter :: this_procedure = 'init_flow'
             character(len=256) :: msg
+            real(dp), dimension(size(dpds)) :: d_use
             real(dp) :: Wo, pi
             integer :: n
-            logical :: overwrite_
+            logical :: overwrite_, helix_legacy_
             integer, parameter :: pad = 10
 
             pi = 4.0_dp*atan(1.0_dp)
             n = size(dpds)
             Wo = optval(womersley, 0.0_dp)
             overwrite_ = optval(overwrite, .false.)
+            helix_legacy_ = optval(helix_legacy, .false.)
 
             if (self%is_initialized) then
                call nek_log_message('init_flow called on an already-initialized t2Dh.',
@@ -581,6 +598,16 @@
                call nek_stop_error(msg, this_module, this_procedure)
             end if
 
+      ! ---- convert to native if requested. From here on everything is native,
+      !      matching self%dpds and every downstream reader.
+            if (helix_legacy_) then
+               d_use = helix2native(dpds)
+               call nek_log_message('init_flow: input dpds interpreted in helix_legacy convention.',
+     &            this_module, this_procedure)
+            else
+               d_use = dpds
+            end if
+
             self%if_unsteady = (abs(Wo) > atol_dp)
             self%womersley = Wo
 
@@ -608,7 +635,7 @@
             self%nmf = self%kharm + 1
 
             self%dpds = 0.0_dp
-            self%dpds(1:self%nf) = dpds(1:self%nf)
+            self%dpds(1:self%nf) = d_use(1:self%nf)
             call bcast(self%dpds, lfc*wdsize)
 
       ! measurement state belongs to a trajectory, not to a configuration
@@ -703,5 +730,53 @@
                end if
             end if
          end function t2Dh_basis
+
+         pure function helix2native(d) result(a)
+      !! HELIX -> NATIVE forcing convention:
+      !!
+      !!    a_0  =    d_0
+      !!    a_ck =  2 d_ck
+      !!    a_sk = -2 d_sk           (k = 1 .. (n-1)/2)
+      !!
+      !! The factor of two is the usual accounting when the complex helix
+      !! coefficient is expanded into a real cos-sin pair; the sign flip on
+      !! the sine is what makes the forcing and the flow-rate phases rotate
+      !! in the same direction once written in the native basis, which is
+      !! the whole point of the native convention.
+      !!
+      !! The result has the same length as the input; if the input is even in
+      !! length (an incomplete harmonic pair) the trailing element is dropped.
+      !! Callers should have checked mod(size(d), 2) == 1 first.
+            real(dp), dimension(:), intent(in) :: d
+            real(dp), dimension(size(d)) :: a
+      ! internal
+            integer :: k, i, n
+            n = size(d)
+            a = 0.0_dp
+            if (n < 1) return
+            a(1) = d(1)
+            do k = 1, (n - 1)/2
+               i = 2*k
+               a(i)     =  2.0_dp*d(i)
+               a(i + 1) = -2.0_dp*d(i + 1)
+            end do
+         end function helix2native
+
+         pure function native2helix(a) result(d)
+      !! NATIVE -> HELIX forcing convention. Inverse of helix2native.
+            real(dp), dimension(:), intent(in) :: a
+            real(dp), dimension(size(a)) :: d
+      ! internal
+            integer :: k, i, n
+            n = size(a)
+            d = 0.0_dp
+            if (n < 1) return
+            d(1) = a(1)
+            do k = 1, (n - 1)/2
+               i = 2*k
+               d(i)     =  0.5_dp*a(i)
+               d(i + 1) = -0.5_dp*a(i + 1)
+            end do
+         end function native2helix
 
       end module neklab_t2Dh

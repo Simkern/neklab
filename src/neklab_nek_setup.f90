@@ -61,6 +61,8 @@
       ! internal
             character(len=*), parameter :: nekfmt = '(5X,A)'
             real(dp) :: dt_old
+            integer :: idt 
+            integer, parameter :: max_idt = 100
             character(len=128) :: msg
             logical :: full_summary
             logical :: iffxdt
@@ -168,10 +170,17 @@
                dt = param(26)/ctarg
                call compute_cfl(ctarg, vx, vy, vz, dt)
                param(12) = abs(dt)
+               dtinit = param(12)
                ! flush dtold in subs1.f
                fintim = huge(1.0_dp) ! this avoids to jump to lastep = 1 irrespective of the value of time
                call setdt            ! resets dt based on cfl and a maximum increase of 20% compared to dtold ...
+               idt = 0
                do while (abs(param(12) - dt) > 0.0_dp) ! we need to repeat this until dt_in = dt_out
+                  idt = idt + 1
+                  if (idt > max_idt) then
+                     call nek_log_message('max_idt reached.', this_module, 'setup_nek')
+                     exit
+                  end if
                   dt = param(12)
                   call setdt
                end do

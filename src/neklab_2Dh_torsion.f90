@@ -471,10 +471,6 @@
             real(dp) :: lam
             integer :: ntot1
 
-            if (if_torsion_zero) then
-               if (nid == 0) write(*,*) 'build_torsion_forcing_nl: torsion forcing skipped for jp=0'
-               return
-            end if
             call build_torsion_coeffs()
             ntot1 = lx1*ly1*lz1*nelv
             lam = t2Dh%get_lambda()

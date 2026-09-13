@@ -107,6 +107,9 @@
          public :: dphi_apply_t
          public :: add_torsion_forcing_RZ
          public :: add_torsion_forcing_phi
+         public :: add_torsion_coupling
+         public :: dphi_alpha_apply
+         public :: dphi_alpha_apply_t
          public :: build_torsion_forcing_nl
 
       contains
@@ -347,17 +350,21 @@
             call apply_dtheta(dthR, vyp(1,jp_))
             call apply_dtheta(dthP, tp(1,1,jp_))
 
-            call add_cxy(aZadv, coef_base, dthZ,        1.0_dp, ntot1)
-            call add_cxy(aZadv, coef_base, vyp(1,jp_),  1.0_dp, ntot1)
-            call add_cxy(aRadv, coef_base, dthR,        1.0_dp, ntot1)
-            call add_cxy(aRadv, coef_base, vxp(1,jp_), -1.0_dp, ntot1)
+      ! LHS -> RHS sign flip (advection sits on the LHS as (U.grad)u+(u.grad)U;
+      ! forcing is RHS, so negate). Matches the validated DNS build_torsion_
+      ! forcing_nl, which stores -coefU*dtheta etc. The viscous block below
+      ! already carries the flipped sign, hence only advection is negated here.
+            call add_cxy(aZadv, coef_base, dthZ,       -1.0_dp, ntot1)
+            call add_cxy(aZadv, coef_base, vyp(1,jp_), -1.0_dp, ntot1)
+            call add_cxy(aRadv, coef_base, dthR,       -1.0_dp, ntot1)
+            call add_cxy(aRadv, coef_base, vxp(1,jp_),  1.0_dp, ntot1)
 
             call apply_dtheta(tmp, vx)
-            call add_cxy(aZadv, coef_pert, tmp, 1.0_dp, ntot1)
-            call add_cxy(aZadv, coef_pert, vy,  1.0_dp, ntot1)
+            call add_cxy(aZadv, coef_pert, tmp, -1.0_dp, ntot1)
+            call add_cxy(aZadv, coef_pert, vy,  -1.0_dp, ntot1)
             call apply_dtheta(tmp, vy)
-            call add_cxy(aRadv, coef_pert, tmp,  1.0_dp, ntot1)
-            call add_cxy(aRadv, coef_pert, vx,  -1.0_dp, ntot1)
+            call add_cxy(aRadv, coef_pert, tmp, -1.0_dp, ntot1)
+            call add_cxy(aRadv, coef_pert, vx,   1.0_dp, ntot1)
 
       ! ---- viscous (weighted by nu) ----
             call apply_Ltheta(LthZ, vxp(1,jp_))
@@ -419,9 +426,10 @@
             call apply_dtheta(dthR, vyp(1,jp_))
 
       ! ---- advection (weighted by rho) ----
-            call add_cxy(aPadv, coef_base, dthP, 1.0_dp, ntot1)
+      ! LHS -> RHS sign flip, as in add_torsion_forcing_RZ (matches DNS -coefU*dthP).
+            call add_cxy(aPadv, coef_base, dthP, -1.0_dp, ntot1)
             call apply_dtheta(tmp, t(1,1,1,1,1))
-            call add_cxy(aPadv, coef_pert, tmp, 1.0_dp, ntot1)
+            call add_cxy(aPadv, coef_pert, tmp, -1.0_dp, ntot1)
 
       ! ---- viscous (weighted by nu) ----
             call apply_Ltheta(LthP, tp(1,1,jp_))
@@ -477,6 +485,7 @@
             call rzero(fZ, ntot1)
             call rzero(fR, ntot1)
             call rzero(fPhi, ntot1)
+            if (if_torsion_zero) return
 
       ! ============ ADVECTION  (nonlinear (U.grad)U, weighted by rho) ============
       ! coef = lambda*U_phi/R
@@ -522,6 +531,113 @@
 
             call set_neklab_forcing(fZ, fR, fPhi, 0)
          end subroutine build_torsion_forcing_nl
+
+         subroutine add_torsion_coupling(rhs_z, rhs_r, rhs_phi, alpha, jp_)
+      !! Adds the alpha*lambda torsion terms that COUPLE the real and imaginary
+      !! perturbation slots. Absent at alpha = 0 (add_torsion_forcing_* covers
+      !! that); the velocity-side counterpart of the cross blocks that
+      !! pressure_matvec_coupled gains at alpha /= 0.
+      !!
+      !! Origin. In the vector Laplacian the streamwise operator is
+      !! D = -i*alpha - lambda*dtheta. Grouping the torsion correction
+      !!   (1/R^2)[D^2 + 2 Omega D] u + (lambda*zhat/R^3) D u
+      !! by power of i, the terms carrying a SINGLE i (hence swapping slots)
+      !! and a factor of alpha are:
+      !!
+      !!   T1: +(2 alpha lambda/R^2) dtheta(u_i)         all three components
+      !!   T2: -(alpha lambda zhat/R^3) u_i             all three components
+      !!   T3: -(2 alpha/R^2) [Omega_lambda' u]  (lambda entries of Omega only):
+      !!         R-eq: -(2 alpha lambda/R^2) u_Z
+      !!         Z-eq: +(2 alpha lambda/R^2) u_R
+      !!         phi : 0
+      !!
+      !! The non-lambda entries of -(2 alpha/R^2) Omega u are the TORUS coupling
+      !! carried implicitly by couple_coef; only the lambda entries appear here.
+      !!
+      !! Slot bookkeeping. Every term carries +i, so a contribution read from
+      !! slot jp_ is written into ipert = npert+1-jp_ with
+      !!   Re[i w] = -w^I,  Im[i w] = +w^R,
+      !! i.e. sign +1 when writing into the Imag slot (ipert=2), -1 when writing
+      !! into the Real slot (ipert=1). Same convention as
+      !! compute_torus_s_advection (whose term is -i*alpha, opposite sign).
+      !!
+      !! All terms are viscous (from the vector Laplacian, 1/Re prefactor), so
+      !! weighted by nu (vdiff). Treated explicitly via EXT3; O(alpha*lambda/R^2
+      !! / Re), which does not restrict the timestep.
+            real(dp), dimension(lx1*ly1*lz1*lelv,lpert), intent(inout) :: rhs_z, rhs_r, rhs_phi
+            real(dp), intent(in) :: alpha
+            integer, intent(in) :: jp_
+            real(dp), dimension(lx1*ly1*lz1*lelv) :: accZ, accR, accP
+            real(dp), dimension(lx1*ly1*lz1*lelv) :: dthR, dthZ, dthP
+            real(dp) :: lam, sgn
+            integer :: ipert, ntot1
+
+            if (if_torsion_zero) return
+            if (alpha == 0.0_dp) return
+            ntot1 = lx1*ly1*lz1*nelv
+            lam = t2Dh%get_lambda()
+            ipert = npert + 1 - jp_
+            sgn = merge(-1.0_dp, 1.0_dp, ipert == 1)
+
+            call rzero(accZ, ntot1)
+            call rzero(accR, ntot1)
+            call rzero(accP, ntot1)
+
+            call apply_dtheta(dthZ, vxp(1,jp_))
+            call apply_dtheta(dthR, vyp(1,jp_))
+            call apply_dtheta(dthP, tp(1,1,jp_))
+
+      ! T1: +(2 alpha lambda/R^2) dtheta(u_i)     (lamR2_f = lambda/R^2)
+            call add_cxy(accZ, lamR2_f, dthZ, 2.0_dp*alpha*lam, ntot1)
+            call add_cxy(accR, lamR2_f, dthR, 2.0_dp*alpha*lam, ntot1)
+            call add_cxy(accP, lamR2_f, dthP, 2.0_dp*alpha*lam, ntot1)
+
+      ! T2: -(alpha lambda zhat/R^3) u_i          (lamzR3_f = lambda*zhat/R^3)
+            call add_cxy(accZ, lamzR3_f, vxp(1,jp_), -alpha, ntot1)
+            call add_cxy(accR, lamzR3_f, vyp(1,jp_), -alpha, ntot1)
+            call add_cxy(accP, lamzR3_f, tp(1,1,jp_), -alpha, ntot1)
+
+      ! T3: R-eq -(2 alpha lambda/R^2) u_Z ; Z-eq +(2 alpha lambda/R^2) u_R
+            call add_cxy(accR, lamR2_f, vxp(1,jp_), -2.0_dp*alpha*lam, ntot1)
+            call add_cxy(accZ, lamR2_f, vyp(1,jp_),  2.0_dp*alpha*lam, ntot1)
+
+      ! viscous (nu) + mass weighting, then deposit into the OPPOSITE slot
+            call weight_forcing(accZ, vdiff(1,1,1,1,1))
+            call weight_forcing(accR, vdiff(1,1,1,1,1))
+            call weight_forcing(accP, vdiff(1,1,1,1,1))
+            call add2s2(rhs_z(1,ipert),   accZ, sgn, ntot1)
+            call add2s2(rhs_r(1,ipert),   accR, sgn, ntot1)
+            call add2s2(rhs_phi(1,ipert), accP, sgn, ntot1)
+         end subroutine add_torsion_coupling
+
+         subroutine dphi_alpha_apply(dout, uin, alphaR)
+      !! The ALPHA half of the streamwise divergence, on M1, unweighted, WITHOUT
+      !! the slot swap: dout = (alpha/R) * uin. The swap (multiplication by the
+      !! slot matrix S) is applied by the caller, because in the coupled
+      !! pressure matvec the swap has to be tracked explicitly across the two
+      !! slots. This mirrors dphi_apply (the lambda half) so the cross blocks
+      !! of the Schur complement can be assembled from matched pieces.
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(out) :: dout
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(in) :: uin
+            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: alphaR
+            integer :: ntot1
+            ntot1 = lx1*ly1*lz1*nelv
+            call col3(dout, uin, alphaR, ntot1)
+         end subroutine dphi_alpha_apply
+
+         subroutine dphi_alpha_apply_t(dout, win, alphaR)
+      !! Transpose of dphi_alpha_apply. (alpha/R) is a diagonal (self-adjoint)
+      !! field multiply, so the transpose is identical; provided as a named
+      !! routine for symmetry with dphi_apply_t and to keep the cross-block
+      !! assembly readable.
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(out) :: dout
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(in) :: win
+            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: alphaR
+            integer :: ntot1
+            ntot1 = lx1*ly1*lz1*nelv
+            call col3(dout, win, alphaR, ntot1)
+         end subroutine dphi_alpha_apply_t
+
 
       !====================================================================
       !     HELPERS

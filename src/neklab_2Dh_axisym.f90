@@ -39,6 +39,8 @@
       
          public :: build_torus_coeffs
          public :: nek_advance_2Dh_axisym
+         public :: pressure_matvec_coupled_2Dh_axisym
+         public :: solve_pressure_coupled_2Dh_axisym
       
       contains
 
@@ -287,7 +289,7 @@
                   call chsign(dpr(1,jp), ntot2)
                end do
                call solve_pressure_coupled_2Dh_axisym(dpr(1,1), dpr(1,2), h1, h2, h2inv,
-     &                                                 alphaR_coef, alpha, intype, iter)
+     &                                              alphaR_coef, alpha, ebar, intype, iter)
             else
       ! ---- decoupled path: per-slot solve (torus or base-flow) ----
                do jp = 1, npert
@@ -1295,7 +1297,7 @@
             call neklab_timer_stop(t_solve_pres)
          end subroutine solve_pressure_2Dh_axisym
 
-         subroutine solve_pressure_coupled_2Dh_axisym(resR, resI, h1, h2, h2inv, alphaR, alpha, intype, iter)
+         subroutine solve_pressure_coupled_2Dh_axisym(resR, resI, h1, h2, h2inv, alphaR, alpha, ebar, intype, iter)
       !! Stacked GMRES for the coupled pressure system at alpha /= 0 AND
       !! lambda /= 0. Solves E [pR;pI] = [resR;resI] where E is the symmetric
       !! 2x2 Schur complement assembled by pressure_matvec_coupled_2Dh_axisym.
@@ -1312,27 +1314,37 @@
       !! The alpha /= 0 branch never calls ortho (the constant-pressure mode is
       !! not in the null space when alpha /= 0), matching solve_pressure_2Dh_axisym.
             implicit none
+            include 'GMRES'
             logical          ifprint
             common  /cprint/ ifprint
             integer, parameter :: n2 = lx2*ly2*lz2*lelv
-            integer, parameter :: kmax = 40   ! restart length for the stacked solve
+            integer, parameter :: kmax = 200   ! restart length for the stacked solve
             real, dimension(n2), intent(inout) :: resR, resI
             real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h1, h2, h2inv, alphaR
             real(dp), intent(in) :: alpha
+            real(dp), intent(in) :: ebar
             integer, intent(in) :: intype
             integer, intent(inout) :: iter
       ! local Krylov storage (stacked: [R half ; I half])
             real, dimension(n2) :: xR, xI, rR, rI, wR, wI, zR, zI, tR, tI
-            real, dimension(n2, kmax+1) :: vR, vI
+            real, dimension(n2, kmax+1) :: vR, vI    ! store Arnoldi basis
+            real, dimension(n2, kmax) :: zRk, zIk    ! store preconditioned basis for reconstruction
             real, dimension(kmax+1, kmax) :: hh
             real, dimension(kmax+1) :: gam
             real, dimension(kmax)   :: cc, ss
             real :: nrm, div0, tol_local, beta, alph, l, temp, norm_fac
             integer :: i, j, k, m, iconv, ntot2
-            real, external :: glsc2
+            real, external :: glsc2, glsum
             real*8 :: etime1, dnekclock
+            logical, save :: iflag_cpl = .false.
 
             call neklab_timer_start(t_solve_pres)
+
+            if (.not. iflag_cpl) then
+               iflag_cpl = .true.
+               call uzawa_gmres_split0(ml_gmres, mu_gmres, bm2, bm2inv, n2)
+            end if
+
             ntot2 = n2
             norm_fac = 1./sqrt(volvm2)
             etime1 = dnekclock()
@@ -1352,12 +1364,14 @@
             do while (iconv.eq.0 .and. iter.lt.2000)
       ! r = res - E x  (x = 0 on first pass)
                if (iter.eq.0) then
-                  call copy(rR, resR, ntot2)
-                  call copy(rI, resI, ntot2)
+                  call col3(rR, ml_gmres, resR, ntot2)     ! r = L^-1 res
+                  call col3(rI, ml_gmres, resI, ntot2)
                else
                   call pressure_matvec_coupled_2Dh_axisym(wR, wI, xR, xI, h1, h2, h2inv, alphaR, intype)
                   call copy(rR, resR, ntot2); call sub2(rR, wR, ntot2)
                   call copy(rI, resI, ntot2); call sub2(rI, wI, ntot2)
+                  call col2(rR, ml_gmres, ntot2)           ! r = L^-1 r
+                  call col2(rI, ml_gmres, ntot2)
                end if
                beta = sqrt(glsc2(rR, rR, ntot2) + glsc2(rI, rI, ntot2))
                if (iter.eq.0) div0 = beta*norm_fac
@@ -1371,11 +1385,21 @@
                   iter = iter + 1
       ! block-diagonal preconditioner: hsmg on each slot separately
                   call neklab_timer_start(t_pres_precond)
-                  call hsmg_solve(zR, vR(1,j))
-                  call hsmg_solve(zI, vI(1,j))
+                  call col3(wR, mu_gmres, vR(1,j), ntot2)   ! w = U^-1 v
+                  call col3(wI, mu_gmres, vI(1,j), ntot2)
+                  call hsmg_solve(zR, wR)     ! z = M^-1 w
+                  call hsmg_solve(zI, wI)
+                  if (ebar /= 0.0_dp) then
+                     call cadd(zR, glsum(wR,ntot2)/ebar, ntot2)
+                     call cadd(zI, glsum(wI,ntot2)/ebar, ntot2)
+                  end if
+                  call copy(zRk(1,j), zR, ntot2)   ! save z_j
+                  call copy(zIk(1,j), zI, ntot2)
                   call neklab_timer_stop(t_pres_precond)
-      ! w = E z
+      ! w = E z = E M^-1 v
                   call pressure_matvec_coupled_2Dh_axisym(wR, wI, zR, zI, h1, h2, h2inv, alphaR, intype)
+                  call col2(wR, ml_gmres, ntot2)            ! w = L^-1 w
+                  call col2(wI, ml_gmres, ntot2)
       ! Arnoldi (modified Gram-Schmidt) over the stacked inner product
                   do i = 1, j
                      hh(i,j) = glsc2(wR, vR(1,i), ntot2) + glsc2(wI, vI(1,i), ntot2)
@@ -1417,10 +1441,10 @@
                   end do
                   cc(k) = temp/hh(k,k)
                end do
-      ! form the solution update
+      ! form the solution update from the preconditioned vectors
                do i = 1, j
-                  call add2s2(xR, vR(1,i), cc(i), ntot2)
-                  call add2s2(xI, vI(1,i), cc(i), ntot2)
+                  call add2s2(xR, zRk(1,i), cc(i), ntot2)   ! x += c_i z_i
+                  call add2s2(xI, zIk(1,i), cc(i), ntot2)
                end do
                if (nrm.lt.tol_local) iconv = 1
             end do
@@ -1432,7 +1456,6 @@
  9998       format(i11,a,F5.1,1X,I6,1p4e13.4)
             call neklab_timer_stop(t_solve_pres)
          end subroutine solve_pressure_coupled_2Dh_axisym
-
 
          subroutine setrhs_pressure_2Dh_axisym(dp,h1,h2,h2inv,proj_set,niprev,alphaR,info_str)
             implicit none

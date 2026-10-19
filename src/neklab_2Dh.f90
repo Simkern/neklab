@@ -1,4 +1,5 @@
       module neklab_2Dh
+         use stdlib_optval, only: optval
          use LightKrylov, only: dp
          use neklab_nek_setup, only: nek_log_debug, nek_log_message, nek_log_information, 
      &                               nek_log_warning, nek_stop_error
@@ -16,9 +17,6 @@
          real(dp), dimension(lx2*ly2*lz2*lelv,mxprev,lpert), private :: pbasis
          integer, dimension(lpert), private :: nprev = 0
          real(dp), private :: dtbdlast = 0.0_dp
-
-      ! Spanwise advection by the base flow
-         logical, private :: if_advW = .false.
 
          public :: build_wmask
          public :: nek_advance_2Dh
@@ -114,6 +112,8 @@
             ! temporary fields for mean pressure recovery
             real(dp) :: ebar
             ! mean pressure
+            logical :: if_advW
+            ! W advection active?
             ! Miscellaneous
             character(len=*), parameter :: this_procedure = 'nek_advance'
             character(len=*), parameter :: fmt = '(A,I6)'
@@ -130,13 +130,14 @@
             ntot2 = lx2*ly2*lz2*nelv
             if (.not. wmask_defined) call build_wmask(.true.)
 
+            if_advW = optval(if_advW_in, .false.)
+            msg = 'Spanwise advection '//merge('active.  ', 'inactive.', if_advW)
+            call nek_log_debug(msg, this_module, this_procedure)
+
             write(msg,fmt) 'Step', istep
             call nek_log_debug(msg,this_module,this_procedure)
 
-            if (istep == 1) then
-               nprev(:) = 0 ! reset pressure projection basis
-               if_advW = check_w_advection(beta_z, if_advW_in) ! check if W-advection is active
-            end if
+            if (istep == 1) nprev(:) = 0 ! reset pressure projection basis
 
             call nekgsync
             call settime
@@ -368,50 +369,6 @@
             call col2c(gradz_p(1,ipert), bm1, spert*beta_z, ntot1)
             ! dssum will be called on the vel residual later
          end
-
-         logical function check_w_advection(beta_z, if_advW_in) result(if_advW_out)
-            ! Decides whether the spanwise advection + i * beta_z * W * v[xy]p is active
-            ! (beta_z /= 0 and W /= 0 somewhere) and checks it is supported.
-            ! Called once per linear pass.
-            !! w-advection is opt-in, irrespective of whether W is non-zero.
-            implicit none
-            include 'SIZE'
-            include 'SOLN'   ! t
-            real(dp), intent(in) :: beta_z
-            logical, optional, intent(in) :: if_advW_in
-            ! internal
-            character(len=*), parameter :: this_procedure = 'check_w_advection'
-            character(len=128) :: msg
-            real(dp) :: wmax
-            real, external :: glamax
-            
-            if_advW_out = .false.
-            wmax  = glamax(t(1,1,1,1,1), lx1*ly1*lz1*nelv)
-            if (present(if_advW_in)) then
-               if (beta_z == 0.0_dp) then
-                  msg = 'if_advW specified but beta_z = 0. W-advection ignored.'
-               else
-                  if_advW_out = if_advW_in
-                  msg = 'if_advW specified. W-advection is '//merge('active  ','inactive',if_advW_out)
-               end if
-               call nek_log_information(msg,this_module,this_procedure)
-            end if
-            
-            if (wmax > 0.0_dp .and. beta_z /= 0.0_dp .and. .not. if_advW_out) then
-               msg = 'W-field non-zero but W-advection ignored.'
-               call nek_log_warning(msg,this_module,this_procedure)
-            end if
-
-            if (if_advW_out) then
-               if (ifadj)      call nek_stop_error('adjoint not implemented for W /= 0.',       this_module, this_procedure)
-               if (npert /= 2) call nek_stop_error('W /= 0 with beta /= 0 requires npert = 2.', this_module, this_procedure)
-            end if
- 
-            msg = 'spanwise advection '//merge('active.  ','inactive.', if_advW_out) 
-            call nek_log_message(msg, this_module, this_procedure)
-            write(msg,'(A,1pE12.4,A,1pE12.4)') 'max|W| = ', wmax, ', beta = ', beta_z
-            call nek_log_information(msg, this_module, this_procedure)
-         end function check_w_advection
  
          subroutine compute_w_advection(advwx, advwy, advww, beta_z)
             ! + i * beta_z * W*v[xy]p: read/write switches jp.

@@ -8,7 +8,7 @@
          use neklab_vectors
          use neklab_utils, only: nek2vec, vec2nek
          use neklab_nek_setup, only: setup_nonlinear_solver, setup_linear_solver
-         use neklab_nek_setup, only: nek_stop_error, nek_log_message, nek_log_debug
+         use neklab_nek_setup, only: nek_stop_error, nek_log_message, nek_log_warning, nek_log_debug
          use neklab_helix
          use neklab_2Dh, only: nek_advance_2Dh
          use neklab_2Dh_axisym, only: nek_advance_2Dh_axisym
@@ -22,7 +22,9 @@
          integer, parameter :: lv = lx1*ly1*lz1*lelv
          integer, parameter :: lp = lx2*ly2*lz2*lelv
          integer, parameter :: lxyz = lx1*ly1*lz1
-      
+         ! tolerance on the maximum spanwise velocity to skipping spanwise advection in 2Dh
+         real(dp), parameter :: wtol = 1e-12_dp   
+         
          public :: apply_exptA
          public :: compute_LNS_conv
          public :: compute_LNS_gradp
@@ -72,6 +74,7 @@
             real(kind=dp) :: tau
             real(kind=dp) :: betaz
             real(kind=dp) :: Lz
+            logical :: if_advW = .false. ! opt-in
             type(nek_dvector) :: baseflow
          contains
             private

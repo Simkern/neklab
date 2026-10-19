@@ -1,9 +1,11 @@
       module neklab_2Dh
          use LightKrylov, only: dp
-         use neklab_nek_setup, only: nek_log_debug, nek_log_message, nek_stop_error
+         use neklab_nek_setup, only: nek_log_debug, nek_log_message, nek_log_information, 
+     &                               nek_log_warning, nek_stop_error
          implicit none
          include "SIZE"
          include "TOTAL"
+         include "ADJOINT" ! ifadj
       
          private
          character(len=*), parameter, private :: this_module = 'neklab_2Dh'
@@ -14,6 +16,9 @@
          real(dp), dimension(lx2*ly2*lz2*lelv,mxprev,lpert), private :: pbasis
          integer, dimension(lpert), private :: nprev = 0
          real(dp), private :: dtbdlast = 0.0_dp
+
+      ! Spanwise advection by the base flow
+         logical, private :: if_advW = .false.
 
          public :: build_wmask
          public :: nek_advance_2Dh
@@ -73,9 +78,10 @@
 
          end subroutine build_wmask
 
-         subroutine nek_advance_2dh(beta_z)
+         subroutine nek_advance_2dh(beta_z, if_advW_in)
             implicit none
             real(dp), intent(in) :: beta_z
+            logical, optional, intent(in) :: if_advW_in
             ! spanwise wavenumber
             ! common
             real(dp), dimension(lx1,ly1,lz1,lelv) :: w1, w2, w3
@@ -94,6 +100,8 @@
             common /scrhi/ h2inv
             real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: gradz_p
             ! spanwise pressure gradient
+            real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: advwx, advwy, advww
+            ! spanwise advection terms
             real(dp), dimension(lx2,ly2,lz2,lelv) :: frc_div
             ! spanwise divergence
             real(dp), dimension(lx2*ly2*lz2*lelv) :: prextr
@@ -125,7 +133,10 @@
             write(msg,fmt) 'Step', istep
             call nek_log_debug(msg,this_module,this_procedure)
 
-            if (istep == 1) nprev(:) = 0 ! reset pressure projection basis
+            if (istep == 1) then
+               nprev(:) = 0 ! reset pressure projection basis
+               if_advW = check_w_advection(beta_z, if_advW_in) ! check if W-advection is active
+            end if
 
             call nekgsync
             call settime
@@ -148,6 +159,8 @@
                ! we need to do this outside of the other jp loop for extrapolation of the correct pressure term
                call extrapprp(prextr)
                call compute_gradz_p(gradz_p, prextr, beta_z)
+               ! spanwise advection by the base flow: active iff beta_z /= 0 and W /= 0
+               if (if_advW) call compute_w_advection(advwx, advwy, advww, beta_z)
             end do
 
             ! Compute intermediate velocities
@@ -162,10 +175,10 @@
                !  Old geometry, old velocity
                !
                ifield = 1     !  velocity
-               call makefp
+               call makefp_w_2Dh(advwx, advwy, if_advW) ! W-advection added conditionally
                call lagfieldp
                ifield = 2     !  temperature (w)
-               call makeqp
+               call makeqp_w_2Dh(advww, if_advW)        ! W-advection added conditionally
                call lagscalp
                !
                igeom = 2
@@ -356,6 +369,138 @@
             ! dssum will be called on the vel residual later
          end
 
+         logical function check_w_advection(beta_z, if_advW_in) result(if_advW_out)
+            ! Decides whether the spanwise advection + i * beta_z * W * v[xy]p is active
+            ! (beta_z /= 0 and W /= 0 somewhere) and checks it is supported.
+            ! Called once per linear pass.
+            !! w-advection is opt-in, irrespective of whether W is non-zero.
+            implicit none
+            include 'SIZE'
+            include 'SOLN'   ! t
+            real(dp), intent(in) :: beta_z
+            logical, optional, intent(in) :: if_advW_in
+            ! internal
+            character(len=*), parameter :: this_procedure = 'check_w_advection'
+            character(len=128) :: msg
+            real(dp) :: wmax
+            real, external :: glamax
+            
+            if_advW_out = .false.
+            wmax  = glamax(t(1,1,1,1,1), lx1*ly1*lz1*nelv)
+            if (present(if_advW_in)) then
+               if (beta_z == 0.0_dp) then
+                  msg = 'if_advW specified but beta_z = 0. W-advection ignored.'
+               else
+                  if_advW_out = if_advW_in
+                  msg = 'if_advW specified. W-advection is '//merge('active  ','inactive',if_advW_out)
+               end if
+               call nek_log_information(msg,this_module,this_procedure)
+            end if
+            
+            if (wmax > 0.0_dp .and. beta_z /= 0.0_dp .and. .not. if_advW_out) then
+               msg = 'W-field non-zero but W-advection ignored.'
+               call nek_log_warning(msg,this_module,this_procedure)
+            end if
+
+            if (if_advW_out) then
+               if (ifadj)      call nek_stop_error('adjoint not implemented for W /= 0.',       this_module, this_procedure)
+               if (npert /= 2) call nek_stop_error('W /= 0 with beta /= 0 requires npert = 2.', this_module, this_procedure)
+            end if
+ 
+            msg = 'spanwise advection '//merge('active.  ','inactive.', if_advW_out) 
+            call nek_log_message(msg, this_module, this_procedure)
+            write(msg,'(A,1pE12.4,A,1pE12.4)') 'max|W| = ', wmax, ', beta = ', beta_z
+            call nek_log_information(msg, this_module, this_procedure)
+         end function check_w_advection
+ 
+         subroutine compute_w_advection(advwx, advwy, advww, beta_z)
+            ! + i * beta_z * W*v[xy]p: read/write switches jp.
+            implicit none
+            include 'SIZE'
+            include 'SOLN'   ! jp, vxp, vyp, tp
+            include 'MASS'   ! bm1
+            real(dp), dimension(lx1*ly1*lz1*lelv,lpert), intent(inout) :: advwx, advwy, advww
+            real(dp), intent(in) :: beta_z
+            ! internal
+            real(dp), dimension(lx1*ly1*lz1*lelv) :: coefw
+            integer :: ipert, spert, ntot1
+ 
+            ntot1 = lx1*ly1*lz1*nelv
+            ipert = npert + 1 - jp
+            spert = merge(1, -1, jp == 1)  ! +1 for jp = 1, -1 for jp = 2
+ 
+            call col3 (coefw, t(1,1,1,1,1), bm1, ntot1)            ! W*bm1
+            call cmult(coefw, spert*beta_z, ntot1)                 ! +-beta*W*bm1
+
+            call col3 (advwx(1,ipert), coefw, vxp(1,jp),  ntot1)
+            call col2 (advwx(1,ipert), vtrans(1,1,1,1,1), ntot1)   ! rho
+            call col3 (advwy(1,ipert), coefw, vyp(1,jp),  ntot1)
+            call col2 (advwy(1,ipert), vtrans(1,1,1,1,1), ntot1)   ! rho
+            call col3 (advww(1,ipert), coefw, tp(1,1,jp), ntot1)
+            call col2 (advww(1,ipert), vtrans(1,1,1,1,2), ntot1)   ! rho*cp
+         end subroutine compute_w_advection
+
+
+         subroutine makefp_w_2Dh(advwx, advwy, if_wadv)
+            ! Copy of the core makefp (perturb.f)
+            ! Spanwise advection of vxp and vyp injected before makextp if W /= 0.
+            implicit none
+            include 'SIZE'
+            include 'SOLN'
+            include 'INPUT'
+            include 'TSTEP'
+            include 'ADJOINT'
+            real(dp), dimension(lx1*ly1*lz1*lelv,lpert), intent(in) :: advwx, advwy
+            logical, intent(in) :: if_wadv
+            integer :: ntot1
+
+            ntot1 = lx1*ly1*lz1*nelv
+            ! user-specified forcing
+                                                               call makeufp
+            ! baseflow advection
+            if (ifnav .and. (.not.ifchar) .and. (.not.ifadj))  call advabp
+            if (ifnav .and. (.not.ifchar) .and. (     ifadj))  call advabp_adjoint
+            !! W addition
+            if (if_wadv) then
+               ! advection via the W component
+               call add2(bfxp(1,jp), advwx(1,jp), ntot1)
+               call add2(bfyp(1,jp), advwy(1,jp), ntot1)
+            end if
+            ! add extrapolation terms
+            if (iftran)                                        call makextp
+            ! add bd contribution
+                                                               call makebdfp
+         end subroutine makefp_w_2Dh
+
+         subroutine makeqp_w_2Dh(advww, if_wadv)
+            ! Copy of the core makeqp (perturb.f)
+            ! Spanwise advection of vzp injected before makeabqp if W /= 0.
+            ! Note: Expects ifield = 2.
+            implicit none
+            include 'SIZE'
+            include 'SOLN'
+            include 'INPUT'
+            include 'TSTEP'
+            real(dp), dimension(lx1*ly1*lz1*lelv,lpert), intent(in) :: advww
+            logical, intent(in) :: if_wadv
+            integer :: ntot1
+
+            ntot1 = lx1*ly1*lz1*nelv
+            ! user-specified forcing
+                                                                  call makeuqp
+            ! baseflow advection
+            if (ifadvc(ifield) .and. (.not.ifchar))               call convabp
+            !! W additions
+            if (if_wadv) then
+               ! advection via the W component
+               call add2(bqp(1,ifield-1,jp), advww(1,jp), ntot1)
+            end if
+            ! add extrapolation terms
+            if (iftran)                                           call makeabqp
+            if ((iftran .and. .not.ifchar) .or.
+     &          (iftran .and. .not.ifadvc(ifield) .and. ifchar))  call makebdqp
+         end subroutine makeqp_w_2Dh
+
          subroutine pressure_matvec_2Dh(ap,wp,h1,h2,h2inv,beta_z,intype)
             implicit none
 
@@ -541,7 +686,7 @@
                   etime_p = etime_p + dnekclock()-etime2
                
                   call pressure_matvec_2Dh(w_gmres,z_gmres(1,j),      ! w = A z
-     $                                h1,h2,h2inv,beta_z,intype)      !        j
+     &                                h1,h2,h2inv,beta_z,intype)      !        j
                                                                !      -1
                   call col2(w_gmres,ml_gmres,ntot2)            ! w = L   w
                                                                !      i,j  i
@@ -620,10 +765,10 @@
 
             if (present(info_str)) then
                if (nio.eq.0) write(6,9998) istep,'  U-PRES gmres  beta = ', beta_z,info_str,
-     $                                  iter,divex,div0,tolpss,etime_p,etime1
+     &                                  iter,divex,div0,tolpss,etime_p,etime1
             else
                if (nio.eq.0) write(6,9999) istep,'  U-PRES gmres  ', 
-     $                                  iter,divex,div0,tolpss,etime_p,etime1
+     &                                  iter,divex,div0,tolpss,etime_p,etime1
             end if
             
  9998       format(i11,a,F5.1,1X,A,1X,I6,1p5e13.4)

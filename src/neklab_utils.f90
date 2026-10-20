@@ -82,12 +82,12 @@
             module procedure outpost_ext_dnek_vector
             module procedure outpost_ext_dnek_basis
          end interface
-
+      
          interface outpost_nek
             module procedure outpost_vector
             module procedure outpost_basis
          end interface
-
+      
          interface outpost_2Dh
             module procedure outpost_2Dh_vector
             module procedure outpost_2Dh_basis
@@ -107,7 +107,7 @@
             call nopcopy(vec%vx, vec%vy, vec%vz, vec%pr, vec%theta, vx_(:, 1), vy_(:, 1), vz_(:, 1), pr_(:, 1), t_(:, :, 1))
       
          end subroutine nek2vec_prt
-
+      
          subroutine nek2vec_prt_single(vec, vx_, vy_, vz_, pr_, t_, ipert)
             include "SIZE"
             type(nek_dvector), intent(out) :: vec
@@ -118,7 +118,7 @@
             real(kind=dp), dimension(lx1*ly1*lz1*lelt, ldimt, lpert), intent(in) :: t_
             integer, intent(in) :: ipert
       
-            if (ipert > npert) call stop_error('The chosen perturbation index is not defined.',this_module,'nek2vec_prt_single')
+            if (ipert > npert) call stop_error('The chosen perturbation index is not defined.', this_module, 'nek2vec_prt_single')
             call nopcopy(vec%vx, vec%vy, vec%vz, vec%pr, vec%theta, vx_(:, ipert), vy_(:, ipert), vz_(:, ipert), pr_(:, ipert), t_(:, :, ipert))
       
          end subroutine nek2vec_prt_single
@@ -135,7 +135,7 @@
             call nopcopy(vec%vx, vec%vy, vec%vz, vec%pr, vec%theta, vx_, vy_, vz_, pr_, t_)
       
          end subroutine nek2vec_std
-
+      
          subroutine nek2vec_2Dh(vec, vx_, vy_, vz_, pr_, t_)
             include "SIZE"
             type(nek_zvector), intent(out) :: vec
@@ -175,7 +175,7 @@
             call nopcopy(vx_(:, 1), vy_(:, 1), vz_(:, 1), pr_(:, 1), t_(:, :, 1), vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
       
          end subroutine vec2nek_prt
-
+      
          subroutine vec2nek_prt_single(vx_, vy_, vz_, pr_, t_, vec, ipert)
             include "SIZE"
             type(nek_dvector), intent(in) :: vec
@@ -186,11 +186,11 @@
             real(kind=dp), dimension(lp, lpert), intent(out) :: pr_
             real(kind=dp), dimension(lt, ldimt, lpert), intent(out) :: t_
       
-            if (ipert > npert) call stop_error('The chosen perturbation index is not defined.',this_module,'vec2nek_prt_single')
+            if (ipert > npert) call stop_error('The chosen perturbation index is not defined.', this_module, 'vec2nek_prt_single')
             call nopcopy(vx_(:, ipert), vy_(:, ipert), vz_(:, ipert), pr_(:, ipert), t_(:, :, ipert), vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
       
          end subroutine vec2nek_prt_single
-
+      
          subroutine vec2nek_2Dh(vx_, vy_, vz_, pr_, t_, vec)
             include "SIZE"
             type(nek_zvector), intent(in) :: vec
@@ -215,11 +215,11 @@
             real(kind=dp), dimension(lx1, ly1, lz1, lelt, ldimt), intent(out) :: t_
             select type (vec)
             type is (nek_dvector)
-               
+      
                call nopcopy(vx_, vy_, vz_, pr_, t_, vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
-
+      
             class default
-               call type_error('vec','nek_dvector','IN',this_module,'abstract_vec2nek_std')
+               call type_error('vec', 'nek_dvector', 'IN', this_module, 'abstract_vec2nek_std')
             end select
          end subroutine abstract_vec2nek_std
       
@@ -233,11 +233,11 @@
             real(kind=dp), dimension(lt, ldimt, 1), intent(out) :: t_
             select type (vec)
             type is (nek_dvector)
-               
+      
                call nopcopy(vx_(:, 1), vy_(:, 1), vz_(:, 1), pr_(:, 1), t_(:, :, 1), vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
-
+      
             class default
-               call type_error('vec','nek_dvector','IN',this_module,'abstract_vec2nek_prt')
+               call type_error('vec', 'nek_dvector', 'IN', this_module, 'abstract_vec2nek_prt')
             end select
          end subroutine abstract_vec2nek_prt
       
@@ -305,11 +305,11 @@
             real(kind=dp), dimension(lx1, ly1, lz1, lelt, ldimt), intent(out) :: t_
             select type (vec)
             type is (nek_ext_dvector)
-               
+      
                call nopcopy(vx_, vy_, vz_, pr_, t_, vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
-
+      
             class default
-               call type_error('vec','nek_ext_dvector','IN',this_module,'abstract_ext_vec2nek_std')
+               call type_error('vec', 'nek_ext_dvector', 'IN', this_module, 'abstract_ext_vec2nek_std')
             end select
          end subroutine abstract_ext_vec2nek_std
       
@@ -323,11 +323,11 @@
             real(kind=dp), dimension(lt, ldimt, 1), intent(out) :: t_
             select type (vec)
             type is (nek_ext_dvector)
-               
+      
                call nopcopy(vx_(:, 1), vy_(:, 1), vz_(:, 1), pr_(:, 1), t_(:, :, 1), vec%vx, vec%vy, vec%vz, vec%pr, vec%theta)
-
+      
             class default
-               call type_error('vec','nek_ext_dvector','IN',this_module,'abstract_ext_vec2nek_prt')
+               call type_error('vec', 'nek_ext_dvector', 'IN', this_module, 'abstract_ext_vec2nek_prt')
             end select
          end subroutine abstract_ext_vec2nek_prt
       
@@ -335,11 +335,11 @@
             class(abstract_vector_rdp), intent(in) :: vec
             select type (vec)
             type is (nek_ext_dvector)
-               
+      
                period = vec%T
-
+      
             class default
-               call type_error('vec','nek_ext_dvector','IN',this_module,'get_period_abs')
+               call type_error('vec', 'nek_ext_dvector', 'IN', this_module, 'get_period_abs')
             end select
          end function get_period_abs
       
@@ -347,7 +347,7 @@
             class(nek_ext_dvector), intent(in) :: vec
             period = vec%T
          end function get_period
-   
+      
          subroutine nopcopy(a1, a2, a3, a4, a5, b1, b2, b3, b4, b5)
             implicit none
             include 'SIZE'
@@ -369,7 +369,7 @@
          end subroutine nopcopy
       
       ! OUTPOSTING
-         
+      
          subroutine outpost_dnek_vector(vec, prefix)
             type(nek_dvector), intent(in) :: vec
             character(len=3), intent(in) :: prefix
@@ -381,11 +381,11 @@
             character(len=3), intent(in) :: prefix
             select type (vec)
             type is (nek_dvector)
-               
+      
                call outpost(vec%vx, vec%vy, vec%vz, vec%pr, vec%theta, prefix)
-
+      
             class default
-               call type_error('vec','nek_dvector','IN',this_module,'outpost_dnek_abs_vector')
+               call type_error('vec', 'nek_dvector', 'IN', this_module, 'outpost_dnek_abs_vector')
             end select
          end subroutine outpost_dnek_abs_vector
       
@@ -397,21 +397,21 @@
                call outpost_dnek_vector(vec(i), prefix)
             end do
          end subroutine outpost_dnek_basis
-
+      
          subroutine outpost_2Dh_vector(vec, prefix2)
             type(nek_zvector), intent(in) :: vec
             character(len=2), intent(in) :: prefix2
             character(len=3) :: prefix
-            write(prefix,'(A2,A1)') prefix2, 'r' 
+            write (prefix, '(A2,A1)') prefix2, 'r'
             associate (v => vec%re)
                call outpost(v%vx, v%vy, v%vz, v%pr, v%theta, prefix)
             end associate
-            write(prefix,'(A2,A1)') prefix2, 'i' 
+            write (prefix, '(A2,A1)') prefix2, 'i'
             associate (v => vec%im)
                call outpost(v%vx, v%vy, v%vz, v%pr, v%theta, prefix)
             end associate
          end subroutine outpost_2Dh_vector
-
+      
          subroutine outpost_2Dh_basis(vec, prefix2)
             type(nek_zvector), intent(in) :: vec(:)
             character(len=2), intent(in) :: prefix2
@@ -435,22 +435,22 @@
                call outpost_ext_dnek_vector(vec(i), prefix)
             end do
          end subroutine outpost_ext_dnek_basis
-
+      
          subroutine outpost_vector(vec, prefix)
             class(abstract_vector), intent(in) :: vec
             character(len=3), intent(in) :: prefix
             select type (vec)
             type is (nek_dvector)
-               call outpost_dnek    (vec, prefix)
+               call outpost_dnek(vec, prefix)
             type is (nek_zvector)
-               call outpost_2Dh     (vec, prefix(1:2))
+               call outpost_2Dh(vec, prefix(1:2))
             type is (nek_ext_dvector)
                call outpost_ext_dnek(vec, prefix)
             class default
-               call type_error('vec','nek_dvector/zvector/ext_dvector','IN',this_module,'outpost_nek')
+               call type_error('vec', 'nek_dvector/zvector/ext_dvector', 'IN', this_module, 'outpost_nek')
             end select
          end subroutine outpost_vector
-
+      
          subroutine outpost_basis(vec, prefix)
             class(abstract_vector), intent(in) :: vec(:)
             character(len=3), intent(in) :: prefix
@@ -459,5 +459,5 @@
                call outpost_vector(vec(i), prefix)
             end do
          end subroutine outpost_basis
-
+      
       end module neklab_utils

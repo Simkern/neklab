@@ -73,7 +73,7 @@
          public :: nek_system_torus_upo, nek_jacobian_torus_upo
          public :: nek_system_torus_2Dh, nek_jacobian_torus_2Dh
          public :: nek_system_torus_upo_2Dh, nek_jacobian_torus_upo_2Dh
-               
+      
       ! Data for nek5000 user-defined forcing function
          public :: get_neklab_forcing, set_neklab_forcing, neklab_forcing
       
@@ -83,13 +83,13 @@
       ! Stability analysis exports.
          public :: linear_stability_analysis_fixed_point
          public :: transient_growth_analysis_fixed_point
-
+      
       ! Torus
          public :: linear_stability_analysis_periodic_orbit
          public :: mflow_newton
          public :: shift_mflow_phase_torus
          public :: compute_nonlinear_period_torus
-
+      
       ! 2Dh
          public :: nek_advance_2Dh
          public :: nek_advance_2Dh_axisym

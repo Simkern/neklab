@@ -35,10 +35,10 @@
                exptA%tau = tau/4.0_dp; call exptA%init()
                vec_out%im = evaluate_imaginary_part(vec_in, self%omega, vec_out%re, ifadj)
             class default
-               call type_error('vec_out','nek_zvector','OUT',this_module,'resolvent_matvec')
+               call type_error('vec_out', 'nek_zvector', 'OUT', this_module, 'resolvent_matvec')
             end select
          class default
-            call type_error('vec_in','nek_zvector','IN',this_module,'resolvent_matvec')
+            call type_error('vec_in', 'nek_zvector', 'IN', this_module, 'resolvent_matvec')
          end select
          end procedure
       
@@ -64,10 +64,10 @@
                exptA%tau = tau/4.0_dp; call exptA%init()
                vec_out%im = evaluate_imaginary_part(vec_in, self%omega, vec_out%re, .true.)
             class default
-               call type_error('vec_out','nek_zvector','OUT',this_module,'resolvent_rmatvec')
+               call type_error('vec_out', 'nek_zvector', 'OUT', this_module, 'resolvent_rmatvec')
             end select
          class default
-            call type_error('vec_in','nek_zvector','IN',this_module,'resolvent_rmatvec')
+            call type_error('vec_in', 'nek_zvector', 'IN', this_module, 'resolvent_rmatvec')
          end select
          end procedure
       

@@ -129,9 +129,9 @@
                      end if
                   end if
                   call bf_begin_step()
-                  call neklab_timer_start(t_nl_step)
+                  call neklab_timer_start(t_axisym_nl_step)
                   call nek_advance()
-                  call neklab_timer_stop(t_nl_step)
+                  call neklab_timer_stop(t_axisym_nl_step)
       ! The landing steps are sized by the period constraint, not by the CFL
       ! condition, so they must not pollute the dt statistics the driver uses
       ! to report the resolution of the orbit.

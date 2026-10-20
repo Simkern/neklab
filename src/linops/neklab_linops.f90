@@ -22,9 +22,9 @@
          integer, parameter :: lv = lx1*ly1*lz1*lelv
          integer, parameter :: lp = lx2*ly2*lz2*lelv
          integer, parameter :: lxyz = lx1*ly1*lz1
-         ! tolerance on the maximum spanwise velocity to skipping spanwise advection in 2Dh
-         real(dp), parameter :: wtol = 1e-12_dp   
-         
+      ! tolerance on the maximum spanwise velocity to skipping spanwise advection in 2Dh
+         real(dp), parameter :: wtol = 1e-12_dp
+      
          public :: apply_exptA
          public :: compute_LNS_conv
          public :: compute_LNS_gradp
@@ -64,7 +64,7 @@
                class(abstract_vector_rdp), intent(out) :: vec_out
             end subroutine
          end interface
-
+      
       !---------------------------------------------
       !-----     EXPONENTIAL PROPAGATOR 2Dh    -----
       !---------------------------------------------
@@ -101,7 +101,7 @@
                class(abstract_vector_cdp), intent(out) :: vec_out
             end subroutine
          end interface
-
+      
       !---------------------------------------------------
       !-----     EXPONENTIAL PROPAGATOR 2Dh axisym   -----
       !---------------------------------------------------
@@ -166,7 +166,7 @@
                class(abstract_vector_cdp), intent(out) :: vec_out
             end subroutine
          end interface
-
+      
       !-----------------------------------------
       !-----     FLOQUET OPERATOR TORUS    -----
       !-----------------------------------------
@@ -189,7 +189,7 @@
             module subroutine floquet_init(self)
                class(floquet_linop), intent(inout) :: self
             end subroutine
-
+      
             module subroutine floquet_matvec(self, vec_in, vec_out)
                class(floquet_linop), intent(inout) :: self
                class(abstract_vector_rdp), intent(in) :: vec_in
@@ -240,13 +240,13 @@
                         call A%matvec(vec_in, vec_out)
                      end if
                   class default
-                     call type_error('A','exptA_linop','INOUT',this_module,'apply_exptA')
+                     call type_error('A', 'exptA_linop', 'INOUT', this_module, 'apply_exptA')
                   end select
                class default
-                  call type_error('vec_out','nek_dvector','OUT',this_module,'apply_exptA')
+                  call type_error('vec_out', 'nek_dvector', 'OUT', this_module, 'apply_exptA')
                end select
             class default
-               call type_error('vec_in','nek_dvector','IN',this_module,'apply_exptA')
+               call type_error('vec_in', 'nek_dvector', 'IN', this_module, 'apply_exptA')
             end select
          end subroutine apply_exptA
       
@@ -407,7 +407,7 @@
       ! Diffusion term
             call nek_log_debug('diffusion term', this_module, 'compute_Lv')
             call compute_LNS_laplacian(Lux, Luy, Luz, ux, uy, uz)
-            ! Convective terms
+      ! Convective terms
             call nek_log_debug('convective term', this_module, 'compute_Lv')
             call compute_LNS_conv(utmpx, utmpy, utmpz, ux, uy, uz, trans)
       ! subtract from output terms

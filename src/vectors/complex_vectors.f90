@@ -47,16 +47,16 @@
       
          module procedure nek_zscal
          type(nek_dvector) :: wrk
-         ! Complex scaling  z <- alpha * z  with alpha = a + i*b :
-         !
-         !     re <- a*re - b*im
-         !     im <- b*re + a*im
-         !
-         ! Recall that nek_daxpby(alpha, vec, beta, self) computes
-         !
-         !     self <- beta*self + alpha*vec
-         !
-         ! The update of the imaginary part needs the OLD real part, hence the copy.
+      ! Complex scaling  z <- alpha * z  with alpha = a + i*b :
+      !
+      !     re <- a*re - b*im
+      !     im <- b*re + a*im
+      !
+      ! Recall that nek_daxpby(alpha, vec, beta, self) computes
+      !
+      !     self <- beta*self + alpha*vec
+      !
+      ! The update of the imaginary part needs the OLD real part, hence the copy.
          wrk = self%re
          call nek_daxpby(-alpha%im, self%im, alpha%re, self%re)   ! re <- a*re - b*im
          call nek_daxpby(alpha%im, wrk, alpha%re, self%im)        ! im <- b*re + a*im
@@ -74,7 +74,7 @@
             call nek_daxpby(1.0_dp, wrk%re, 1.0_dp, self%re)
             call nek_daxpby(1.0_dp, wrk%im, 1.0_dp, self%im)
          class default
-            call type_error('vec','nek_zvector','IN',this_module,'nek_zaxpby')
+            call type_error('vec', 'nek_zvector', 'IN', this_module, 'nek_zaxpby')
          end select
          end procedure
       
@@ -86,7 +86,7 @@
             alpha_i = self%re%dot(vec%im) - self%im%dot(vec%re)
             alpha = cmplx(alpha_r, alpha_i, kind=dp)
          class default
-            call type_error('vec','nek_zvector','IN',this_module,'nek_zdot')
+            call type_error('vec', 'nek_zvector', 'IN', this_module, 'nek_zdot')
          end select
          end procedure
       

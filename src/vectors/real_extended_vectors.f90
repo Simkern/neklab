@@ -45,7 +45,7 @@
          normalize = optval(ifnorm, .false.)
       
          ifield = 1 ! for bcdirvc
-
+      
          do iel = 1, nelv
          do iz = 1, lz1
          do iy = 1, ly1
@@ -54,14 +54,14 @@
             xl(1) = xm1(ix, iy, iz, iel)
             xl(2) = ym1(ix, iy, iz, iel)
             if (if3d) xl(3) = zm1(ix, iy, iz, iel)
-            ijke = ix + lx1*((iy-1) + ly1*((iz-1) + lz1*(iel-1)))
+            ijke = ix + lx1*((iy - 1) + ly1*((iz - 1) + lz1*(iel - 1)))
       
             call random_number(fcoeff); fcoeff = fcoeff*1.0e4_dp
             self%vx(ijke) = self%vx(ijke) + mth_rand(ix, iy, iz, ieg, xl, fcoeff)
       
             call random_number(fcoeff); fcoeff = fcoeff*1.0e4_dp
             self%vy(ijke) = self%vy(ijke) + mth_rand(ix, iy, iz, ieg, xl, fcoeff)
-
+      
             if (if3d) then
                call random_number(fcoeff); fcoeff = fcoeff*1.0e4_dp
                self%vz(ijke) = self%vz(ijke) + mth_rand(ix, iy, iz, ieg, xl, fcoeff)
@@ -70,26 +70,26 @@
          end do
          end do
          end do
-
-         ! zero out noise on the cyclic boundary to avoid spurious modes
+      
+      ! zero out noise on the cyclic boundary to avoid spurious modes
          if (ifcyclic) then
-            do iel = 1, nelv
-               do iface = 1, 2*ndim
-                  if (cbc(iface,iel,1) .eq. 'P  ') then
-                     call facind(kx1, kx2, ky1, ky2, kz1, kz2, lx1, ly1, lz1, iface)
-                     do iz = kz1, kz2
-                     do iy = ky1, ky2
-                     do ix = kx1, kx2
-                        ijke = ix + lx1*((iy-1) + ly1*((iz-1) + lz1*(iel-1)))
-                        self%vx(ijke) = 0.0_dp
-                        self%vy(ijke) = 0.0_dp
-                        if (if3d) self%vz(ijke) = 0.0_dp
-                     end do
-                     end do
-                     end do
-                  end if
-               end do
+         do iel = 1, nelv
+         do iface = 1, 2*ndim
+         if (cbc(iface, iel, 1) == 'P  ') then
+            call facind(kx1, kx2, ky1, ky2, kz1, kz2, lx1, ly1, lz1, iface)
+            do iz = kz1, kz2
+            do iy = ky1, ky2
+            do ix = kx1, kx2
+               ijke = ix + lx1*((iy - 1) + ly1*((iz - 1) + lz1*(iel - 1)))
+               self%vx(ijke) = 0.0_dp
+               self%vy(ijke) = 0.0_dp
+               if (if3d) self%vz(ijke) = 0.0_dp
             end do
+            end do
+            end do
+         end if
+         end do
+         end do
          end if
       
       ! Face averaging.
@@ -99,9 +99,9 @@
          call dsavg(self%vy)
          if (if3d) call dsavg(self%vz)
          call bcdirvc(self%vx, self%vy, self%vz, v1mask, v2mask, v3mask)
-         
+      
          call random_number(self%T)
-         
+      
          if (normalize) then
             alpha = self%norm()
             call self%scal(1.0_dp/alpha)
@@ -134,7 +134,7 @@
             if (ifto) call add2s2(self%theta(:, 1), vec%theta(:, 1), alpha, n1)
             self%T = beta*self%T + alpha*vec%T
          class default
-            call type_error('vec','nek_ext_dvector','IN',this_module,'nek_ext_daxpby')
+            call type_error('vec', 'nek_ext_dvector', 'IN', this_module, 'nek_ext_daxpby')
          end select
          end procedure
       
@@ -144,7 +144,7 @@
          n = nx1*ny1*nz1*nelv
          select type (vec)
          type is (nek_ext_dvector)
-            alpha =         glsc3(self%vx, vec%vx, bm1, n)
+            alpha = glsc3(self%vx, vec%vx, bm1, n)
             alpha = alpha + glsc3(self%vy, vec%vy, bm1, n)
             if (if3d) alpha = alpha + glsc3(self%vz, vec%vz, bm1, n)
             if (ifto) then
@@ -157,7 +157,7 @@
             end if
             alpha = alpha + self%T*vec%T
          class default
-            call type_error('vec','nek_ext_dvector','IN',this_module,'nek_ext_ddot')
+            call type_error('vec', 'nek_ext_dvector', 'IN', this_module, 'nek_ext_ddot')
          end select
          end procedure
       

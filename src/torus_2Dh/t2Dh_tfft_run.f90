@@ -72,7 +72,7 @@
          use neklab_vectors, only: nek_zvector
          use neklab_utils, only: vec2nek
          use neklab_t2Dh, only: t2Dh, lfc
-         use neklab_2Dh, only: nek_advance_2Dh
+         use neklab_2Dh_planar, only: nek_advance_2Dh_planar
          use neklab_2Dh_axisym, only: nek_advance_2Dh_axisym
          use neklab_nek_setup, only: setup_linear_solver, nek_log_message,
      &                               nek_log_information, nek_log_warning,

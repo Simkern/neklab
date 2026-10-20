@@ -69,8 +69,8 @@
       !! argument anywhere. That is deliberate: it is unchanged by the
       !! alpha /= 0 extension, which only adds a slot-aware wrapper around it.
          use LightKrylov, only: dp
-         use neklab_2Dh, only: wmask, wmask_defined, build_wmask
          use neklab_t2Dh, only: t2Dh
+         use neklab_2Dh_common, only: wmask, wmask_defined, build_wmask
          use neklab_nek_setup, only: nek_log_debug, nek_log_message,
      &                               nek_log_warning, nek_stop_error
          use neklab_nek_forcing, only: set_neklab_forcing

@@ -1,12 +1,14 @@
       submodule(neklab_linops) exponential_propagator_2Dh
          implicit none
       contains
-         module procedure init_exptA_2Dh
-         character(len=*), parameter :: this_procedure = "init_exptA_2Dh"
+         module procedure init_exptA_2Dh_planar
+         character(len=*), parameter :: this_procedure = "init_exptA_2Dh_planar"
          character(len=256) :: msg
          logical :: if_advW
          real(dp) :: wmax
          real, external :: glamax
+         msg = 'call init_2Dh_planar() in userchk at istep = 0 before init.'
+         if (.not. is_2Dh_planar_initialized()) call nek_stop_error(msg, this_module, this_procedure)
          ! For the baseflow field for dt/nsteps/cfl computation.
          call vec2nek(vx, vy, vz, pr, t, self%baseflow)
          call nek_log_message("Set self%baseflow -> vx, vy, vz, pr, t", this_module, this_procedure)
@@ -26,10 +28,10 @@
             write(msg,'(A,1pE12.4)') '     betaz = ', self%betaz
             call nek_log_message(msg, this_module, this_procedure)
          end if
-         end procedure init_exptA_2Dh
+         end procedure init_exptA_2Dh_planar
 
-         module procedure exptA_2Dh_matvec
-         character(len=*), parameter :: this_procedure = "exptA_2Dh_matvec"
+         module procedure exptA_2Dh_planar_matvec
+         character(len=*), parameter :: this_procedure = "exptA_2Dh_planar_matvec"
          logical :: if_advW
          select type (vec_in)
          type is (nek_zvector)
@@ -50,7 +52,7 @@
          ! Integrate the equations forward in time.
                time = 0.0_dp
                do istep = 1, nsteps
-                  call nek_advance_2Dh(self%betaz, if_advW)
+                  call nek_advance_2Dh_planar(self%betaz, if_advW)
                end do
          ! Copy the final solution to vector.
                call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
@@ -60,10 +62,10 @@
          class default
             call type_error('vec_in','nek_zvector','IN',this_module,this_procedure)
          end select
-         end procedure exptA_2Dh_matvec
+         end procedure exptA_2Dh_planar_matvec
 
-         module procedure exptA_2Dh_rmatvec
-         character(len=*), parameter :: this_procedure = "exptA_2Dh_rmatvec"
+         module procedure exptA_2Dh_planar_rmatvec
+         character(len=*), parameter :: this_procedure = "exptA_2Dh_planar_rmatvecr"
          logical :: if_advW
          select type (vec_in)
          type is (nek_zvector)
@@ -84,7 +86,7 @@
          ! Integrate the equations forward in time.
                time = 0.0_dp
                do istep = 1, nsteps
-                  call nek_advance_2Dh(-self%betaz, if_advW) ! sign flip for adjoint integration
+                  call nek_advance_2Dh_planar(-self%betaz, if_advW) ! sign flip for adjoint integration
                end do
          ! Copy the final solution to vector.
                call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
@@ -94,7 +96,7 @@
          class default
             call type_error('vec_in','nek_zvector','IN',this_module,this_procedure)
          end select
-         end procedure exptA_2Dh_rmatvec
+         end procedure exptA_2Dh_planar_rmatvec
 
          module procedure init_exptA_2Dh_axisym
          character(len=*), parameter :: this_procedure = "init_exptA_2Dh_axisym"

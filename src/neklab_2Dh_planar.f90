@@ -1,8 +1,9 @@
-      module neklab_2Dh
+      module neklab_2Dh_planar
          use stdlib_optval, only: optval
          use LightKrylov, only: dp
          use neklab_nek_setup, only: nek_log_debug, nek_log_message, nek_log_information,
      &                               nek_log_warning, nek_stop_error
+         use neklab_2Dh_common, only: wmask, is_2Dh_planar_initialized
          use neklab_timing, only: neklab_timer_start, neklab_timer_stop,
      &                            neklab_clock_tic, neklab_clock_toc,
      &                            t_planar_advance, t_planar_adv_setup, t_planar_adv_advection,
@@ -17,76 +18,32 @@
          include "ADJOINT" ! ifadj
          
          private
-         character(len=*), parameter, private :: this_module = 'neklab_2Dh'
-         
-         real(dp), dimension(lx1, ly1, lz1, lelv), public :: wmask
-         logical, public :: wmask_defined = .false.
+         character(len=*), parameter, private :: this_module = 'neklab_2Dh_planar'
          
          real(dp), dimension(lx2*ly2*lz2*lelv,mxprev,lpert), private :: pbasis
          integer, dimension(lpert), private :: nprev = 0
          real(dp), private :: dtbdlast = 0.0_dp
+
+         ! Scratch arrays, at module level to keep them off the stack
+         ! m1
+         real(dp), dimension(lx1*ly1*lz1*lelv,lpert), private :: gradz_p               ! spanwise pressure gradient
+         real(dp), dimension(lx1*ly1*lz1*lelv,lpert), private :: avdW_x,avdW_y,avdW_z  ! spanwise advection terms
+         real(dp), dimension(lx1*ly1*lz1*lelv),       private :: dw                    ! spanwise velocity correction
+         real(dp), dimension(lx1*ly1*lz1*lelv),       private :: advW_coef
+         real(dp), dimension(lx1,ly1,lz1,lelv),       private :: hmv_tmp, pmv_tmp1     ! scratch
+         ! m2
+         real(dp), dimension(lx2*ly2*lz2*lelv,lpert), private :: dpr                   ! prefactor
+         real(dp), dimension(lx2,ly2,lz2,lelv),       private :: frc_div               ! spanwise divergence
+         real(dp), dimension(lx2*ly2*lz2*lelv),       private :: prextr, onep, ep      ! temp flds for p. recovery / extrap.
+         real(dp), dimension(lx2,ly2,lz2,lelv),       private :: pmv_tmp2              ! scratch
          
-         public :: build_wmask
-         public :: nek_advance_2Dh
+         public :: nek_advance_2Dh_planar
       
       contains
       
-         subroutine build_wmask(verbose)
-            logical, optional, intent(in) :: verbose
-            ! internal
-            integer :: ie, ifc, nfaces, ntot, ifield_bak, nzero
-            real(dp), external :: vlsum
-            character(len=3) :: cb
-            
-            nfaces = 2*ndim
-            ntot = lx1*ly1*lz1*nelv
-            
-            call rone(wmask, ntot)
-            
-            do ie = 1, nelv
-               do ifc = 1, nfaces
-                  cb = cbc(ifc, ie, 1)   ! velocity boundary conditions
-                  select case (cb)
-      ! Full velocity vector prescribed -> w is prescribed too.
-                  case ('W  ', 'v  ', 'V  ', 'vl ', 'VL ', 'mv ', 'MV ')
-                     call facev(wmask, ie, ifc, 0.0_dp, lx1, ly1, lz1)
-      ! Everything else leaves w free:
-      !   'SYM'          - normal lies in the x-y plane, w is tangential
-      !   'O  ','o  '    - outflow, natural BC
-      !   'ON ','on '    - only the normal component is constrained
-      !   'SL ','sl '    - slip, tangential components free
-      !   'shl'          - stress-free tangential
-      !   'P  ','p  '    - periodic, handled by dssum
-      !   'E  '          - interior
-                  end select
-               end do
-            end do
-            
-      ! Propagate zeros across element interfaces. Called directly rather than
-      ! through opdsop so that the 2D dimension guard does not apply. 'MUL' is
-      ! the correct operator for a 0/1 mask: any node that is Dirichlet in one
-      ! element becomes Dirichlet in all elements sharing it.
-            ifield_bak = ifield
-            ifield = 1
-            call dsop(wmask, 'MUL', lx1, ly1, lz1)
-            ifield = ifield_bak
-            
-            wmask_defined = .true.
-            
-            if (present(verbose)) then
-               if (verbose .and. nid == 0) then
-                  nzero = ntot - nint(vlsum(wmask, ntot))
-                  write (6, '(A,I10,A,I10,A)')
-     &            ' neklab_masks: wmask built, ', nzero, ' of ', ntot,
-     &            ' local nodes constrained.'
-               end if
-            end if
-         
-         end subroutine build_wmask
-      
-         subroutine nek_advance_2dh(beta_z, if_advW_in)
+         subroutine nek_advance_2Dh_planar(betaz, if_advW_in)
             implicit none
-            real(dp), intent(in) :: beta_z
+            real(dp), intent(in) :: betaz
             logical, optional, intent(in) :: if_advW_in
             ! spanwise wavenumber
             ! common
@@ -104,20 +61,6 @@
             common /SCRVH/  h1
             common /SCRCH/  h2
             common /scrhi/ h2inv
-            real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: gradz_p
-            ! spanwise pressure gradient
-            real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: advwx, advwy, advww
-            ! spanwise advection terms
-            real(dp), dimension(lx2,ly2,lz2,lelv) :: frc_div
-            ! spanwise divergence
-            real(dp), dimension(lx2*ly2*lz2*lelv) :: prextr
-            ! extrapolated pressure
-            real(dp), dimension(lx1*ly1*lz1*lelv) :: dw
-            ! spanwise velocity correction
-            real(dp), dimension(lx2*ly2*lz2*lelv,lpert) :: dpr
-            ! prefactor
-            real(dp), dimension(lx2*ly2*lz2*lelv) :: onep, ep
-            ! temporary fields for mean pressure recovery
             real(dp) :: ebar
             ! mean pressure
             logical :: if_advW
@@ -136,7 +79,8 @@
             
             ntot1 = lx1*ly1*lz1*nelv
             ntot2 = lx2*ly2*lz2*nelv
-            if (.not. wmask_defined) call build_wmask(.true.)
+            msg = 'call init_planar_2Dh() in userchk at istep = 0 before using the 2Dh solver.'
+            if (.not. is_2Dh_planar_initialized()) call nek_stop_error(msg, this_module, this_procedure)
             
             if_advW = optval(if_advW_in, .false.)
             msg = 'Spanwise advection '//merge('active.  ', 'inactive.', if_advW)
@@ -173,9 +117,9 @@
             do jp = 1, npert
                ! we need to do this outside of the other jp loop for extrapolation of the correct pressure term
                call extrapprp(prextr)
-               call compute_gradz_p(gradz_p, prextr, beta_z)
-               ! spanwise advection by the base flow: active iff beta_z /= 0 and W /= 0
-               if (if_advW) call compute_w_advection(advwx, advwy, advww, beta_z)
+               call compute_gradz_p(gradz_p, prextr, betaz)
+               ! spanwise advection by the base flow: active iff betaz /= 0 and W /= 0
+               if (if_advW) call compute_W_advection(avdW_x, avdW_y, avdW_z, betaz)
             end do
             call neklab_timer_stop(t_planar_adv_advection)
             
@@ -192,10 +136,10 @@
                !  Old geometry, old velocity
                !
                ifield = 1     !  velocity
-               call makefp_w_2Dh(advwx, advwy, if_advW) ! W-advection added conditionally
+               call makefp_2Dh_planar(avdW_x, avdW_y, if_advW) ! W-advection added conditionally
                call lagfieldp
                ifield = 2     !  temperature (w)
-               call makeqp_w_2Dh(advww, if_advW)        ! W-advection added conditionally
+               call makeqp_2Dh_planar(avdW_z, if_advW)        ! W-advection added conditionally
                call lagscalp
                !
                igeom = 2
@@ -214,9 +158,9 @@
                call copy   (resv3,gradz_p(1,jp),ntot1)     ! d/dz pr
                call   add2 (resv3, bqp(1,1,jp), ntot1)
                ! ophx
-               call helmholtz_matvec_2Dh(w1, vxp(1,jp),h1,h2,beta_z)
-               call helmholtz_matvec_2Dh(w2, vyp(1,jp),h1,h2,beta_z)
-               call helmholtz_matvec_2Dh(w3,tp(1,1,jp),h1,h2,beta_z)
+               call helmholtz_matvec_2Dh(w1, vxp(1,jp),h1,h2,betaz)
+               call helmholtz_matvec_2Dh(w2, vyp(1,jp),h1,h2,betaz)
+               call helmholtz_matvec_2Dh(w3,tp(1,1,jp),h1,h2,betaz)
                call opsub2(resv1,resv2,resv3,w1,w2,w3)
                call   sub2(            resv3,      w3,ntot1)
                call neklab_timer_stop(t_planar_adv_rhs)
@@ -233,7 +177,7 @@
                call col2   (resv1,v1mask,ntot1)
                hmh_info = info_str//' VELX'
                if (istep < 10) call chktcg1 (tolhv,resv1,h1,h2,v1mask,vmult,imesh,1)
-               call solve_helmholtz_2Dh(dv1,resv1,h1,h2,v1mask,vmult,imesh,tolhv,nmxv,1,binvm1,hmh_info,beta_z)
+               call solve_helmholtz_2Dh(dv1,resv1,h1,h2,v1mask,vmult,imesh,tolhv,nmxv,1,binvm1,hmh_info,betaz)
                
                call neklab_timer_start(t_gs_comm)
                call dssum  (resv2,lx1,ly1,lz1)
@@ -241,7 +185,7 @@
                call col2   (resv2,v2mask,ntot1)
                hmh_info = info_str//' VELY'
                if (istep < 10) call chktcg1 (tolhv,resv2,h1,h2,v2mask,vmult,imesh,2)
-               call solve_helmholtz_2Dh(dv2,resv2,h1,h2,v2mask,vmult,imesh,tolhv,nmxv,2,binvm1,hmh_info,beta_z)
+               call solve_helmholtz_2Dh(dv2,resv2,h1,h2,v2mask,vmult,imesh,tolhv,nmxv,2,binvm1,hmh_info,betaz)
                
                call neklab_timer_start(t_gs_comm)
                call dssum  (resv3,lx1,ly1,lz1)
@@ -249,7 +193,7 @@
                call col2   (resv3,wmask,ntot1)
                hmh_info = info_str//' VELZ'
                if (istep < 10) call chktcg1 (tolhv,resv3,h1,h2,wmask,vmult,imesh,3)
-               call solve_helmholtz_2Dh(dv3,resv3,h1,h2,wmask,vmult,imesh,tolhv,nmxv,3,binvm1,hmh_info,beta_z)
+               call solve_helmholtz_2Dh(dv3,resv3,h1,h2,wmask,vmult,imesh,tolhv,nmxv,3,binvm1,hmh_info,betaz)
                
                call opadd2 (vxp(1,jp),vyp(1,jp),vzp(1,jp),dv1,dv2,dv3)
                call add2   (tp(1,1,jp),dv3,ntot1)
@@ -274,9 +218,9 @@
             call invers2 (h2inv,h2,ntot1)
             ! if beta != 0, compute mean pressure to add it back after the pressure solve
             ebar = 0.0_dp
-            if (beta_z /= 0 .and. ifvcor) then
+            if (betaz /= 0 .and. ifvcor) then
                call rone(onep, ntot2)
-               call pressure_matvec_2Dh(ep,onep,h1,h2,h2inv,beta_z,intype)
+               call pressure_matvec_2Dh(ep,onep,h1,h2,h2inv,betaz,intype)
                ebar = glsum(ep, ntot2)
             end if
             ! project out previous pressure solutions?
@@ -289,21 +233,21 @@
                
                call opdiv   (dpr(1,jp),vxp(1,jp),vyp(1,jp),vzp(1,jp))
                
-               call compute_frc_div(frc_div, tp, beta_z)
+               call compute_frc_div(frc_div, tp, betaz)
                call add2    (dpr(1,jp),frc_div,ntot2)
                
                call chsign  (dpr(1,jp),ntot2)
-               if (beta_z == 0.0_dp) call ortho (dpr(1,jp))
+               if (betaz == 0.0_dp) call ortho (dpr(1,jp))
                
                if (ifprjp) then
                   call neklab_timer_start(t_planar_pres_proj)
-                  call setrhs_pressure_2Dh(dpr(1,jp),h1,h2,h2inv,pbasis(1,1,jp),nprev(jp),beta_z,info_str)
+                  call setrhs_pressure_2Dh(dpr(1,jp),h1,h2,h2inv,pbasis(1,1,jp),nprev(jp),betaz,info_str)
                   call neklab_timer_stop(t_planar_pres_proj)
                end if
-               call solve_pressure_2Dh(dpr(1,jp),h1,h2,h2inv,beta_z,intype,iter,ebar,info_str)
+               call solve_pressure_2Dh(dpr(1,jp),h1,h2,h2inv,betaz,intype,iter,ebar,info_str)
                if (ifprjp) then
                   call neklab_timer_start(t_planar_pres_proj)
-                  call gensoln_pressure_2Dh(dpr(1,jp),h1,h2,h2inv,pbasis(1,1,jp),nprev(jp),beta_z)
+                  call gensoln_pressure_2Dh(dpr(1,jp),h1,h2,h2inv,pbasis(1,1,jp),nprev(jp),betaz)
                   call neklab_timer_stop(t_planar_pres_proj)
                end if
             end do ! jp
@@ -319,7 +263,7 @@
             do jp = 1, npert
                call opgradt (w1 ,w2 ,w3 ,dpr(1,jp))
                call opbinv  (dv1,dv2,dv3,w1 ,w2 ,w3 ,h2inv)
-               call compute_dw(dw, dpr, h2inv, beta_z) ! dw
+               call compute_dw(dw, dpr, h2inv, betaz) ! dw
                
                call opadd2 (vxp(1,jp),vyp(1,jp),vzp(1,jp), dv1,dv2,dv3)
                call   add2 (tp(1,1,jp), dw, ntot1)
@@ -337,9 +281,9 @@
             ! reset jp = 0 in case we run the nonlinear step next
             jp = 0
          
-         end subroutine nek_advance_2Dh
+         end subroutine nek_advance_2Dh_planar
       
-         subroutine compute_dw(dw, dpr, h2inv, beta_z)
+         subroutine compute_dw(dw, dpr, h2inv, betaz)
             implicit none
             include 'SIZE'
             include 'SOLN' ! jp
@@ -347,7 +291,7 @@
             real, dimension(lx1*ly1*lz1*lelv), intent(out) :: dw
             real, dimension(lx2*ly2*lz2*lelv,lpert), intent(in) :: dpr
             real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h2inv
-            real, intent(in) :: beta_z
+            real, intent(in) :: betaz
             ! internal
             integer :: ipert, spert, ntot1
             real, dimension(lx1*ly1*lz1) :: wrk1, wrk2
@@ -357,7 +301,7 @@
             ntot1 = lx1*ly1*lz1*nelv
             call rzero  (dw, ntot1)
             call mappr  (dw, dpr(1,ipert), wrk1, wrk2)   ! map to vmesh
-            call cmult  (dw, -spert*beta_z, ntot1)       ! collate coupling
+            call cmult  (dw, -spert*betaz, ntot1)       ! collate coupling
             !
             call col2   (dw, bm1, ntot1)                 ! collate mass matrix
             call col2   (dw, wmask, ntot1)               ! mask Dirichlet conditions
@@ -369,14 +313,14 @@
             call col2   (dw, h2inv, ntot1)               ! collate inverse h2
          end
       
-         subroutine compute_frc_div(frc_div, w, beta_z)
+         subroutine compute_frc_div(frc_div, w, betaz)
             implicit none
             include 'SIZE'
             include 'SOLN' ! jp
             include 'MASS' ! bm2
             real, dimension(lx2,ly2,lz2,lelv), intent(out) :: frc_div
             real, dimension(lx1*ly1*lz1*lelv,ldimt,lpert), intent(in) :: w
-            real, intent(in) :: beta_z
+            real, intent(in) :: betaz
             ! internal
             integer :: ipert, spert, ie, ie1, nxyz1, ntot2
             
@@ -389,20 +333,19 @@
                ie1 = (ie-1)*nxyz1+1
                call map12 (frc_div(1,1,1,ie), w(ie1,1,ipert), ie) ! map to pmesh
             end do
-            call col2c(frc_div, bm2, spert*beta_z, ntot2) ! this is to be consistent with opdiv output
+            call col2c(frc_div, bm2, spert*betaz, ntot2) ! this is to be consistent with opdiv output
          end
       
-         subroutine compute_gradz_p(gradz_p, prextr, beta_z)
+         subroutine compute_gradz_p(gradz_p, prextr, betaz)
             implicit none
             include 'SIZE'
             include 'SOLN' ! jp
             include 'MASS' ! bm1
             real, dimension(lx1*ly1*lz1*lelv,lpert), intent(inout) :: gradz_p
             real, dimension(lx2*ly2*lz2*lelv), intent(in) :: prextr
-            real, intent(in) :: beta_z
+            real, intent(in) :: betaz
             ! internal
             integer :: ipert, spert, ntot1
-            real, dimension(lx1,ly1,lz1,lelv) :: wrk
             real, dimension(lx1*ly1*lz1) :: wrk1, wrk2
             
             ipert = npert + 1 - jp
@@ -410,39 +353,38 @@
             ntot1 = lx1*ly1*lz1*nelv
             call rzero(gradz_p(1,ipert), ntot1)
             call mappr(gradz_p(1,ipert), prextr, wrk1, wrk2)  ! map to vmesh
-            call col2c(gradz_p(1,ipert), bm1, spert*beta_z, ntot1)
+            call col2c(gradz_p(1,ipert), bm1, spert*betaz, ntot1)
             ! dssum will be called on the vel residual later
          end
       
-         subroutine compute_w_advection(advwx, advwy, advww, beta_z)
-            ! + i * beta_z * W*v[xy]p: read/write switches jp.
+         subroutine compute_W_advection(avdW_x, avdW_y, avdW_z, betaz)
+            ! + i * betaz * W*v[xy]p: read/write switches jp.
             implicit none
             include 'SIZE'
             include 'SOLN'   ! jp, vxp, vyp, tp
             include 'MASS'   ! bm1
-            real(dp), dimension(lx1*ly1*lz1*lelv,lpert), intent(inout) :: advwx, advwy, advww
-            real(dp), intent(in) :: beta_z
+            real(dp), dimension(lx1*ly1*lz1*lelv,lpert), intent(inout) :: avdW_x, avdW_y, avdW_z
+            real(dp), intent(in) :: betaz
             ! internal
-            real(dp), dimension(lx1*ly1*lz1*lelv) :: coefw
             integer :: ipert, spert, ntot1
             
             ntot1 = lx1*ly1*lz1*nelv
             ipert = npert + 1 - jp
             spert = merge(1, -1, jp == 1)  ! +1 for jp = 1, -1 for jp = 2
             
-            call col3 (coefw, t(1,1,1,1,1), bm1, ntot1)            ! W*bm1
-            call cmult(coefw, spert*beta_z, ntot1)                 ! +-beta*W*bm1
+            call col3 (advW_coef, t(1,1,1,1,1), bm1, ntot1)         ! W*bm1
+            call cmult(advW_coef, spert*betaz, ntot1)              ! +-beta*W*bm1
             
-            call col3 (advwx(1,ipert), coefw, vxp(1,jp),  ntot1)
-            call col2 (advwx(1,ipert), vtrans(1,1,1,1,1), ntot1)   ! rho
-            call col3 (advwy(1,ipert), coefw, vyp(1,jp),  ntot1)
-            call col2 (advwy(1,ipert), vtrans(1,1,1,1,1), ntot1)   ! rho
-            call col3 (advww(1,ipert), coefw, tp(1,1,jp), ntot1)
-            call col2 (advww(1,ipert), vtrans(1,1,1,1,2), ntot1)   ! rho*cp
-         end subroutine compute_w_advection
+            call col3 (avdW_x(1,ipert), advW_coef, vxp(1,jp),  ntot1)
+            call col2 (avdW_x(1,ipert), vtrans(1,1,1,1,1), ntot1)   ! rho
+            call col3 (avdW_y(1,ipert), advW_coef, vyp(1,jp),  ntot1)
+            call col2 (avdW_y(1,ipert), vtrans(1,1,1,1,1), ntot1)   ! rho
+            call col3 (avdW_z(1,ipert), advW_coef, tp(1,1,jp), ntot1)
+            call col2 (avdW_z(1,ipert), vtrans(1,1,1,1,2), ntot1)   ! rho*cp
+         end subroutine compute_W_advection
       
       
-         subroutine makefp_w_2Dh(advwx, advwy, if_wadv)
+         subroutine makefp_2Dh_planar(avdW_x, avdW_y, if_advW)
             ! Copy of the core makefp (perturb.f)
             ! Spanwise advection of vxp and vyp injected before makextp if W /= 0.
             implicit none
@@ -451,8 +393,8 @@
             include 'INPUT'
             include 'TSTEP'
             include 'ADJOINT'
-            real(dp), dimension(lx1*ly1*lz1*lelv,lpert), intent(in) :: advwx, advwy
-            logical, intent(in) :: if_wadv
+            real(dp), dimension(lx1*ly1*lz1*lelv,lpert), intent(in) :: avdW_x, avdW_y
+            logical, intent(in) :: if_advW
             integer :: ntot1
             
             call neklab_timer_start(t_planar_makefp)
@@ -463,19 +405,19 @@
             if (ifnav .and. (.not.ifchar) .and. (.not.ifadj))  call advabp
             if (ifnav .and. (.not.ifchar) .and. (     ifadj))  call advabp_adjoint
             !! W addition
-            if (if_wadv) then
+            if (if_advW) then
                ! advection via the W component
-               call add2(bfxp(1,jp), advwx(1,jp), ntot1)
-               call add2(bfyp(1,jp), advwy(1,jp), ntot1)
+               call add2(bfxp(1,jp), avdW_x(1,jp), ntot1)
+               call add2(bfyp(1,jp), avdW_y(1,jp), ntot1)
             end if
             ! add extrapolation terms
             if (iftran)                                        call makextp
             ! add bd contribution
                                                                call makebdfp
             call neklab_timer_stop(t_planar_makefp)
-         end subroutine makefp_w_2Dh
+         end subroutine makefp_2Dh_planar
          
-         subroutine makeqp_w_2Dh(advww, if_wadv)
+         subroutine makeqp_2Dh_planar(avdW_z, if_advW)
             ! Copy of the core makeqp (perturb.f)
             ! Spanwise advection of vzp injected before makeabqp if W /= 0.
             ! Note: Expects ifield = 2.
@@ -484,8 +426,8 @@
             include 'SOLN'
             include 'INPUT'
             include 'TSTEP'
-            real(dp), dimension(lx1*ly1*lz1*lelv,lpert), intent(in) :: advww
-            logical, intent(in) :: if_wadv
+            real(dp), dimension(lx1*ly1*lz1*lelv,lpert), intent(in) :: avdW_z
+            logical, intent(in) :: if_advW
             integer :: ntot1
             
             call neklab_timer_start(t_planar_makeqp)
@@ -495,18 +437,18 @@
             ! baseflow advection
             if (ifadvc(ifield) .and. (.not.ifchar))               call convabp
             !! W additions
-            if (if_wadv) then
+            if (if_advW) then
                ! advection via the W component
-               call add2(bqp(1,ifield-1,jp), advww(1,jp), ntot1)
+               call add2(bqp(1,ifield-1,jp), avdW_z(1,jp), ntot1)
             end if
             ! add extrapolation terms
             if (iftran)                                           call makeabqp
             if ((iftran .and. .not.ifchar) .or.
      &          (iftran .and. .not.ifadvc(ifield) .and. ifchar))  call makebdqp
             call neklab_timer_stop(t_planar_makeqp)
-         end subroutine makeqp_w_2Dh
+         end subroutine makeqp_2Dh_planar
          
-         subroutine pressure_matvec_2Dh(ap,wp,h1,h2,h2inv,beta_z,intype)
+         subroutine pressure_matvec_2Dh(ap,wp,h1,h2,h2inv,betaz,intype)
             implicit none
             
          ! INTYPE= 0  Compute the matrix-vector product    DA(-1)DT*p
@@ -519,12 +461,10 @@
             real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h2
             real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h2inv
             !!! add the contribution from the 3rd perturbation component
-            real, intent(in) :: beta_z
+            real, intent(in) :: betaz
             integer, intent(in) :: intype
             ! internal
             real, dimension(lx1*ly1*lz1) :: wrk1, wrk2
-            real, dimension(lx1,ly1,lz1,lelv) :: wdivm1
-            real, dimension(lx2,ly2,lz2,lelv) :: wdivm2
             
             integer :: ie, ntot1, ntot2
             
@@ -534,39 +474,38 @@
             ! add 3rd perturbation component.
             ! we want to subtract the contribution
             !
-            ! B * d/dz (h2*B)^(-1) d/dz wp = (-i beta_z) (h2)^(-1) (-i beta_z) wp = - beta_z^2 (h2)^(-1) wp
+            ! B * d/dz (h2*B)^(-1) d/dz wp = (-i betaz) (h2)^(-1) (-i betaz) wp = - betaz^2 (h2)^(-1) wp
             !
             ! Note: we are only considering the ifanls = .false. case
             ntot1 = lx1*ly1*lz1*nelv
             ntot2 = lx2*ly2*lz2*nelv
-            call mappr  (wdivm1, wp, wrk1, wrk2)                    ! map to vmesh
+            call mappr  (pmv_tmp1, wp, wrk1, wrk2)                    ! map to vmesh
             !
-            call col2   (wdivm1, bm1,   ntot1)                      ! collate mass matrix
-            call col2   (wdivm1, wmask, ntot1)                      ! mask Dirichlet conditions
+            call col2   (pmv_tmp1, bm1,   ntot1)                      ! collate mass matrix
+            call col2   (pmv_tmp1, wmask, ntot1)                      ! mask Dirichlet conditions
             call neklab_timer_start(t_gs_comm)
-            call dssum  (wdivm1, lx1, ly1, lz1)                     ! make continuous
+            call dssum  (pmv_tmp1, lx1, ly1, lz1)                     ! make continuous
             call neklab_timer_stop(t_gs_comm)
-            call col2   (wdivm1, binvm1, ntot1)                     ! collate inverse mass matrix
+            call col2   (pmv_tmp1, binvm1, ntot1)                     ! collate inverse mass matrix
             !
-            call col2   (wdivm1, h2inv, ntot1)                      ! collate (h2)^-1
-            call cmult  (wdivm1, -beta_z**2, ntot1)                 ! collate -beta_z^2
+            call col2   (pmv_tmp1, h2inv, ntot1)                      ! collate (h2)^-1
+            call cmult  (pmv_tmp1, -betaz**2, ntot1)                 ! collate -betaz^2
             do ie = 1, nelv
-               call map12 (wdivm2(1,1,1,ie), wdivm1(1,1,1,ie), ie)  ! map wdiv to pmesh
+               call map12 (pmv_tmp2(1,1,1,ie), pmv_tmp1(1,1,1,ie), ie)! map wdiv to pmesh
             end do
-            call col2(wdivm2, bm2, ntot2)                           ! collate mass matrix (pressure mesh)
-            call sub2(ap, wdivm2, ntot2)
+            call col2(pmv_tmp2, bm2, ntot2)                           ! collate mass matrix (pressure mesh)
+            call sub2(ap, pmv_tmp2, ntot2)
             call neklab_timer_stop(t_planar_pres_matvec)
          end subroutine pressure_matvec_2Dh
          
-         subroutine helmholtz_matvec_2Dh(Au, u, h1, h2, beta_z)
+         subroutine helmholtz_matvec_2Dh(Au, u, h1, h2, betaz)
             implicit none
             real, dimension(lx1,ly1,lz1,1), intent(out) :: Au
             real, dimension(lx1,ly1,lz1,1), intent(in) :: u
             real, dimension(lx1,ly1,lz1,1), intent(in) :: h1
             real, dimension(lx1,ly1,lz1,1), intent(in) :: h2
-            real beta_z
+            real betaz
             ! internal
-            real, dimension(lx1,ly1,lz1,lelv) :: tmp
             integer :: imesh, ntot1
             call neklab_timer_start(t_planar_hmh_matvec)
             imesh = 1
@@ -574,13 +513,13 @@
             ! regular Ax
             call axhelm (Au, u, h1, h2, imesh, 1)
             ! added spanwise viscous diffusion term
-            call col3 (tmp, u, vdiff(1,1,1,1,1), ntot1)
-            call col2c(tmp, bm1, beta_z**2, ntot1)
-            call add2 (Au, tmp, ntot1)
+            call col3 (hmv_tmp, u, vdiff(1,1,1,1,1), ntot1)
+            call col2c(hmv_tmp, bm1, betaz**2, ntot1)
+            call add2 (Au, hmv_tmp, ntot1)
             call neklab_timer_stop(t_planar_hmh_matvec)
          end subroutine helmholtz_matvec_2Dh
          
-         subroutine solve_pressure_2Dh(res,h1,h2,h2inv,beta_z,intype,iter,ebar,info_str)
+         subroutine solve_pressure_2Dh(res,h1,h2,h2inv,betaz,intype,iter,ebar,info_str)
             implicit none
             include 'GMRES'
             
@@ -605,7 +544,7 @@
             real(dp), intent(in) :: ebar
             character(len=2), optional, intent(in) :: info_str
             !!! add the contribution from the 3rd perturbation component
-            real(dp) beta_z
+            real(dp) betaz
             !!!
             ! internal
             real, dimension(lx2,ly2,lz2,lelv) :: wp
@@ -662,7 +601,7 @@
                else
                   !update residual
                   call copy(r_gmres,res,ntot2)                                ! r = res
-                  call pressure_matvec_2Dh(w_gmres,x_gmres,h1,h2,h2inv,beta_z,intype) ! w = A x
+                  call pressure_matvec_2Dh(w_gmres,x_gmres,h1,h2,h2inv,betaz,intype) ! w = A x
                   call add2s2(r_gmres,w_gmres,-1.,ntot2)                      ! r = r - w
                                                                               !      -1
                   call col2(r_gmres,ml_gmres,ntot2)                           ! r = L   r
@@ -700,7 +639,7 @@
                   etime_p = etime_p + dnekclock()-etime2
                   
                   call pressure_matvec_2Dh(w_gmres,z_gmres(1,j),      ! w = A z
-     &                                h1,h2,h2inv,beta_z,intype)      !        j
+     &                                h1,h2,h2inv,betaz,intype)      !        j
                                                                       !      -1
                   call col2(w_gmres,ml_gmres,ntot2)                   ! w = L   w
                                                                       !      i,j  i
@@ -769,16 +708,16 @@
             divex = rnorm
             
             ! DIAGNOSTICS
-            if (beta_z == 0.0_dp) call ortho  (w_gmres) ! Orthogonalize wrt null space, if present
+            if (betaz == 0.0_dp) call ortho  (w_gmres) ! Orthogonalize wrt null space, if present
             ! DIAGNOSTICS
             call copy(res,x_gmres,ntot2)
             
-            if (beta_z == 0.0_dp) call ortho (res)  ! Orthogonalize wrt null space, if present
+            if (betaz == 0.0_dp) call ortho (res)  ! Orthogonalize wrt null space, if present
             
             etime1 = dnekclock()-etime1
             
             if (present(info_str)) then
-            if (nio.eq.0) write(6,9998) istep,'  U-PRES gmres  beta = ', beta_z,info_str,
+            if (nio.eq.0) write(6,9998) istep,'  U-PRES gmres  beta = ', betaz,info_str,
      &                                  iter,divex,div0,tolpss,etime_p,etime1
             else
             if (nio.eq.0) write(6,9999) istep,'  U-PRES gmres  ',
@@ -791,7 +730,7 @@
          
          end subroutine solve_pressure_2Dh
          
-         subroutine solve_helmholtz_2Dh(x,f,h1,h2,mask,mult,imsh,tin,maxit,isd,binv,name,beta_z)
+         subroutine solve_helmholtz_2Dh(x,f,h1,h2,mask,mult,imsh,tin,maxit,isd,binv,name,betaz)
             implicit none
             include 'FDMH1'
             !-------------------------------------------------------------------------
@@ -813,7 +752,7 @@
             integer, intent(in) :: maxit
             integer, intent(in) :: isd
             character(len=7), intent(in) :: name
-            real, intent(in) :: beta_z
+            real, intent(in) :: betaz
             ! internal
             integer :: i, j, iter, krylov, n, nel, niter, nxyz
             real :: alpha, beta, alphm, fmax, h2max
@@ -929,7 +868,7 @@
                beta = rtz1/rtz2
                if (iter.eq.1) beta=0.0
                call add2s1 (p,z,beta,n)
-               call helmholtz_matvec_2Dh (w,p,h1,h2,beta_z)
+               call helmholtz_matvec_2Dh (w,p,h1,h2,betaz)
                call neklab_timer_start(t_gs_comm)
                call dssum  (w,lx1,ly1,lz1)
                call neklab_timer_stop(t_gs_comm)
@@ -965,7 +904,7 @@
             call neklab_timer_stop(t_planar_solve_hmh)
          end subroutine solve_helmholtz_2Dh
             
-         subroutine setrhs_pressure_2Dh(dp,h1,h2,h2inv,proj_set,niprev,beta_z,info_str)
+         subroutine setrhs_pressure_2Dh(dp,h1,h2,h2inv,proj_set,niprev,betaz,info_str)
             implicit none
             !
             !     Project soln onto best fit in the "E" norm.
@@ -978,7 +917,7 @@
             real, dimension(lx2*ly2*lz2*lelv,mxprev), intent(inout) :: proj_set
             integer, intent(inout) :: niprev
             !!! add the contribution from the 3rd perturbation component
-            real, intent(in) :: beta_z
+            real, intent(in) :: betaz
             character(len=2), intent(in) :: info_str
             ! common block
             integer, parameter :: ltot2 = lx2*ly2*lz2*lelv
@@ -1013,7 +952,7 @@
             enddo
             
             intype = 1
-            call pressure_matvec_2Dh(pnew,pbar,h1,h2,h2inv,beta_z,intype)
+            call pressure_matvec_2Dh(pnew,pbar,h1,h2,h2inv,betaz,intype)
             call sub2(dp,pnew,ntot2)
             
             alpha2 = glsc3(dp,dp,bm2inv,ntot2) ! Diagnostics
@@ -1031,7 +970,7 @@
  13         format(i11,a,6x,1p3e13.4,i4,i4)
          end subroutine setrhs_pressure_2Dh
          
-         subroutine gensoln_pressure_2Dh(dp,h1,h2,h2inv,proj_set,niprev,beta_z)
+         subroutine gensoln_pressure_2Dh(dp,h1,h2,h2inv,proj_set,niprev,betaz)
             implicit none
             !
             !     Reconstruct the solution to the original problem by adding back
@@ -1045,7 +984,7 @@
             real, dimension(lx2*ly2*lz2*lelv,mxprev), intent(inout) :: proj_set
             integer, intent(inout) :: niprev
             !!! add the contribution from the 3rd perturbation component
-            real, intent(in) :: beta_z
+            real, intent(in) :: betaz
             ! common block
             integer, parameter :: ltot2 = lx2*ly2*lz2*lelv
             real :: pbar(ltot2), pnew(ltot2)
@@ -1064,21 +1003,21 @@
                niprev = niprev+1
                call copy (proj_set(1,niprev),dp,ntot2)        ! Save current solution
                call add2 (dp,pbar,ntot2)                      ! Reconstruct solution.
-               call econj_pressure_2Dh(proj_set,niprev,h1,h2,h2inv,beta_z,ierr) ! Orthonormalize set
+               call econj_pressure_2Dh(proj_set,niprev,h1,h2,h2inv,betaz,ierr) ! Orthonormalize set
                if (ierr.eq.1) then
                   niprev = 1
                   call copy (proj_set(1,niprev),dp,ntot2)     ! Save current solution
-                  call econj_pressure_2Dh(proj_set,niprev,h1,h2,h2inv,beta_z,ierr) ! and orthonormalize.
+                  call econj_pressure_2Dh(proj_set,niprev,h1,h2,h2inv,betaz,ierr) ! and orthonormalize.
                endif
             else                                              !          (uses pnew).
                niprev = 1
                call add2 (dp,pbar,ntot2)                      ! Reconstruct solution.
                call copy (proj_set(1,niprev),dp,ntot2)        ! Save current solution
-               call econj_pressure_2Dh(proj_set,niprev,h1,h2,h2inv,beta_z,ierr) ! and orthonormalize.
+               call econj_pressure_2Dh(proj_set,niprev,h1,h2,h2inv,betaz,ierr) ! and orthonormalize.
             endif
          end subroutine gensoln_pressure_2Dh
          
-         subroutine econj_pressure_2Dh(proj_set,nprev,h1,h2,h2inv,beta_z,ierr)
+         subroutine econj_pressure_2Dh(proj_set,nprev,h1,h2,h2inv,betaz,ierr)
             implicit none
             !     Orthogonalize the soln wrt previous soln's for which we already
             !     know the soln.
@@ -1087,7 +1026,7 @@
             real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h1
             real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h2
             real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h2inv
-            real, intent(in) :: beta_z
+            real, intent(in) :: betaz
             integer, intent(out) :: ierr
             ! common block
             integer, parameter :: ltot2 = lx2*ly2*lz2*lelv
@@ -1110,7 +1049,7 @@
             do ipass = 1, npass
             
                intype = 1
-               call pressure_matvec_2Dh(pnew,proj_set(1,nprev),h1,h2,h2inv,beta_z,intype)
+               call pressure_matvec_2Dh(pnew,proj_set(1,nprev),h1,h2,h2inv,betaz,intype)
                alphad = glsc2(pnew,proj_set(1,nprev),ntot2) ! compute part of the norm
                
                nprev1 = nprev - 1
@@ -1139,4 +1078,4 @@
          
          end subroutine econj_pressure_2Dh
       
-      end module neklab_2Dh
+      end module neklab_2Dh_planar

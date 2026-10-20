@@ -19,7 +19,8 @@
       !! --> Stability analysis routines
          use neklab_analysis_torus
       !! --> Analysis of the torus
-         use neklab_2Dh
+         use neklab_2Dh_common
+         use neklab_2Dh_planar
          use neklab_2Dh_axisym
          use neklab_analysis_torus_2Dh
       !! --> 2.5D solver
@@ -61,7 +62,7 @@
       
       ! Implementation of the standard linear operators.
          public :: exptA_linop
-         public :: exptA_2Dh_linop
+         public :: exptA_2Dh_planar_linop
          public :: exptA_2Dh_axisym_linop
          public :: floquet_linop
          public :: resolvent_linop
@@ -91,7 +92,8 @@
          public :: compute_nonlinear_period_torus
       
       ! 2Dh
-         public :: nek_advance_2Dh
+         public :: init_2Dh_planar
+         public :: nek_advance_2Dh_planar
          public :: nek_advance_2Dh_axisym
          public :: steady_flowrate_newton
          public :: unsteady_flowrate_newton

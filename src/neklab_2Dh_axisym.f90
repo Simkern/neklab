@@ -1,6 +1,6 @@
       module neklab_2Dh_axisym
          use LightKrylov, only: dp
-         use neklab_2Dh, only: wmask, wmask_defined, build_wmask
+         use neklab_2Dh_common, only: wmask, wmask_defined, build_wmask
          use neklab_2Dh_torsion, only: if_torsion_zero,
      &                                 build_torsion_coeffs, torsion_shift_add,
      &                                 dphi_apply, dphi_apply_t,

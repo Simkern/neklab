@@ -20,10 +20,10 @@
       ! Intgrate the nonlinear equations forward
                time = 0.0_dp
                do istep = 1, nsteps
-                  call neklab_timer_start(t_nl_step)
+                  call neklab_timer_start(t_axisym_nl_step)
                   call build_torsion_forcing_nl()   ! fills ipert=0 vector from current vx,vy,t
                   call nek_advance()
-                  call neklab_timer_stop(t_nl_step)
+                  call neklab_timer_stop(t_axisym_nl_step)
                end do
       ! Copy the final solution to vector.
                call nek2vec(vec_out, vx, vy, vz, pr, t)

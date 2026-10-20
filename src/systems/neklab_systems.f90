@@ -30,7 +30,7 @@
       ! Host-associated by the submodules below, which is where the map-level
       ! CSV rows are emitted.
          use neklab_timing, only: neklab_timer_start, neklab_timer_stop, neklab_timer_dump,
-     &                            t_nl_step, t_close_mflow
+     &                            t_axisym_nl_step, t_close_mflow
 
          implicit none
          include "SIZE"

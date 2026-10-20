@@ -46,7 +46,7 @@
          use LightKrylov_Logger
          use neklab_timing, only: neklab_timer_start, neklab_timer_stop, neklab_timer_tag,
      &                            neklab_reset_timers, t_fp_solve, t_fr_iter,
-     &                            t_fd_jac, t_shift_phase, t_save_orbit, t_nl_step
+     &                            t_fd_jac, t_shift_phase, t_save_orbit, t_axisym_nl_step
          use LightKrylov_AbstractSystems, only: abstract_system_rdp
          use LightKrylov_AbstractVectors, only: abstract_vector_rdp
          use neklab_2Dh_axisym, only: nek_advance_2Dh_axisym
@@ -1072,9 +1072,9 @@
             istep = 0
             do while (lastep == 0)
                istep = istep + 1
-               call neklab_timer_start(t_nl_step)
+               call neklab_timer_start(t_axisym_nl_step)
                call nek_advance()
-               call neklab_timer_stop(t_nl_step)
+               call neklab_timer_stop(t_axisym_nl_step)
             end do
             call nek2vec(bf, vx, vy, vz, pr, t)
 

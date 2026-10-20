@@ -6,8 +6,9 @@
       !  same way LightROM derives its own. It owns two things LightKrylov cannot
       !  see:
       !
-      !    * the INSIDE of a 2Dh timestep (nek_advance_2Dh_axisym and the solvers
-      !      and kernels it calls), and
+      !    * the INSIDE of a 2Dh timestep -- both the axisymmetric/torus stepper
+      !      (nek_advance_2Dh_axisym) and the planar beta_z stepper
+      !      (nek_advance_2Dh), with the solvers and kernels each one calls -- and
       !    * the driver-level passes that are not system evaluations at all
       !      (the finite-difference Jacobian, the gauge shift, the save-orbit
       !      pass).
@@ -43,7 +44,8 @@
       !  LightKrylov's timers use `cpu_time`. With one thread per rank and a
       !  busy-waiting MPI that tracks wall time closely, but it is not the same
       !  quantity. `neklab_clock_tic`/`toc` therefore accumulate an INDEPENDENT
-      !  wall (dnekclock) and cpu total over the body of nek_advance_2Dh_axisym,
+      !  wall (dnekclock) and cpu total over the body of the 2Dh stepper
+      !  (nek_advance_2Dh_axisym or nek_advance_2Dh, whichever runs),
       !  and finalize prints both. If cpu/wall drifts away from 1 on rank 0,
       !  every number in the table is suspect and that is worth seeing.
       !
@@ -71,53 +73,78 @@
       !  running while a map evaluation is in flight.
       !
       !--------------------------------------------------------------------------
-
+      
+      
       module neklab_timing
          use stdlib_optval, only: optval
          use LightKrylov, only: dp, abstract_system_rdp, abstract_linop_rdp
          use LightKrylov_Logger, only: log_message, log_information, log_debug
          use LightKrylov_Timer_Utils, only: abstract_watch
          use LightKrylov_Timing, only: global_lightkrylov_timer
-
+     
          implicit none
          include "SIZE"
          include "TOTAL"
-
+      
          private
          character(len=*), parameter, private :: this_module = 'neklab_timing'
-
+      
       !--------------------------------------------------------------
       !     TIMER NAMES
       !--------------------------------------------------------------
-
-      ! --- group: 2Dh timestepper. The `@` timers partition the routine.
-         character(len=*), parameter, public :: t_advance = 'nek_advance_2dh_axisym'
-         character(len=*), parameter, public :: t_adv_setup = 'nek_advance_2dh_axisym@setup'
-         character(len=*), parameter, public :: t_adv_advection = 'nek_advance_2dh_axisym@advection'
-         character(len=*), parameter, public :: t_adv_rhs = 'nek_advance_2dh_axisym@rhs'
-         character(len=*), parameter, public :: t_adv_uz = 'nek_advance_2dh_axisym@uz'
-         character(len=*), parameter, public :: t_adv_urphi = 'nek_advance_2dh_axisym@urphi'
-         character(len=*), parameter, public :: t_adv_pressure = 'nek_advance_2dh_axisym@pressure'
-         character(len=*), parameter, public :: t_adv_correction = 'nek_advance_2dh_axisym@correction'
-         character(len=*), parameter, public :: t_makefp = 'makefp_2dh_axisym'
-         character(len=*), parameter, public :: t_nl_step = 'nek_advance@nonlinear_2dh'
+      
+      ! --- group: planar 2Dh (beta_z) timestepper, module neklab_2Dh.
+         character(len=*), parameter, public :: t_planar_advance = 'nek_advance_2dh'
+         character(len=*), parameter, public :: t_planar_adv_setup = 'nek_advance_2dh@setup'
+         character(len=*), parameter, public :: t_planar_adv_advection = 'nek_advance_2dh@advection'
+         character(len=*), parameter, public :: t_planar_adv_rhs = 'nek_advance_2dh@rhs'
+         character(len=*), parameter, public :: t_planar_adv_velocity = 'nek_advance_2dh@velocity'
+         character(len=*), parameter, public :: t_planar_adv_pressure = 'nek_advance_2dh@pressure'
+         character(len=*), parameter, public :: t_planar_adv_correction = 'nek_advance_2dh@correction'
+         character(len=*), parameter, public :: t_planar_makefp = 'makefp_w_2dh'
+         character(len=*), parameter, public :: t_planar_makeqp = 'makeqp_w_2dh'
+      
+      ! --- group: planar 2Dh solvers
+         character(len=*), parameter, public :: t_planar_solve_hmh = 'solve_helmholtz_2dh'
+         character(len=*), parameter, public :: t_planar_solve_pres = 'solve_pressure_2dh'
+         character(len=*), parameter, public :: t_planar_pres_precond = 'solve_pressure_2dh@precond'
+         character(len=*), parameter, public :: t_planar_pres_proj = 'pressure_projection_2dh'
+      !! setrhs_ + gensoln_ + econj_, as for the axisym group.
+      
+      ! --- group: planar 2Dh kernels (inclusive drill-down, overlaps the above)
+         character(len=*), parameter, public :: t_planar_hmh_matvec = 'helmholtz_matvec_2dh'
+         character(len=*), parameter, public :: t_planar_pres_matvec = 'pressure_matvec_2dh'
+      
+      ! --- group: 2Dh timestepper, module neklab_2Dh_axisym.
+         character(len=*), parameter, public :: t_axisym_advance = 'nek_advance_2dh_axisym'
+         character(len=*), parameter, public :: t_axisym_adv_setup = 'nek_advance_2dh_axisym@setup'
+         character(len=*), parameter, public :: t_axisym_adv_advection = 'nek_advance_2dh_axisym@advection'
+         character(len=*), parameter, public :: t_axisym_adv_rhs = 'nek_advance_2dh_axisym@rhs'
+         character(len=*), parameter, public :: t_axisym_adv_uz = 'nek_advance_2dh_axisym@uz'
+         character(len=*), parameter, public :: t_axisym_adv_urphi = 'nek_advance_2dh_axisym@urphi'
+         character(len=*), parameter, public :: t_axisym_adv_pressure = 'nek_advance_2dh_axisym@pressure'
+         character(len=*), parameter, public :: t_axisym_adv_correction = 'nek_advance_2dh_axisym@correction'
+         character(len=*), parameter, public :: t_axisym_makefp = 'makefp_2dh_axisym'
+         character(len=*), parameter, public :: t_axisym_nl_step = 'nek_advance@nonlinear_2dh'
       !! Nek's own nonlinear step, timed at the call site because it is F77.
-
+      
       ! --- group: 2Dh solvers
-         character(len=*), parameter, public :: t_solve_hmh = 'solve_helmholtz_2dh_axisym'
-         character(len=*), parameter, public :: t_solve_cpl = 'solve_coupled_helmholtz_2dh_axisym'
-         character(len=*), parameter, public :: t_solve_pres = 'solve_pressure_2dh_axisym'
-         character(len=*), parameter, public :: t_pres_precond = 'solve_pressure_2dh_axisym@precond'
-         character(len=*), parameter, public :: t_pres_proj = 'pressure_projection_2dh_axisym'
+         character(len=*), parameter, public :: t_axisym_solve_hmh = 'solve_helmholtz_2dh_axisym'
+         character(len=*), parameter, public :: t_axisym_solve_cpl = 'solve_coupled_helmholtz_2dh_axisym'
+         character(len=*), parameter, public :: t_axisym_solve_pres = 'solve_pressure_2dh_axisym'
+         character(len=*), parameter, public :: t_axisym_pres_precond = 'solve_pressure_2dh_axisym@precond'
+         character(len=*), parameter, public :: t_axisym_pres_proj = 'pressure_projection_2dh_axisym'
       !! setrhs_ + gensoln_ + econj_, i.e. the whole mxprev projection.
-
+      
       ! --- group: 2Dh kernels. Inclusive, and by design overlapping the two
       !     groups above: these are the drill-down, not part of any partition.
-         character(len=*), parameter, public :: t_hmh_matvec = 'helmholtz_matvec_2dh_axisym'
-         character(len=*), parameter, public :: t_cpl_matvec = 'coupled_helmholtz_matvec_2dh_axisym'
-         character(len=*), parameter, public :: t_pres_matvec = 'pressure_matvec_2dh_axisym'
+         character(len=*), parameter, public :: t_axisym_hmh_matvec = 'helmholtz_matvec_2dh_axisym'
+         character(len=*), parameter, public :: t_axisym_cpl_matvec = 'coupled_helmholtz_matvec_2dh_axisym'
+         character(len=*), parameter, public :: t_axisym_pres_matvec = 'pressure_matvec_2dh_axisym'
+      
+      ! --- group: global communication 2Dh
          character(len=*), parameter, public :: t_gs_comm = 'neklab_2dh_gs_comm'
-
+      
       ! --- group: baseflow buffer
          character(len=*), parameter, public :: t_bf_push = 'neklab_bf_push'
          character(len=*), parameter, public :: t_bf_set = 'neklab_bf_set'
@@ -125,7 +152,7 @@
          character(len=*), parameter, public :: t_bf_write = 'neklab_bf_write_chunk'
          character(len=*), parameter, public :: t_bf_read = 'neklab_bf_read_chunk'
          character(len=*), parameter, public :: t_close_mflow = 'close_mflow'
-
+      
       ! --- group: drivers. NONE of these may appear in csv_names: they are
       !     running while a map evaluation is in flight.
          character(len=*), parameter, public :: t_fp_solve = 'solve_fixed_point'
@@ -133,101 +160,107 @@
          character(len=*), parameter, public :: t_fd_jac = 'fd_jacobian'
          character(len=*), parameter, public :: t_shift_phase = 'shift_mflow_phase_upo'
          character(len=*), parameter, public :: t_save_orbit = 'unsteady_flowrate_newton@save_orbit'
-
+      
       !--------------------------------------------------------------
       !     THE WATCH
       !--------------------------------------------------------------
-
+      
          type, extends(abstract_watch), public :: neklab_watch
       !! Global timing structure for all neklab-internal timers.
          contains
             private
             procedure, pass(self), public :: set_private_timers_and_name => set_neklab_timers
          end type neklab_watch
-
+      
          type(neklab_watch), public :: global_neklab_timer
-
+      
          logical, private :: if_time = .false.
-
+      
       !--------------------------------------------------------------
       !     CSV CHANNEL STATE
       !--------------------------------------------------------------
-
+      
          integer, parameter, private :: lname = 48
-         integer, parameter, private :: ncsv = 25
-
+         integer, parameter, private :: ncsv = 40
+      
       ! Step-level timers only. See the note at the top of this file: every name
       ! here MUST be idle whenever neklab_timer_dump is called.
          character(len=lname), parameter, private :: csv_names(ncsv) =
      &      [character(len=lname) ::
-     &       t_advance, t_adv_setup, t_adv_advection, t_adv_rhs, t_adv_uz,
-     &       t_adv_urphi, t_adv_pressure, t_adv_correction, t_makefp, t_nl_step,
-     &       t_solve_hmh, t_solve_cpl, t_solve_pres, t_pres_precond, t_pres_proj,
-     &       t_hmh_matvec, t_cpl_matvec, t_pres_matvec, t_gs_comm,
+     & ! planar
+     &       t_planar_advance, t_planar_adv_setup, t_planar_adv_advection, t_planar_adv_rhs,
+     &       t_planar_adv_velocity, t_planar_adv_pressure, t_planar_adv_correction,
+     &       t_planar_makefp, t_planar_makeqp, t_planar_solve_hmh, t_planar_solve_pres,
+     &       t_planar_pres_precond, t_planar_pres_proj, t_planar_hmh_matvec, t_planar_pres_matvec,
+     & ! axisym
+     &       t_axisym_advance, t_axisym_adv_setup, t_axisym_adv_advection, t_axisym_adv_rhs,
+     &       t_axisym_adv_uz, t_axisym_adv_urphi, t_axisym_adv_pressure, t_axisym_adv_correction,
+     &       t_axisym_makefp, t_axisym_nl_step, t_axisym_solve_hmh, t_axisym_solve_cpl,
+     &       t_axisym_solve_pres, t_axisym_pres_precond, t_axisym_pres_proj, t_axisym_hmh_matvec,
+     &       t_axisym_cpl_matvec, t_axisym_pres_matvec,
+     & ! communication
+     &       t_gs_comm,
+     & ! baseflow + mflow
      &       t_bf_push, t_bf_set, t_bf_window, t_bf_write, t_bf_read,
      &       t_close_mflow]
-
+      
          logical, private :: if_csv = .false.
          integer, private :: csv_unit = -1
          integer, private :: csv_row = 0
          real(dp), private :: csv_prev_s(ncsv) = 0.0_dp
          integer, private :: csv_prev_n(ncsv) = 0
          character(len=64), private :: csv_file = 'neklab_timings_2Dh.csv'
-
+      
       ! --- row tag, set by the driver
          character(len=16), private :: tag_phase = 'init'
          integer, private :: tag_outer = 0
-
+      
       !--------------------------------------------------------------
       !     CLOCK CROSS-CHECK STATE
       !--------------------------------------------------------------
-
+      
          real(dp), private :: wall_acc = 0.0_dp
          real(dp), private :: cpu_acc = 0.0_dp
          real(dp), private :: wall_t0 = 0.0_dp
          real(dp), private :: cpu_t0 = 0.0_dp
          real(dp), private :: wall_ref = 0.0_dp
          logical, private :: clk_running = .false.
-
+      
       !--------------------------------------------------------------
       !     PUBLIC INTERFACE
       !--------------------------------------------------------------
-
+      
          public :: time_neklab, time_neklab_csv
          public :: neklab_initialize_timers, neklab_finalize_timers
          public :: neklab_reset_timers, neklab_enumerate_timers
          public :: neklab_timer_start, neklab_timer_stop
          public :: neklab_timer_tag, neklab_timer_dump
          public :: neklab_clock_tic, neklab_clock_toc
-
+      
       contains
-
+      
       !====================================================================
       !     SWITCHES
       !====================================================================
-
+      
          pure logical function time_neklab() result(l)
             l = if_time
          end function time_neklab
-
+         
          pure logical function time_neklab_csv() result(l)
             l = if_csv
          end function time_neklab_csv
-
+            
          subroutine set_neklab_timer_switch(value)
             logical, intent(in) :: value
             if (if_time .neqv. value) then
                if_time = value
-               if (if_time) then
-                  call log_message('neklab timing enabled.', module=this_module)
-               else
-                  call log_message('neklab timing disabled.', module=this_module)
-               end if
+               call log_message('neklab timing'//merge('enabled. ','disabled.',if_time), module=this_module)
             else
                call log_debug('neklab timing switch unchanged.', module=this_module)
             end if
          end subroutine set_neklab_timer_switch
-
+      
       !====================================================================
       !     GATED WRAPPERS
       !====================================================================
@@ -237,21 +270,21 @@
       !  is a few nanoseconds against regions that are microseconds at the very
       !  fastest. The inline idiom remains available through `time_neklab` and
       !  `global_neklab_timer`, both public.
-
+      
          subroutine neklab_timer_start(name)
             character(len=*), intent(in) :: name
             if (if_time) call global_neklab_timer%start(name)
          end subroutine neklab_timer_start
-
+         
          subroutine neklab_timer_stop(name)
             character(len=*), intent(in) :: name
             if (if_time) call global_neklab_timer%stop(name)
          end subroutine neklab_timer_stop
-
+      
       !====================================================================
       !     TIMER REGISTRY
       !====================================================================
-
+      
          subroutine set_neklab_timers(self)
       !! Define the private timers and their groups. Called once, from
       !! `initialize`. Registering here rather than at the point of first use
@@ -261,37 +294,72 @@
             class(neklab_watch), intent(inout) :: self
       ! internal
             integer :: istart, iend
-
+         
             call self%set_watch_name('neklab_timer')
-
-      ! --- 2Dh timestepper
-            call self%add_timer(t_advance, count=istart)
-            call self%add_timer(t_adv_setup)
-            call self%add_timer(t_adv_advection)
-            call self%add_timer(t_adv_rhs)
-            call self%add_timer(t_adv_uz)
-            call self%add_timer(t_adv_urphi)
-            call self%add_timer(t_adv_pressure)
-            call self%add_timer(t_adv_correction)
-            call self%add_timer(t_makefp)
-            call self%add_timer(t_nl_step, count=iend)
-            call self%add_group('2Dh_timestepper', istart=istart, iend=iend)
-
-      ! --- 2Dh solvers
-            call self%add_timer(t_solve_hmh, count=istart)
-            call self%add_timer(t_solve_cpl)
-            call self%add_timer(t_solve_pres)
-            call self%add_timer(t_pres_precond)
-            call self%add_timer(t_pres_proj, count=iend)
-            call self%add_group('2Dh_solvers', istart=istart, iend=iend)
-
-      ! --- 2Dh kernels
-            call self%add_timer(t_hmh_matvec, count=istart)
-            call self%add_timer(t_cpl_matvec)
-            call self%add_timer(t_pres_matvec)
-            call self%add_timer(t_gs_comm, count=iend)
-            call self%add_group('2Dh_kernels', istart=istart, iend=iend)
-
+      
+      ! --- planar 2Dh timestepper
+            call self%add_timer(t_planar_advance, count=istart)
+            call self%add_timer(t_planar_adv_setup)
+            call self%add_timer(t_planar_adv_advection)
+            call self%add_timer(t_planar_adv_rhs)
+            call self%add_timer(t_planar_adv_velocity)
+            call self%add_timer(t_planar_adv_pressure)
+            call self%add_timer(t_planar_adv_correction)
+            call self%add_timer(t_planar_makefp)
+            call self%add_timer(t_planar_makeqp, count=iend)
+            call self%add_group('2Dh_planar_timestepper', istart=istart, iend=iend)
+      
+      ! --- planar 2Dh solvers
+            call self%add_timer(t_planar_solve_hmh, count=istart)
+            call self%add_timer(t_planar_solve_pres)
+            call self%add_timer(t_planar_pres_precond)
+            call self%add_timer(t_planar_pres_proj, count=iend)
+            call self%add_group('2Dh_planar_solvers', istart=istart, iend=iend)
+      
+      ! --- planar 2Dh kernels
+            call self%add_timer(t_planar_hmh_matvec, count=istart)
+            call self%add_timer(t_planar_pres_matvec, count=iend)
+            call self%add_group('2Dh_planar_kernels', istart=istart, iend=iend)
+      
+      ! --- axisym 2Dh timestepper
+            call self%add_timer(t_axisym_advance, count=istart)
+            call self%add_timer(t_axisym_adv_setup)
+            call self%add_timer(t_axisym_adv_advection)
+            call self%add_timer(t_axisym_adv_rhs)
+            call self%add_timer(t_axisym_adv_uz)
+            call self%add_timer(t_axisym_adv_urphi)
+            call self%add_timer(t_axisym_adv_pressure)
+            call self%add_timer(t_axisym_adv_correction)
+            call self%add_timer(t_axisym_makefp)
+            call self%add_timer(t_axisym_nl_step, count=iend)
+            call self%add_group('2Dh_axisym_timestepper', istart=istart, iend=iend)
+      
+      ! --- axisym 2Dh solvers
+            call self%add_timer(t_axisym_solve_hmh, count=istart)
+            call self%add_timer(t_axisym_solve_cpl)
+            call self%add_timer(t_axisym_solve_pres)
+            call self%add_timer(t_axisym_pres_precond)
+            call self%add_timer(t_axisym_pres_proj, count=iend)
+            call self%add_group('2Dh_axisym_solvers', istart=istart, iend=iend)
+      
+      ! --- axisym 2Dh kernels
+            call self%add_timer(t_axisym_hmh_matvec, count=istart)
+            call self%add_timer(t_axisym_cpl_matvec)
+            call self%add_timer(t_axisym_pres_matvec, count=iend)
+            call self%add_group('2Dh_axisym_kernels', istart=istart, iend=iend)
+      
+      ! --- global communication 2Dh
+            call self%add_timer(t_gs_comm, count=istart)
+            call self%add_group('2Dh_communication', istart=istart, iend=istart)
+      
+      ! --- drivers
+            call self%add_timer(t_fp_solve, count=istart)
+            call self%add_timer(t_fr_iter)
+            call self%add_timer(t_fd_jac)
+            call self%add_timer(t_shift_phase)
+            call self%add_timer(t_save_orbit, count=iend)
+            call self%add_group('2Dh_drivers', istart=istart, iend=iend)
+      
       ! --- baseflow buffer
             call self%add_timer(t_bf_push, count=istart)
             call self%add_timer(t_bf_set)
@@ -300,22 +368,14 @@
             call self%add_timer(t_bf_read)
             call self%add_timer(t_close_mflow, count=iend)
             call self%add_group('bf_buffer', istart=istart, iend=iend)
-
-      ! --- drivers
-            call self%add_timer(t_fp_solve, count=istart)
-            call self%add_timer(t_fr_iter)
-            call self%add_timer(t_fd_jac)
-            call self%add_timer(t_shift_phase)
-            call self%add_timer(t_save_orbit, count=iend)
-            call self%add_group('drivers_2Dh', istart=istart, iend=iend)
-
+      
             call set_neklab_timer_switch(.true.)
          end subroutine set_neklab_timers
-
+      
       !====================================================================
       !     LIFECYCLE
       !====================================================================
-
+      
          subroutine neklab_initialize_timers(if_csv_out, csv_filename)
       !! Switch on timing for both LightKrylov and neklab, and optionally open
       !! the CSV channel. Call from the .usr file (userchk, istep == 0) BEFORE
@@ -329,19 +389,19 @@
             character(len=*), optional, intent(in) :: csv_filename
       ! internal
             real(dp), external :: dnekclock
-
+      
             call global_lightkrylov_timer%initialize()
             call global_neklab_timer%initialize()
-
+            
             wall_acc = 0.0_dp
             cpu_acc = 0.0_dp
             clk_running = .false.
             wall_ref = dnekclock()
-
+            
             if (present(csv_filename)) csv_file = csv_filename
             if (optval(if_csv_out, .false.)) call open_csv()
          end subroutine neklab_initialize_timers
-
+      
          subroutine neklab_finalize_timers(system, linop)
       !! Close the CSV, report the clock cross-check, and print all summaries.
       !! Pass the system and/or the Jacobian to have LightKrylov's own
@@ -351,14 +411,18 @@
             class(abstract_linop_rdp), optional, intent(inout) :: linop
       ! internal
             character(len=128) :: msg
-
-            if (if_csv) call close_csv()
-
+      
+            if (if_csv) then
+               call neklab_timer_tag(phase='final')
+               call neklab_timer_dump('-')
+               call close_csv()
+            end if
+      
             if (if_time) then
                call log_message('#########   neklab clock cross-check   ##########', this_module)
-               write (msg, '(2X,A30," : ",F14.6," s")') 'nek_advance_2Dh_axisym (wall)', wall_acc
+               write (msg, '(2X,A30," : ",F14.6," s")') 'nek_advance_2Dh (wall)', wall_acc
                call log_message(msg, this_module)
-               write (msg, '(2X,A30," : ",F14.6," s")') 'nek_advance_2Dh_axisym (cpu)', cpu_acc
+               write (msg, '(2X,A30," : ",F14.6," s")') 'nek_advance_2Dh (cpu)', cpu_acc
                call log_message(msg, this_module)
                if (wall_acc > 0.0_dp) then
                   write (msg, '(2X,A30," : ",F14.6)') 'cpu/wall (rank 0)', cpu_acc/wall_acc
@@ -367,14 +431,14 @@
      &               'time here and every number below is suspect.', this_module)
                end if
             end if
-
+      
             if (present(system)) call system%finalize_timer()
             if (present(linop)) call linop%finalize_timer()
-
+            
             call global_lightkrylov_timer%finalize()
             call global_neklab_timer%finalize()
          end subroutine neklab_finalize_timers
-
+      
          subroutine neklab_reset_timers(soft, clean, also_lightkrylov)
       !! Soft reset of the neklab watch: snapshots the current data into the
       !! per-reset history and zeroes the live counters. Called at the end of
@@ -401,17 +465,17 @@
             csv_prev_s = 0.0_dp
             csv_prev_n = 0
          end subroutine neklab_reset_timers
-
+      
          subroutine neklab_enumerate_timers(only_user)
             logical, optional, intent(in) :: only_user
             call global_lightkrylov_timer%enumerate(only_user)
             call global_neklab_timer%enumerate(only_user)
          end subroutine neklab_enumerate_timers
-
+      
       !====================================================================
       !     CSV CHANNEL
       !====================================================================
-
+      
          subroutine neklab_timer_tag(phase, outer)
       !! Label the rows that follow. Without this the finite-difference,
       !! gauge and save-orbit passes are indistinguishable from the Newton
@@ -421,7 +485,7 @@
             if (present(phase)) tag_phase = phase
             if (present(outer)) tag_outer = outer
          end subroutine neklab_timer_tag
-
+      
          subroutine neklab_timer_dump(evaltype, eval, matvec, rmatvec, nsteps)
       !! Write one CSV row: INCREMENTAL seconds and calls for every timer in
       !! `csv_names` since the previous row.
@@ -444,10 +508,10 @@
             real(dp) :: etm, ds(ncsv), wnow
             real(dp), external :: dnekclock
             integer :: iw, lcnt, dn(ncsv)
-
+      
             if (.not. if_csv) return
             if (nid /= 0) return
-
+            
             do iw = 1, ncsv
                call global_neklab_timer%get_data(csv_names(iw), etime=etm, lcount=lcnt)
                ds(iw) = etm - csv_prev_s(iw)
@@ -460,10 +524,10 @@
                csv_prev_s(iw) = etm
                csv_prev_n(iw) = lcnt
             end do
-
+      
             wnow = dnekclock() - wall_ref
             csv_row = csv_row + 1
-
+      
       ! The colon edit descriptor is what stops the trailing separator: without
       ! it the unlimited group re-enters after the last I0, writes the literal
       ! comma, and only then finds the item list exhausted -- leaving a dangling
@@ -474,12 +538,12 @@
      &         optval(nsteps, -1), wnow, (ds(iw), dn(iw), iw=1, ncsv)
             flush (csv_unit)
          end subroutine neklab_timer_dump
-
+      
          subroutine open_csv()
             character(len=4096) :: hdr
             character(len=lname) :: cstem
             integer :: iw, io_stat
-
+      
             if (nid == 0) then
                open (newunit=csv_unit, file=trim(csv_file), status='replace',
      &               action='write', iostat=io_stat)
@@ -489,7 +553,7 @@
                   if_csv = .false.
                   return
                end if
-
+      
       ! metadata comment: pandas.read_csv(..., comment='#') skips it
       ! lpert as well as npert: this runs from userchk before any solve, so the
       ! run-time npert is usually still 0 and only the compiled slot count is
@@ -500,7 +564,7 @@
      &            ' | nelv=', nelv, ' npert=', npert, ' lpert=', lpert
                write (csv_unit, '(A)') trim(hdr)
                write (csv_unit, '(A)') '# values are INCREMENTAL: seconds and calls since the previous row'
-
+      
       ! header
                hdr = 'row,phase,evaltype,outer,eval,matvec,rmatvec,nsteps,wall'
                do iw = 1, ncsv
@@ -510,7 +574,7 @@
                write (csv_unit, '(A)') trim(hdr)
                flush (csv_unit)
             end if
-
+      
             if_csv = .true.
             csv_row = 0
             csv_prev_s = 0.0_dp
@@ -518,13 +582,13 @@
             call log_message('neklab CSV timing channel open: '//trim(csv_file),
      &         this_module, 'open_csv')
          end subroutine open_csv
-
+      
          subroutine close_csv()
             if (nid == 0 .and. csv_unit > 0) close (csv_unit)
             csv_unit = -1
             if_csv = .false.
          end subroutine close_csv
-
+      
          pure function csv_col(name) result(col)
       !! Timer name -> CSV column stem. The `@` of a region timer becomes `__`,
       !! which keeps the column a legal identifier for whatever reads it.
@@ -543,15 +607,15 @@
                end if
             end do
          end function csv_col
-
+      
       !====================================================================
       !     WALL/CPU CROSS-CHECK
       !====================================================================
-
+      
          subroutine neklab_clock_tic()
       !! Independent wall and cpu accumulation, used ONLY around the body of
-      !! nek_advance_2Dh_axisym. Not affected by resets, so the totals reported
-      !! at finalize cover the whole run.
+      !! nek_advance_2Dh_axisym / nek_advance_2Dh. Not affected by resets,
+      !! so the totals reported at finalize cover the whole run.
             real(dp), external :: dnekclock
             if (.not. if_time) return
             if (clk_running) return
@@ -559,7 +623,7 @@
             call cpu_time(cpu_t0)
             clk_running = .true.
          end subroutine neklab_clock_tic
-
+      
          subroutine neklab_clock_toc()
             real(dp) :: cnow
             real(dp), external :: dnekclock
@@ -570,5 +634,5 @@
             cpu_acc = cpu_acc + (cnow - cpu_t0)
             clk_running = .false.
          end subroutine neklab_clock_toc
-
+      
       end module neklab_timing

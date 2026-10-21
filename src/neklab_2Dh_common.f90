@@ -116,12 +116,11 @@
                   cb = cbc(ifc, ie, 1)   ! velocity boundary conditions
                   select case (cb)
       ! Full velocity vector prescribed -> w is prescribed too.
-                  case ('W  ', 'v  ', 'V  ', 'vl ', 'VL ', 'mv ', 'MV ')
+                  case ('W  ', 'v  ', 'V  ', 'vl ', 'VL ', 'mv ', 'MV ', 'ON ', 'on ')
                      call facev(wmask, ie, ifc, 0.0_dp, lx1, ly1, lz1)
       ! Everything else leaves w free:
       !   'SYM'          - normal lies in the x-y plane, w is tangential
       !   'O  ','o  '    - outflow, natural BC
-      !   'ON ','on '    - only the normal component is constrained
       !   'SL ','sl '    - slip, tangential components free
       !   'shl'          - stress-free tangential
       !   'P  ','p  '    - periodic, handled by dssum

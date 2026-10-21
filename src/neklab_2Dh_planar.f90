@@ -3,7 +3,7 @@
          use LightKrylov, only: dp
          use neklab_nek_setup, only: nek_log_debug, nek_log_message, nek_log_information,
      &                               nek_log_warning, nek_stop_error
-         use neklab_2Dh_common, only: wmask, is_2Dh_planar_initialized
+         use neklab_2Dh_common, only: wmask, is_initialized_2Dh_planar
          use neklab_timing, only: neklab_timer_start, neklab_timer_stop,
      &                            neklab_clock_tic, neklab_clock_toc,
      &                            t_planar_advance, t_planar_adv_setup, t_planar_adv_advection,
@@ -66,7 +66,7 @@
             logical :: if_advW
             ! W advection active?
             ! Miscellaneous
-            character(len=*), parameter :: this_procedure = 'nek_advance'
+            character(len=*), parameter :: this_procedure = 'nek_advance_2Dh_planar'
             character(len=*), parameter :: fmt = '(A,I6)'
             character(len=256) :: msg
             character(len=2) :: info_str
@@ -79,8 +79,8 @@
             
             ntot1 = lx1*ly1*lz1*nelv
             ntot2 = lx2*ly2*lz2*nelv
-            msg = 'call init_planar_2Dh() in userchk at istep = 0 before using the 2Dh solver.'
-            if (.not. is_2Dh_planar_initialized()) call nek_stop_error(msg, this_module, this_procedure)
+            msg = 'call init_2Dh_planar() in userchk at istep = 0 before using the 2Dh solver.'
+            if (.not. is_initialized_2Dh_planar()) call nek_stop_error(msg, this_module, this_procedure)
             
             if_advW = optval(if_advW_in, .false.)
             msg = 'Spanwise advection '//merge('active.  ', 'inactive.', if_advW)
@@ -167,7 +167,6 @@
                
                call neklab_timer_start(t_planar_adv_velocity)
                ! ophinv
-               kfldfdm = -1
                tolhv = abs(tolhv)
                ifield = 1 !  velocity
                

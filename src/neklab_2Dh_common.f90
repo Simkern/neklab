@@ -8,8 +8,10 @@
       !!     own geometry setup.
       !! The solvers stop if init has not been called, instead of building
       !! their data lazily on the first time step.
+         use stdlib_optval, only: optval
          use LightKrylov, only: dp
          use neklab_nek_setup, only: nek_log_message, nek_log_warning, nek_stop_error
+         use neklab_timing, only: neklab_timer_start, neklab_timer_stop, t_gs_comm
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -21,9 +23,11 @@
          logical, public :: wmask_defined = .false.
          logical, private :: init_2Dh_planar_done = .false.
 
+         ! BC masks for the w component
          public :: build_wmask
+         ! init and check routines
          public :: init_2Dh_planar
-         public :: is_2Dh_planar_initialized
+         public :: is_initialized_2Dh_planar
          public :: check_2Dh_properties
          public :: check_2Dh_masks
 
@@ -35,38 +39,41 @@
       !! initialised. Idempotent.
             logical, optional, intent(in) :: verbose
             character(len=*), parameter :: this_procedure = 'init_2Dh_planar'
-            logical :: verb
 
             if (init_2Dh_planar_done) return
-            verb = .true.
-            if (present(verbose)) verb = verbose
 
             if (ifaxis) call nek_stop_error(
-     &         'init_2Dh_planar is for the cartesian 2Dh solver; this run is axisymmetric (ifaxis).',
+     &         'init_2Dh_planar is for the cartesian 2Dh solver, incompatible with ifaxis.',
      &         this_module, this_procedure)
-            call check_2Dh_properties(this_procedure)
-            call build_wmask(verb)
+            
+            call build_wmask(verbose)
+            
             call check_2Dh_masks(this_procedure)
+            call check_2Dh_properties(this_procedure)
 
             init_2Dh_planar_done = .true.
             call nek_log_message('cartesian 2Dh solver initialised.', this_module, this_procedure)
          end subroutine init_2Dh_planar
 
-         logical function is_2Dh_planar_initialized()
-            is_2Dh_planar_initialized = init_2Dh_planar_done
-         end function is_2Dh_planar_initialized
+         logical function is_initialized_2Dh_planar()
+            is_initialized_2Dh_planar = init_2Dh_planar_done
+         end function is_initialized_2Dh_planar
 
          subroutine build_wmask(verbose)
       !! Dirichlet mask of the third velocity component: zero wherever the full
       !! velocity vector is prescribed.
             logical, optional, intent(in) :: verbose
             ! internal
+            character(len=*), parameter :: this_procedure = 'build_wmask'
+            character(len=128) :: msg
+            character(len=3) :: cb
             integer :: ie, ifc, nfaces, ntot, ifield_bak, nzero
             real(dp), external :: vlsum
-            character(len=3) :: cb
+            logical :: verb
 
             nfaces = 2*ndim
             ntot = lx1*ly1*lz1*nelv
+            verb = optval(verbose, .false.)
 
             call rone(wmask, ntot)
 
@@ -100,13 +107,12 @@
 
             wmask_defined = .true.
 
-            if (present(verbose)) then
-               if (verbose .and. nid == 0) then
-                  nzero = ntot - nint(vlsum(wmask, ntot))
-                  write (6, '(A,I10,A,I10,A)')
+            if (verb) then
+               nzero = ntot - nint(vlsum(wmask, ntot))
+               write (msg, '(A,I10,A,I10,A)')
      &            ' neklab_masks: wmask built, ', nzero, ' of ', ntot,
      &            ' local nodes constrained.'
-               end if
+               call nek_log_message(msg, this_module, this_procedure)
             end if
 
          end subroutine build_wmask
@@ -116,11 +122,11 @@
       !! scalar must exist and diffuse/convect exactly like momentum.
             character(len=*), intent(in) :: caller
             real(dp), parameter :: diff_tol = 1.0e-08_dp
-            character(len=256) :: msg
-
-            if (.not. ifheat) call nek_stop_error(
-     &         '2Dh requires a temperature field (ifheat): it carries the third velocity component.',
-     &         this_module, caller)
+            character(len=128) :: msg
+            if (.not. ifheat)  then
+               msg = '2Dh requires a temperature field (ifheat): it carries the vzp component.'
+               call nek_stop_error(msg, this_module, caller)
+            end if
             if (abs(cpfld(1,1) - cpfld(2,1)) > diff_tol) then
                write(msg,'(A,2E18.7)') 'viscosity, conductivity = ', cpfld(1,1), cpfld(2,1)
                call nek_log_message(msg, this_module, caller)

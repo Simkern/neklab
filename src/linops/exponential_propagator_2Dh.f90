@@ -8,7 +8,7 @@
          real(dp) :: wmax
          real, external :: glamax
          msg = 'call init_2Dh_planar() in userchk at istep = 0 before init.'
-         if (.not. is_2Dh_planar_initialized()) call nek_stop_error(msg, this_module, this_procedure)
+         if (.not. is_initialized_2Dh_planar()) call nek_stop_error(msg, this_module, this_procedure)
          ! For the baseflow field for dt/nsteps/cfl computation.
          call vec2nek(vx, vy, vz, pr, t, self%baseflow)
          call nek_log_message("Set self%baseflow -> vx, vy, vz, pr, t", this_module, this_procedure)
@@ -106,7 +106,8 @@
          ! well-posed if the run is actually set up as:
          !    - axisymmetric (IFAXIS)
          !    - azimuthal velocity enabled (IFAZIV)
-         !    - heat transport is active with matching thermal and momentum diffusivities (rhoCp == rho and conductivity == viscosity)
+         !    - heat transport is active with matching thermal and momentum 
+         !      diffusivities (rhoCp == rho and conductivity == viscosity)
          if (.not. ifaxis) call nek_stop_error("2Dh axisym exptA requires ifaxis = .true.", this_module, this_procedure)
          if (.not. ifaziv) call nek_stop_error("2Dh axisym exptA requires ifaziv = .true.", this_module, this_procedure)
          if (.not. ifheat) call nek_stop_error("2Dh axisym exptA requires ifheat = .true.", this_module, this_procedure)

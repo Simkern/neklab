@@ -1,6 +1,9 @@
       module neklab_2Dh_axisym
          use LightKrylov, only: dp
-         use neklab_2Dh_common, only: wmask, wmask_defined, build_wmask
+         use neklab_2Dh_common, only: wmask, wmask_defined, build_wmask,
+     &                                bm2_map12_2Dh, bm2_map12T_2Dh,
+     &                                solve_helmholtz_2Dh, solve_pressure_2Dh,
+     &                                setrhs_pressure_2Dh, gensoln_pressure_2Dh
          use neklab_2Dh_torsion, only: if_torsion_zero,
      &                                 build_torsion_coeffs, torsion_shift_add,
      &                                 dphi_apply, dphi_apply_t,
@@ -20,22 +23,26 @@
          
          private
          character(len=*), parameter, private :: this_module = 'neklab_2Dh_axisym'
+         integer, parameter :: maxit_p = 1000 ! max iterations for pressure solve
          
-         real(dp), dimension(lx1,ly1,lz1,lelv), public :: h2z_shift
-         real(dp), dimension(lx1,ly1,lz1,lelv), public :: diag_shift, couple_coef
+         real(dp), private :: pbasis(lx2*ly2*lz2*lelv,mxprev,lpert)
+         real(dp), private :: dtbdlast = 0.0_dp
+         real(dp), private :: betaz_op = 0.0_dp ! module variable to pass to the abstract operators
+         real(dp), dimension(:,:,:,:), pointer, private :: shift_op => null() ! shift seen by helm_matvec_axisym
+         integer,  private :: nprev(lpert) = 0
+         
+         real(dp), dimension(lx1,ly1,lz1,lelv), public, target :: h2z_shift
+         real(dp), dimension(lx1,ly1,lz1,lelv), public, target :: diag_shift
+         real(dp), dimension(lx1,ly1,lz1,lelv), public :: couple_coef
       ! diag_shift is S_PHI = (alpha^2+1)/R^2. Torsion splits the R equation's
       ! shift away from it: S_R = (alpha^2+1+lambda^2)/R^2. In the torus the
       ! two coincide and one field sufficed; diag_shift_r carries the R value
       ! whenever lambda /= 0, and is byte-identical to diag_shift otherwise.
-         real(dp), dimension(lx1,ly1,lz1,lelv), public :: diag_shift_r
+         real(dp), dimension(lx1,ly1,lz1,lelv), public, target :: diag_shift_r
          real(dp), dimension(lx1,ly1,lz1,lelv), public :: alphaR_coef   ! alpha/R, continuity/pressure coupling
          logical, public :: torus_coeffs_defined = .false.
          logical, public :: if_alpha_zero = .false.
          real(dp), private :: alpha_cached = huge(1.0_dp)
-         
-         real(dp), dimension(lx2*ly2*lz2*lelv,mxprev,lpert), private :: pbasis
-         integer, dimension(lpert), private :: nprev = 0
-         real(dp), private :: dtbdlast = 0.0_dp
          
          public :: build_torus_coeffs
          public :: nek_advance_2Dh_axisym
@@ -176,8 +183,9 @@
                call neklab_timer_stop(t_axisym_adv_rhs)
                
                call neklab_timer_start(t_axisym_adv_uz)
-               call solve_helmholtz_2Dh_axisym(dv1, resv1, h1, h2, v1mask, vmult, imesh,
-     &                                              tolhv, nmxv, 1, binvm1, helm_info, h2z_shift)
+               shift_op => h2z_shift
+               call solve_helmholtz_2Dh(dv1, resv1, h1, h2, v1mask, vmult, imesh,
+     &                                  tolhv, nmxv, 1, binvm1, helm_info, helm_matvec_axisym)
                call add2(vxp(1,jp), dv1, ntot1)
                call neklab_timer_stop(t_axisym_adv_uz)
                
@@ -216,15 +224,17 @@
                   call col2 (resv2_jp(1,1,1,1,jp), v2mask, ntot1)
                   helm_info = info_str//' V_R  '
                   if (istep < 10) call chktcg1(tolhv, resv2_jp(1,1,1,1,jp), h1, h2, v2mask, vmult, imesh, 1)
-                  call solve_helmholtz_2Dh_axisym(dv2, resv2_jp(1,1,1,1,jp), h1, h2, v2mask, vmult, imesh,
-     &                                             tolhv, nmxv, 1, binvm1, helm_info, diag_shift_r)
+                  shift_op => diag_shift_r
+                  call solve_helmholtz_2Dh(dv2, resv2_jp(1,1,1,1,jp), h1, h2, v2mask, vmult, imesh,
+     &                                     tolhv, nmxv, 1, binvm1, helm_info, helm_matvec_axisym)
                   
                   call dssum(resv3_jp(1,1,1,1,jp), lx1, ly1, lz1)
                   call col2 (resv3_jp(1,1,1,1,jp), wmask, ntot1)
                   helm_info = info_str//' V_PHI'
                   if (istep < 10) call chktcg1(tolhv, resv3_jp(1,1,1,1,jp), h1, h2, wmask, vmult, imesh, 1)
-                  call solve_helmholtz_2Dh_axisym(dv3, resv3_jp(1,1,1,1,jp), h1, h2, wmask, vmult, imesh,
-     &                                             tolhv, nmxv, 1, binvm1, helm_info, diag_shift)
+                  shift_op => diag_shift
+                  call solve_helmholtz_2Dh(dv3, resv3_jp(1,1,1,1,jp), h1, h2, wmask, vmult, imesh,
+     &                                     tolhv, nmxv, 1, binvm1, helm_info, helm_matvec_axisym)
                   
                   call add2(vyp(1,jp),  dv2, ntot1)
                   call add2(tp(1,1,jp), dv3, ntot1)
@@ -299,15 +309,14 @@
                   if (if_alpha_zero) call ortho(dpr(1,jp))
                   
                   if (ifprjp) then
-                     call neklab_timer_start(t_axisym_pres_proj)
-                     call setrhs_pressure_2Dh_axisym(dpr(1,jp), h1, h2, h2inv, pbasis(1,1,jp), nprev(jp), alphaR_coef, info_str)
-                     call neklab_timer_stop(t_axisym_pres_proj)
+                     call  setrhs_pressure_2Dh(dpr(1,jp), h1, h2, h2inv, pbasis(1,1,jp), nprev(jp),
+     &                                         pres_matvec_axisym, info_str)
                   end if
-                  call solve_pressure_2Dh_axisym(dpr(1,jp), h1, h2, h2inv, alphaR_coef, alpha, intype, iter, ebar, info_str)
+                  call      solve_pressure_2Dh(dpr(1,jp), h1, h2, h2inv, pres_matvec_axisym, intype, iter,
+     &                                         ebar, if_alpha_zero, maxit_p, 'alpha', alpha, info_str)
                   if (ifprjp) then
-                     call neklab_timer_start(t_axisym_pres_proj)
-                     call gensoln_pressure_2Dh_axisym(dpr(1,jp), h1, h2, h2inv, pbasis(1,1,jp), nprev(jp), alphaR_coef)
-                     call neklab_timer_stop(t_axisym_pres_proj)
+                     call gensoln_pressure_2Dh(dpr(1,jp), h1, h2, h2inv, pbasis(1,1,jp), nprev(jp),
+     &                                         pres_matvec_axisym)
                   end if
                end do
             end if
@@ -876,6 +885,23 @@
             call add2s2 (y2, tmp, csign, ntot1)
             call neklab_timer_stop(t_axisym_cpl_matvec)
          end subroutine coupled_helmholtz_matvec_2Dh_axisym
+
+         subroutine helm_matvec_axisym(Au, u, h1, h2)
+            ! Wrapper around helmholtz_matvec_2Dh_axisym matching the abstract interface.
+            ! The shift field is selected through shift_op.
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(out) :: Au
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(in)  :: u, h1, h2
+            call helmholtz_matvec_2Dh_axisym(Au, u, h1, h2, shift_op, 1)
+         end subroutine helm_matvec_axisym
+
+         subroutine pres_matvec_axisym(Ap, p, h1, h2, h2inv, intype)
+            ! Wrapper around pressure_matvec_2Dh_axisym matching the abstract interface.
+            real(dp), dimension(lx2*ly2*lz2*lelv), intent(out) :: Ap
+            real(dp), dimension(lx2*ly2*lz2*lelv), intent(in)  :: p
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(in)  :: h1, h2, h2inv
+            integer, intent(in) :: intype
+            call pressure_matvec_2Dh_axisym(Ap, p, h1, h2, h2inv, alphaR_coef, intype)
+         end subroutine pres_matvec_axisym
          
          subroutine solve_coupled_helmholtz_2Dh_axisym(x1,x2,f1,f2,h1,h2,mask,mult,imsh,tin,maxit,binv,name,shift1,shift2,couple_coef,csign)
             implicit none
@@ -1014,275 +1040,6 @@
             ifsolv = .false.
             call neklab_timer_stop(t_axisym_solve_cpl)
          end subroutine solve_coupled_helmholtz_2Dh_axisym
-         
-         subroutine solve_helmholtz_2Dh_axisym(x,f,h1,h2,mask,mult,imsh,tin,maxit,isd,binv,name,shift)
-            implicit none
-            include 'FDMH1'
-            real, intent(out) :: x(1)
-            real, intent(in) :: f(1), h1(1), h2(1), mask(1), mult(1), binv(1)
-            integer, intent(in) :: imsh, maxit, isd
-            real, intent(in) :: tin
-            character(len=7), intent(in) :: name
-            real, intent(in) :: shift(1)
-            integer :: i, j, iter, krylov, n, nel, niter, nxyz
-            real :: alpha, beta, alphm, fmax, h2max
-            real :: rbn0, rbn2, rho, rho0, rmean, rtz1, rtz2
-            real :: skmin, smean, tol, vol, div0, ratio, divex
-            real :: etime2, etime_p
-            LOGICAL IFPRINT, IFHZPC
-            COMMON /CPRINT/ IFPRINT, IFHZPC
-            logical ifdfrm, iffast, ifh2, ifsolv
-            common /fastmd/ ifdfrm(lelt), iffast(lelt), ifh2, ifsolv
-            logical ifmcor,ifprint_helm
-            integer, parameter :: lg = lx1*ly1*lz1*lelt
-            real, dimension(lg) :: d, r, w, p, z
-            real :: scalar(2)
-            COMMON /SCRCG/ d, scalar
-            common /SCRMG/ r, w, p, z
-            integer, parameter :: maxcg = 900
-            real, dimension(maxcg) :: diagt, upper
-            common /tdarray/ diagt, upper
-            integer :: niterhm
-            common /iterhm/ niterhm
-            real, external :: glamax, glmax, glmin, glsum, glsc2, glsc3, vlsc3, vlsc32
-            
-            call neklab_timer_start(t_axisym_solve_helm)
-            call rzero(diagt,maxcg)
-            call rzero(upper,maxcg)
-            rho = 0.00
-            NXYZ = lx1*ly1*lz1
-            NEL  = NELV
-            VOL  = VOLVM1
-            IF (IMSH.EQ.2) NEL=NELT
-            IF (IMSH.EQ.2) VOL=VOLTM1
-            n = NEL*NXYZ
-            tol = abs(tin)
-            if (restol(ifield).ne.0) tol = abs(restol(ifield))
-            if (tin.lt.0) tol=abs(tin)
-            niter = min(maxit,maxcg)
-            
-            if (.not.ifsolv) then
-               call setfast(h1,h2,imsh)
-               ifsolv = .true.
-            endif
-            call setprec(D,h1,h2,imsh,isd)   ! NOTE: preconditioner still ignores `shift` -- see caveat below
-            call copy (r,f,n)
-            call rzero(x,n)
-            call rzero(p,n)
-            fmax = glamax(f,n)
-            if (fmax == 0.0) then
-               call neklab_timer_stop(t_axisym_solve_helm)
-               return
-            end if
-            
-            krylov = 0
-            rtz1=1.0
-            niterhm = 0
-            
-            do iter=1,niter
-               call col3(z,r,d,n)
-               rtz2=rtz1
-               scalar(1)=vlsc3(z,r,mult,n)
-               if(param(18).eq.1) then
-                  scalar(2)=vlsc3(r,r,mult,n)
-               else
-                  scalar(2)=vlsc32(r,mult,binv,n)
-               endif
-               call gop(scalar,w,'+  ',2)
-               rtz1=scalar(1)
-               rbn2=sqrt(scalar(2)/vol)
-               if (iter.eq.1) rbn0 = rbn2
-               if (param(22).lt.0) tol=abs(param(22))*rbn0
-               if (tin.lt.0)       tol=abs(tin)*rbn0
-               
-               ifprint_helm = .false.
-               if (nio.eq.0.and.ifprint.and.param(74).ne.0) ifprint_helm=.true.
-               if (nio.eq.0.and.istep.eq.1)                 ifprint_helm=.true.
-               if (ifprint_helm) write(6,3002) istep,'  Hmholtz ' // name,  iter,rbn2,h1(1),tol,h2(1),ifmcor
-               
-               IF (rbn2.LE.TOL.and.(iter.gt.1 .or. istep.le.5)) THEN
-               NITER = ITER-1
-               if (nio.eq.0) write(6,3000) istep,'  Hmholtz ' // name, niter,rbn2,rbn0,tol
-               goto 9999
-               endif
-               
-               beta = rtz1/rtz2
-               if (iter.eq.1) beta=0.0
-               call add2s1 (p,z,beta,n)
-               call helmholtz_matvec_2Dh_axisym(w,p,h1,h2,shift,isd)
-               call dssum  (w,lx1,ly1,lz1)
-               call col2   (w,mask,n)
-               
-               rho0 = rho
-               rho  = glsc3(w,p,mult,n)
-               alpha=rtz1/rho
-               alphm=-alpha
-               call add2s2(x,p ,alpha,n)
-               call add2s2(r,w ,alphm,n)
-               
-               if (iter.eq.1) then
-                  krylov = krylov+1
-                  diagt(iter) = rho/rtz1
-               elseif (iter.le.maxcg) then
-                  krylov = krylov+1
-                  diagt(iter)    = (beta**2 * rho0 + rho ) / rtz1
-                  upper(iter-1)  = -beta * rho0 / sqrt(rtz2 * rtz1)
-               endif
-            enddo
-            niter = iter-1
-            if (nio.eq.0) write (6,3001) istep, '  Error Hmholtz ' // name, niter,rbn2,rbn0,tol
- 3000       format(i11,a,1x,I7,1p4E13.4)
- 3001       format(i11,a,1x,I7,1p4E13.4)
- 3002       format(i11,a,1x,I7,1p4E13.4,l4)
- 9999       continue
-            niterhm = niter
-            ifsolv = .false.
-            call neklab_timer_stop(t_axisym_solve_helm)
-         end subroutine solve_helmholtz_2Dh_axisym
-         
-         subroutine solve_pressure_2Dh_axisym(res,h1,h2,h2inv,alphaR,alpha,intype,iter,ebar,info_str)
-            implicit none
-            include 'GMRES'
-            real :: divex
-            common  /ctolpr/ divex
-            logical          ifprint
-            common  /cprint/ ifprint
-            real, dimension(lx2*ly2*lz2*lelv), intent(inout) :: res
-            real, dimension(lx1,ly1,lz1,lelv), intent(in)    :: h1, h2, h2inv, alphaR
-            real(dp), intent(in) :: alpha        ! the toroidal wavenumber itself, for the ortho guard
-            integer, intent(in) :: intype
-            integer, intent(inout) :: iter
-            real(dp), intent(in) :: ebar
-            character(len=2), optional, intent(in) :: info_str
-            real, dimension(lx2,ly2,lz2,lelv) :: wp
-            common /scrmg/   wp
-            real, dimension(lgmres) :: y, wk1, wk2
-            common /ctmp0/   wk1, wk2
-            common /cgmres1/ y
-            real alph, l, temp, div0, ratio, rnorm, tolpss
-            real :: etime2, etime_p
-            integer i, j, k, m, iconv, ntot2
-            logical iflag
-            save    iflag
-            data    iflag /.false./
-            real    norm_fac
-            save    norm_fac
-            real*8 etime1,dnekclock
-            real, external :: vlsc2, glsc2, glsum
-            integer, parameter :: gmres_imax = 1000
-            
-            call neklab_timer_start(t_axisym_solve_pres)
-            if(.not.iflag) then
-               iflag=.true.
-               call uzawa_gmres_split0(ml_gmres,mu_gmres,bm2,bm2inv,lx2*ly2*lz2*nelv)
-               norm_fac = 1./sqrt(volvm2)
-            endif
-            
-            etime1 = dnekclock()
-            etime_p = 0.
-            divex = 0.
-            iter  = 0
-            m = lgmres
-            call chktcg2(tolps,res,iconv)
-            if (param(21).gt.0.and.tolps.gt.abs(param(21))) tolps = abs(param(21))
-            if (istep.eq.0) tolps = 1.e-4
-            tolpss = tolps
-            ntot2  = lx2*ly2*lz2*nelv
-            iconv = 0
-            call rzero(x_gmres,ntot2)
-            
-            do while(iconv.eq.0.and.iter.lt.gmres_imax)
-               if(iter.eq.0) then
-                  call col3(r_gmres,ml_gmres,res,ntot2)
-               else
-                  call copy(r_gmres,res,ntot2)
-                  call pressure_matvec_2Dh_axisym(w_gmres,x_gmres,h1,h2,h2inv,alphaR,intype)
-                  call add2s2(r_gmres,w_gmres,-1.,ntot2)
-                  call col2(r_gmres,ml_gmres,ntot2)
-               endif
-               gamma_gmres(1) = sqrt(glsc2(r_gmres,r_gmres,ntot2))
-               if(iter.eq.0) then
-                  div0 = gamma_gmres(1)*norm_fac
-                  if (param(21).lt.0) tolpss=abs(param(21))*div0
-               endif
-               rnorm = 0.
-               if(gamma_gmres(1) .eq. 0.) goto 9000
-               temp = 1./gamma_gmres(1)
-               call cmult2(v_gmres(1,1),r_gmres,temp,ntot2)
-               do j=1,m
-                  iter = iter+1
-                  call col3(w_gmres,mu_gmres,v_gmres(1,j),ntot2)
-                  etime2 = dnekclock()
-                  call neklab_timer_start(t_axisym_pres_precond)
-                  call hsmg_solve(z_gmres(1,j),w_gmres)
-                  if (ebar /= 0.0_dp) then
-                     call cadd(z_gmres(1,j), glsum(w_gmres,ntot2)/ebar, ntot2)
-                  end if
-                  call neklab_timer_stop(t_axisym_pres_precond)
-                  etime_p = etime_p + dnekclock()-etime2
-                  call pressure_matvec_2Dh_axisym(w_gmres,z_gmres(1,j),h1,h2,h2inv,alphaR,intype)
-                  call col2(w_gmres,ml_gmres,ntot2)
-                  do i=1,j
-                     h_gmres(i,j)=vlsc2(w_gmres,v_gmres(1,i),ntot2)
-                  enddo
-                  call gop(h_gmres(1,j),wk1,'+  ',j)
-                  do i=1,j
-                     call add2s2(w_gmres,v_gmres(1,i),-h_gmres(i,j),ntot2)
-                  enddo
-                  do i=1,j-1
-                     temp = h_gmres(i,j)
-                     h_gmres(i  ,j)=  c_gmres(i)*temp + s_gmres(i)*h_gmres(i+1,j)
-                     h_gmres(i+1,j)= -s_gmres(i)*temp + c_gmres(i)*h_gmres(i+1,j)
-                  enddo
-                  alph = sqrt(glsc2(w_gmres,w_gmres,ntot2))
-                  rnorm = 0.
-                  if(alph.eq.0.) goto 900
-                  l = sqrt(h_gmres(j,j)*h_gmres(j,j)+alph*alph)
-                  temp = 1./l
-                  c_gmres(j) = h_gmres(j,j) * temp
-                  s_gmres(j) = alph  * temp
-                  h_gmres(j,j) = l
-                  gamma_gmres(j+1) = -s_gmres(j) * gamma_gmres(j)
-                  gamma_gmres(j)   =  c_gmres(j) * gamma_gmres(j)
-                  rnorm = abs(gamma_gmres(j+1))*norm_fac
-                  ratio = rnorm/div0
-                  if (ifprint.and.nio.eq.0) write (6,66) iter,tolpss,rnorm,div0,ratio,istep
-   66             format(i5,1p4e12.5,i8,' Divergence')
-                  if (rnorm .lt. tolpss) goto 900
-                  if (j.eq.m) goto 1000
-                  temp = 1./alph
-                  call cmult2(v_gmres(1,j+1),w_gmres,temp,ntot2)
-               enddo
-  900          iconv = 1
- 1000          continue
-               do k=j,1,-1
-                  temp = gamma_gmres(k)
-                  do i=j,k+1,-1
-                     temp = temp - h_gmres(k,i)*c_gmres(i)
-                  enddo
-                  c_gmres(k) = temp/h_gmres(k,k)
-               enddo
-               do i=1,j
-                  call add2s2(x_gmres,z_gmres(1,i),c_gmres(i),ntot2)
-               enddo
-            enddo
- 9000       continue
-            divex = rnorm
-               
-            if (alpha == 0.0_dp) call ortho  (w_gmres)
-            call copy(res,x_gmres,ntot2)
-            if (alpha == 0.0_dp) call ortho (res)
-               
-            etime1 = dnekclock()-etime1
-            if (present(info_str)) then
-               if (nio.eq.0) write(6,9998) istep,'  U-PRES  '//info_str//' gmres  alpha= ', alpha, iter,divex,div0,tolpss,etime_p,etime1
-            else
-               if (nio.eq.0) write(6,9999) istep,'  U-PRES  gmres  ', iter,divex,div0,tolpss,etime_p,etime1
-            end if
- 9998       format(i11,a,F5.1,1X,I6,1p5e13.4)
- 9999       format(i11,a,I6,1p5e13.4)
-            call neklab_timer_stop(t_axisym_solve_pres)
-         end subroutine solve_pressure_2Dh_axisym
          
          subroutine solve_pressure_coupled_2Dh_axisym(resR, resI, h1, h2, h2inv, alphaR, alpha, ebar, intype, iter)
             !! Stacked GMRES for the coupled pressure system at alpha /= 0 AND
@@ -1443,176 +1200,5 @@
  9998       format(i11,a,F5.1,1X,I6,1p4e13.4)
             call neklab_timer_stop(t_axisym_solve_pres)
          end subroutine solve_pressure_coupled_2Dh_axisym
-         
-         subroutine setrhs_pressure_2Dh_axisym(dp,h1,h2,h2inv,proj_set,niprev,alphaR,info_str)
-            implicit none
-            !
-            !     Project soln onto best fit in the "E" norm.
-            !
-            real, dimension(lx2,ly2,lz2,lelv), intent(inout) :: dp
-            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h1
-            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h2
-            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h2inv
-            ! projection basis
-            real, dimension(lx2*ly2*lz2*lelv,mxprev), intent(inout) :: proj_set
-            integer, intent(inout) :: niprev
-            ! alpha/R coupling field (replaces scalar beta_z of the planar case)
-            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: alphaR
-            character(len=2), intent(in) :: info_str
-            ! common block
-            integer, parameter :: ltot2 = lx2*ly2*lz2*lelv
-            real :: pbar(ltot2), pnew(ltot2)
-            real :: alpha(mxprev), work(mxprev)
-            common /orthox/ pbar, pnew
-            common /orthos/ alpha, work
-            ! internal
-            integer :: ntot2, n10, intype, i
-            real, external :: glsc3, vlsc2
-            real :: alpha1, alpha2, ratio
-            
-            ntot2 = lx2*ly2*lz2*nelv
-            call rzero(pbar,ntot2)
-            if (niprev == 0) return
-            
-            ! Diag to see how much reduction in the residual is attained.
-            alpha1 = glsc3(dp,dp,bm2inv,ntot2)
-            if (alpha1.gt.0) then
-               alpha1 = sqrt(alpha1/volvm2)
-            else
-               return
-            endif
-            
-            do i = 1, niprev  ! Perform Gram-Schmidt for previous soln's.
-               alpha(i) = vlsc2(dp,proj_set(1,i),ntot2)
-            enddo
-            call gop(alpha,work,'+  ',niprev)
-            
-            do i = 1, niprev
-               call add2s2(pbar,proj_set(1,i),alpha(i),ntot2)
-            enddo
-            
-            intype = 1
-            call pressure_matvec_2Dh_axisym(pnew,pbar,h1,h2,h2inv,alphaR,intype)
-            call sub2(dp,pnew,ntot2)
-            
-            alpha2 = glsc3(dp,dp,bm2inv,ntot2) ! Diagnostics
-            if (alpha2.gt.0) then
-               alpha2 = sqrt(alpha2/volvm2)
-               ratio  = alpha1/alpha2
-               n10=min(10,niprev)
-               if (nio.eq.0) write(6,13) istep,'  Project '//info_str//' PRES',
-     &                         alpha2,alpha1,ratio,niprev,mxprev
-            endif
- 13         format(i11,a,6x,1p3e13.4,i4,i4)
-         end subroutine setrhs_pressure_2Dh_axisym
-         
-         subroutine gensoln_pressure_2Dh_axisym(dp,h1,h2,h2inv,proj_set,niprev,alphaR)
-            implicit none
-            !
-            !     Reconstruct the solution to the original problem by adding back
-            !     the previous solutions
-            !
-            real, dimension(lx2,ly2,lz2,lelv), intent(inout) :: dp
-            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h1
-            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h2
-            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h2inv
-            ! projection basis
-            real, dimension(lx2*ly2*lz2*lelv,mxprev), intent(inout) :: proj_set
-            integer, intent(inout) :: niprev
-            ! alpha/R coupling field (replaces scalar beta_z of the planar case)
-            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: alphaR
-            ! common block
-            integer, parameter :: ltot2 = lx2*ly2*lz2*lelv
-            real :: pbar(ltot2), pnew(ltot2)
-            real :: alpha(mxprev), work(mxprev)
-            common /orthox/ pbar, pnew
-            common /orthos/ alpha, work
-            ! internal
-            integer :: ntot2, mprev, ierr
-            
-            mprev=param(93)
-            mprev=min(mprev,mxprev)
-            
-            ntot2=lx2*ly2*lz2*nelv
-            
-            if (niprev.lt.mprev) then
-               niprev = niprev+1
-               call copy (proj_set(1,niprev),dp,ntot2)        ! Save current solution
-               call add2 (dp,pbar,ntot2)                      ! Reconstruct solution.
-               call econj_pressure_2Dh_axisym(proj_set,niprev,h1,h2,h2inv,alphaR,ierr) ! Orthonormalize set
-               if (ierr.eq.1) then
-                  niprev = 1
-                  call copy (proj_set(1,niprev),dp,ntot2)     ! Save current solution
-                  call econj_pressure_2Dh_axisym(proj_set,niprev,h1,h2,h2inv,alphaR,ierr) ! and orthonormalize.
-               endif
-            else                                              !          (uses pnew).
-               niprev = 1
-               call add2 (dp,pbar,ntot2)                      ! Reconstruct solution.
-               call copy (proj_set(1,niprev),dp,ntot2)        ! Save current solution
-               call econj_pressure_2Dh_axisym(proj_set,niprev,h1,h2,h2inv,alphaR,ierr) ! and orthonormalize.
-            endif
-         end subroutine gensoln_pressure_2Dh_axisym
-         
-         subroutine econj_pressure_2Dh_axisym(proj_set,nprev,h1,h2,h2inv,alphaR,ierr)
-            implicit none
-            !     Orthogonalize the soln wrt previous soln's for which we already
-            !     know the soln.
-            real, dimension(lx2*ly2*lz2*lelv,mxprev), intent(inout) :: proj_set
-            integer, intent(inout) :: nprev
-            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h1
-            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h2
-            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: h2inv
-            ! alpha/R coupling field (replaces scalar beta_z of the planar case)
-            real, dimension(lx1,ly1,lz1,lelv), intent(in) :: alphaR
-            integer, intent(out) :: ierr
-            ! common block
-            integer, parameter :: ltot2 = lx2*ly2*lz2*lelv
-            real :: pbar(ltot2), pnew(ltot2)
-            real :: alpha(mxprev), work(mxprev)
-            common /orthox/ pbar,pnew
-            common /orthos/ alpha,work
-            ! internal
-            integer :: ntot2, i, ipass, npass, nprev1, intype
-            real :: alphad, alpham
-            real, external :: vlsc2, glsc2
-            
-            ierr  = 0
-            ntot2 = lx2*ly2*lz2*nelv
-            
-            !
-            !     Gram Schmidt, w re-orthogonalization
-            !
-            npass = 1
-            do ipass = 1, npass
-            
-               intype = 1
-               call pressure_matvec_2Dh_axisym(pnew,proj_set(1,nprev),h1,h2,h2inv,alphaR,intype)
-               alphad = glsc2(pnew,proj_set(1,nprev),ntot2) ! compute part of the norm
-               
-               nprev1 = nprev - 1
-               do i = 1, nprev1   !   Gram-Schmidt
-                  alpha(i) = vlsc2(pnew,proj_set(1,i),ntot2)
-               enddo
-               if (nprev1.gt.0) call gop(alpha,work,'+  ',nprev1)
-               
-               do i = 1, nprev1
-                  alpham = -alpha(i)
-                  call add2s2(proj_set(1,nprev),proj_set(1,i),alpham,ntot2)
-                  alphad = alphad - alpha(i)**2
-               enddo
-            
-            enddo
-            !
-            !    Normalize new element in P~
-            !
-            if (alphad.le.0) then
-               write(6,*) 'ERROR:  alphad .le. 0 in econj_pressure_2Dh_axisym',alphad,nprev
-               ierr = 1
-               return
-            endif
-            alphad = 1./sqrt(alphad)
-            call cmult(proj_set(1,nprev),alphad,ntot2)
-         
-         end subroutine econj_pressure_2Dh_axisym
          
       end module neklab_2Dh_axisym

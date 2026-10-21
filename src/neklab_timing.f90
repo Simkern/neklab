@@ -141,10 +141,7 @@
          character(len=*), parameter, public :: t_axisym_hmh_matvec = 'helmholtz_matvec_2dh_axisym'
          character(len=*), parameter, public :: t_axisym_cpl_matvec = 'coupled_helmholtz_matvec_2dh_axisym'
          character(len=*), parameter, public :: t_axisym_pres_matvec = 'pressure_matvec_2dh_axisym'
-      
-      ! --- group: global communication 2Dh
-         character(len=*), parameter, public :: t_gs_comm = 'neklab_2dh_gs_comm'
-      
+
       ! --- group: baseflow buffer
          character(len=*), parameter, public :: t_bf_push = 'neklab_bf_push'
          character(len=*), parameter, public :: t_bf_set = 'neklab_bf_set'
@@ -181,7 +178,7 @@
       !--------------------------------------------------------------
       
          integer, parameter, private :: lname = 48
-         integer, parameter, private :: ncsv = 40
+         integer, parameter, private :: ncsv = 39         ! number of timers, update as needed
       
       ! Step-level timers only. See the note at the top of this file: every name
       ! here MUST be idle whenever neklab_timer_dump is called.
@@ -198,8 +195,6 @@
      &       t_axisym_makefp, t_axisym_nl_step, t_axisym_solve_hmh, t_axisym_solve_cpl,
      &       t_axisym_solve_pres, t_axisym_pres_precond, t_axisym_pres_proj, t_axisym_hmh_matvec,
      &       t_axisym_cpl_matvec, t_axisym_pres_matvec,
-     & ! communication
-     &       t_gs_comm,
      & ! baseflow + mflow
      &       t_bf_push, t_bf_set, t_bf_window, t_bf_write, t_bf_read,
      &       t_close_mflow]
@@ -347,10 +342,6 @@
             call self%add_timer(t_axisym_cpl_matvec)
             call self%add_timer(t_axisym_pres_matvec, count=iend)
             call self%add_group('2Dh_axisym_kernels', istart=istart, iend=iend)
-      
-      ! --- global communication 2Dh
-            call self%add_timer(t_gs_comm, count=istart)
-            call self%add_group('2Dh_communication', istart=istart, iend=istart)
       
       ! --- drivers
             call self%add_timer(t_fp_solve, count=istart)

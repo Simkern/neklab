@@ -11,7 +11,7 @@
          use stdlib_optval, only: optval
          use LightKrylov, only: dp
          use neklab_nek_setup, only: nek_log_message, nek_log_warning, nek_stop_error
-         use neklab_timing, only: neklab_timer_start, neklab_timer_stop
+         use neklab_timing, only: neklab_timer_start, neklab_timer_stop, t_planar_pres_proj
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -516,7 +516,8 @@
             integer, intent(out) :: iter
             real(dp), intent(in) :: ebar, wavenumber
             logical, intent(in)  :: if_ortho
-            character(len=*), intent(in) :: label, info_str, t_solve, t_prec
+            character(len=*), intent(in) :: label, info_str
+            character(len=*), intent(in) :: t_solve, t_prec ! pass timer labels 
             ! internal
             character(len=*), parameter :: this_procedure = 'solve_pressure_2Dh'
             real(dp) :: divex
@@ -688,12 +689,13 @@
       !-------------------------------------------------------------------------------
       !  Essentially a copy of setrhs_/gensoln_/econj
       !-------------------------------------------------------------------------------
-         subroutine setrhs_pressure_2Dh(dpr, h1, h2, h2inv, proj_set, niprev, matvec, info_str)
+         subroutine setrhs_pressure_2Dh(dpr, h1, h2, h2inv, proj_set, niprev, matvec, t_pres_proj, info_str)
             real(dp), dimension(lx2*ly2*lz2*lelv), intent(inout) :: dpr
             real(dp), dimension(lx1*ly1*lz1*lelv), intent(in)    :: h1, h2, h2inv
             real(dp), dimension(lx2*ly2*lz2*lelv,mxprev), intent(inout) :: proj_set
             integer, intent(inout) :: niprev
             procedure(abstract_pressure_matvec) :: matvec
+            character(len=*), intent(in) :: t_pres_proj ! pass timer label
             character(len=2), intent(in) :: info_str
             ! internal
             integer, parameter :: ltot2 = lx2*ly2*lz2*lelv
@@ -705,6 +707,8 @@
             real(dp), external :: glsc3, vlsc2
             real(dp) :: alpha1, alpha2, ratio
  
+            call neklab_timer_start(t_pres_proj)
+
             ntot2 = lx2*ly2*lz2*nelv
             call rzero(pbar, ntot2)
 
@@ -739,14 +743,18 @@
      &                                   alpha2, alpha1, ratio, niprev, mxprev
             end if
  13         format(i11,a,6x,1p3e13.4,i4,i4)
+
+            call neklab_timer_stop(t_pres_proj)
+
          end subroutine setrhs_pressure_2Dh
  
-         subroutine gensoln_pressure_2Dh(dpr, h1, h2, h2inv, proj_set, niprev, matvec)
+         subroutine gensoln_pressure_2Dh(dpr, h1, h2, h2inv, proj_set, niprev, matvec, t_pres_proj)
             real(dp), dimension(lx2*ly2*lz2*lelv), intent(inout) :: dpr
             real(dp), dimension(lx1*ly1*lz1*lelv), intent(in)    :: h1, h2, h2inv
             real(dp), dimension(lx2*ly2*lz2*lelv,mxprev), intent(inout) :: proj_set
             integer, intent(inout) :: niprev
             procedure(abstract_pressure_matvec) :: matvec
+            character(len=*), intent(in) :: t_pres_proj ! pass timer label
             ! internal
             integer, parameter :: ltot2 = lx2*ly2*lz2*lelv
             real(dp) :: pbar(ltot2), pnew(ltot2)
@@ -754,6 +762,8 @@
             common /orthox/ pbar, pnew
             common /orthos/ alpha, work
             integer :: ntot2, mprev, ierr
+
+            call neklab_timer_start(t_pres_proj)
  
             mprev = min(int(param(93)), mxprev)
             ntot2 = lx2*ly2*lz2*nelv
@@ -776,6 +786,9 @@
                call copy(proj_set(1,niprev), dpr, ntot2)
                call econj_pressure_2Dh(proj_set, niprev, h1, h2, h2inv, matvec, ierr)
             end if
+
+            call neklab_timer_stop(t_pres_proj)
+
          end subroutine gensoln_pressure_2Dh
  
          subroutine econj_pressure_2Dh(proj_set, nprev, h1, h2, h2inv, matvec, ierr)

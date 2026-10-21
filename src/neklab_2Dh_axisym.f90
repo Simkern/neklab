@@ -13,7 +13,7 @@
      &                            t_axisym_adv_uz, t_axisym_adv_urphi, t_axisym_adv_pressure, t_axisym_adv_correction,
      &                            t_axisym_makefp, t_axisym_solve_hmh, t_axisym_solve_cpl, t_axisym_solve_pres,
      &                            t_axisym_pres_precond, t_axisym_pres_proj, t_axisym_hmh_matvec, t_axisym_cpl_matvec,
-     &                            t_axisym_pres_matvec, t_gs_comm
+     &                            t_axisym_pres_matvec
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -169,9 +169,7 @@
                call helmholtz_matvec_2Dh_axisym(w1, vxp(1,jp), h1, h2, h2z_shift, 1)
                call sub2 (resv1, w1, ntot1)
                
-               call neklab_timer_start(t_gs_comm)
                call dssum(resv1, lx1, ly1, lz1)
-               call neklab_timer_stop(t_gs_comm)
                call col2 (resv1, v1mask, ntot1)
                hmh_info = info_str//' V_Z  '
                if (istep < 10) call chktcg1(tolhv, resv1, h1, h2, v1mask, vmult, imesh, 1)
@@ -214,18 +212,14 @@
             if (if_alpha_zero) then
                do jp = 1, npert
                   info_str = merge('Re', 'Im', jp == 1)
-                  call neklab_timer_start(t_gs_comm)
                   call dssum(resv2_jp(1,1,1,1,jp), lx1, ly1, lz1)
-                  call neklab_timer_stop(t_gs_comm)
                   call col2 (resv2_jp(1,1,1,1,jp), v2mask, ntot1)
                   hmh_info = info_str//' V_R  '
                   if (istep < 10) call chktcg1(tolhv, resv2_jp(1,1,1,1,jp), h1, h2, v2mask, vmult, imesh, 1)
                   call solve_helmholtz_2Dh_axisym(dv2, resv2_jp(1,1,1,1,jp), h1, h2, v2mask, vmult, imesh,
      &                                             tolhv, nmxv, 1, binvm1, hmh_info, diag_shift_r)
                   
-                  call neklab_timer_start(t_gs_comm)
                   call dssum(resv3_jp(1,1,1,1,jp), lx1, ly1, lz1)
-                  call neklab_timer_stop(t_gs_comm)
                   call col2 (resv3_jp(1,1,1,1,jp), wmask, ntot1)
                   hmh_info = info_str//' V_PHI'
                   if (istep < 10) call chktcg1(tolhv, resv3_jp(1,1,1,1,jp), h1, h2, wmask, vmult, imesh, 1)
@@ -476,9 +470,7 @@
             end if
             
             call col2 (dw, wmask, ntot1)
-            call neklab_timer_start(t_gs_comm)
             call dssum(dw, lx1, ly1, lz1)
-            call neklab_timer_stop(t_gs_comm)
             call col2 (dw, binvm1, ntot1)
             call col2 (dw, h2inv, ntot1)
          end subroutine compute_dw_axisym
@@ -707,9 +699,7 @@
                call col2 (wdivm1, bm1, ntot1)
                call col2 (wdivm1, alphaR, ntot1)          ! alpha/R
                call col2 (wdivm1, wmask, ntot1)
-               call neklab_timer_start(t_gs_comm)
                call dssum(wdivm1, lx1, ly1, lz1)
-               call neklab_timer_stop(t_gs_comm)
                call col2 (wdivm1, binvm1, ntot1)
                call col2 (wdivm1, h2inv, ntot1)
                call col2 (wdivm1, alphaR, ntot1)          ! alpha/R
@@ -730,9 +720,7 @@
                call col2 (wl1, bm1, ntot1)
                call dphi_apply_t(wdivm1, wl1)
                call col2 (wdivm1, wmask, ntot1)
-               call neklab_timer_start(t_gs_comm)
                call dssum(wdivm1, lx1, ly1, lz1)
-               call neklab_timer_stop(t_gs_comm)
                call col2 (wdivm1, binvm1, ntot1)
                call col2 (wdivm1, h2inv, ntot1)
                call dphi_apply(wl1, wdivm1)
@@ -789,9 +777,7 @@
             end if
             
             call col2 (wm1, wmask, ntot1)
-            call neklab_timer_start(t_gs_comm)
             call dssum(wm1, lx1, ly1, lz1)
-            call neklab_timer_stop(t_gs_comm)
             call col2 (wm1, binvm1, ntot1)
             call col2 (wm1, h2inv, ntot1)
             
@@ -948,10 +934,8 @@
             call setprec(d(1),   h1,h2,imsh,1)
             call setprec(d(n+1), h1,h2,imsh,1)
             
-            call neklab_timer_start(t_gs_comm)
             call dssum(f1, lx1, ly1, lz1)
             call dssum(f2, lx1, ly1, lz1)
-            call neklab_timer_stop(t_gs_comm)
             call copy(r(1),   f1, n);  call col2(r(1),   mask, n)
             call copy(r(n+1), f2, n);  call col2(r(n+1), mask, n)
             
@@ -981,9 +965,7 @@
                else
                   scalar(2) = vlsc32(r(1),mult,binv,n) + vlsc32(r(n+1),mult,binv,n)
                endif
-               call neklab_timer_start(t_gs_comm)
                call gop(scalar,w,'+  ',2)
-               call neklab_timer_stop(t_gs_comm)
                rtz1 = scalar(1)
                rbn2 = sqrt(scalar(2)/(2.0*vol))
                if (iter.eq.1) rbn0 = rbn2
@@ -1008,10 +990,8 @@
                call copy(p1a, p(1),   n)
                call copy(p2a, p(n+1), n)
                call coupled_helmholtz_matvec_2Dh_axisym(w1a, w2a, p1a, p2a, h1, h2, shift1, shift2, couple_coef, csign)
-               call neklab_timer_start(t_gs_comm)
                call dssum(w1a, lx1, ly1, lz1); call col2(w1a, mask, n)
                call dssum(w2a, lx1, ly1, lz1); call col2(w2a, mask, n)
-               call neklab_timer_stop(t_gs_comm)
                call copy(w(1),   w1a, n)
                call copy(w(n+1), w2a, n)
                
@@ -1108,9 +1088,7 @@
                else
                   scalar(2)=vlsc32(r,mult,binv,n)
                endif
-               call neklab_timer_start(t_gs_comm)
                call gop(scalar,w,'+  ',2)
-               call neklab_timer_stop(t_gs_comm)
                rtz1=scalar(1)
                rbn2=sqrt(scalar(2)/vol)
                if (iter.eq.1) rbn0 = rbn2
@@ -1132,9 +1110,7 @@
                if (iter.eq.1) beta=0.0
                call add2s1 (p,z,beta,n)
                call helmholtz_matvec_2Dh_axisym(w,p,h1,h2,shift,isd)
-               call neklab_timer_start(t_gs_comm)
                call dssum  (w,lx1,ly1,lz1)
-               call neklab_timer_stop(t_gs_comm)
                call col2   (w,mask,n)
                
                rho0 = rho

@@ -11,7 +11,7 @@
          use stdlib_optval, only: optval
          use LightKrylov, only: dp
          use neklab_nek_setup, only: nek_log_message, nek_log_warning, nek_stop_error
-         use neklab_timing, only: neklab_timer_start, neklab_timer_stop, t_planar_pres_proj
+         use neklab_timing, only: neklab_timer_start, neklab_timer_stop
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -713,11 +713,15 @@
             call rzero(pbar, ntot2)
 
             ! Initial residual.
-            if (niprev == 0) return
+            if (niprev == 0) then
+               call neklab_timer_stop(t_pres_proj)
+               return
+            end if
             alpha1 = glsc3(dpr, dpr, bm2inv, ntot2)
             if (alpha1 > 0) then
                alpha1 = sqrt(alpha1/volvm2)
             else
+               call neklab_timer_stop(t_pres_proj)
                return
             end if
 
@@ -766,25 +770,24 @@
             call neklab_timer_start(t_pres_proj)
  
             mprev = min(int(param(93)), mxprev)
-            ntot2 = lx2*ly2*lz2*nelv
-
-            ! reconstruct the solution
-            call add2(dpr, pbar, ntot2)                                           
+            ntot2 = lx2*ly2*lz2*nelv                                                       
 
             ! add new vector to proj_set and E-conjugate it wrt. the previous vectors
             if (niprev < mprev) then
                niprev = niprev + 1
-               call copy(proj_set(1,niprev), dpr, ntot2)                              
-               call econj_pressure_2Dh(proj_set, niprev, h1, h2, h2inv, matvec, ierr)
-               if (ierr == 1) then ! restart the projection with only the last vector
+               call copy(proj_set(1,niprev), dpr, ntot2)                                  ! add to proj_set
+               call add2(dpr, pbar, ntot2)                                                ! reconstruct solution
+               call econj_pressure_2Dh(proj_set, niprev, h1, h2, h2inv, matvec, ierr)     ! E-conjugate new vector
+               if (ierr == 1) then
                   niprev = 1
-                  call copy(proj_set(1,niprev), dpr, ntot2)
-                  call econj_pressure_2Dh(proj_set, niprev, h1, h2, h2inv, matvec, ierr)
+                  call copy(proj_set(1,niprev), dpr, ntot2)                               ! restart proj_set
+                  call econj_pressure_2Dh(proj_set, niprev, h1, h2, h2inv, matvec, ierr)  ! E-conjugate new vector
                end if
-            else                   ! restart the projection with only the last vector
+            else
                niprev = 1
-               call copy(proj_set(1,niprev), dpr, ntot2)
-               call econj_pressure_2Dh(proj_set, niprev, h1, h2, h2inv, matvec, ierr)
+               call add2(dpr, pbar, ntot2)                                                ! reconstruct solution
+               call copy(proj_set(1,niprev), dpr, ntot2)                                  ! restart proj_set
+               call econj_pressure_2Dh(proj_set, niprev, h1, h2, h2inv, matvec, ierr)     ! E-conjugate new vector
             end if
 
             call neklab_timer_stop(t_pres_proj)

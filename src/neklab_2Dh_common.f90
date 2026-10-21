@@ -11,7 +11,7 @@
          use stdlib_optval, only: optval
          use LightKrylov, only: dp
          use neklab_nek_setup, only: nek_log_message, nek_log_warning, nek_stop_error
-         use neklab_timing, only: neklab_timer_start, neklab_timer_stop, t_gs_comm
+         use neklab_timing, only: neklab_timer_start, neklab_timer_stop
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -367,6 +367,7 @@
             real(dp), external :: glamax, glsc3, vlsc3, vlsc32
 
             call neklab_timer_start(t_solve)
+            ! Initialization
             call rzero(diagt, maxcg)
             call rzero(upper, maxcg)
             rho  = 0.0_dp
@@ -377,6 +378,7 @@
             if (imsh == 2) vol = voltm1
             n = nel*nxyz
 
+            ! Set tolerances
             tol = abs(tin)
             if (restol(ifield) /= 0) tol = abs(restol(ifield))
             if (tin < 0) tol = abs(tin)
@@ -386,9 +388,14 @@
                call setfast(h1, h2, imsh)
                ifsolv = .true.
             end if
-            call setprec(d, h1, h2, imsh, isd)        ! d = 1/diag(H_nek), assembled
-            if (present(shift_s) .or. present(shift_f)) call add_shift_to_jacobi(d, n, shift_s, shift_f)
 
+            ! Setup the Jacobi preconditioner: d = 1/diag(H_nek), assembled
+            call setprec(d, h1, h2, imsh, isd)
+            if (present(shift_s) .or. present(shift_f)) then
+               call add_shift_to_jacobi(d, n, shift_s, shift_f)
+            end if
+
+            ! Check for trivial solution
             call copy (r, f, n)
             call rzero(x, n)
             call rzero(p, n)
@@ -402,7 +409,10 @@
             rtz1    = 1.0_dp
             niterhm = 0
             do iter = 1, niter
-               call col3(z, r, d, n)
+
+               ! apply the Jacobi preconditioner
+               call col3(z, r, d, n)                              ! z = D^-1 r
+
                rtz2 = rtz1
                scalar(1) = vlsc3(z, r, mult, n)
                if (param(18) == 1) then
@@ -410,12 +420,10 @@
                else
                   scalar(2) = vlsc32(r, mult, binv, n)
                end if
-               call neklab_timer_start(t_gs_comm)
                call gop(scalar, w, '+  ', 2)
-               call neklab_timer_stop(t_gs_comm)
                rtz1 = scalar(1)
-               rbn2 = sqrt(scalar(2)/vol)
-               if (iter == 1) rbn0 = rbn2
+               rbn2 = sqrt(scalar(2)/vol)                         ! residual norm
+               if (iter == 1) rbn0 = rbn2                         ! record initial residual norm
                if (param(22) < 0) tol = abs(param(22))*rbn0
                if (tin < 0)       tol = abs(tin)*rbn0
 
@@ -430,22 +438,28 @@
                   goto 9999
                end if
 
+               ! Lanczos iteration
                beta = rtz1/rtz2
                if (iter == 1) beta = 0.0_dp
-               call add2s1(p, z, beta, n)
-               call matvec(w, p, h1, h2)
-               call neklab_timer_start(t_gs_comm)
+
+               ! Update search direction
+               call add2s1(p, z, beta, n)                         ! p = z + beta*p
+
+               call matvec(w, p, h1, h2)                          ! matvec
                call dssum (w, lx1, ly1, lz1)
-               call neklab_timer_stop(t_gs_comm)
                call col2  (w, mask, n)
 
+               ! Compute step size
                rho0  = rho
                rho   = glsc3(w, p, mult, n)
                alpha = rtz1/rho
                alphm = -alpha
-               call add2s2(x, p,  alpha, n)
-               call add2s2(r, w, alphm, n)
 
+               ! Update solution and residual
+               call add2s2(x, p, alpha, n)                        ! x = x + alpha*p
+               call add2s2(r, w, alphm, n)                        ! r = r - alpha*w
+
+               ! Update the tridiagonal coefficient matrix
                if (iter == 1) then
                   krylov = krylov + 1
                   diagt(iter) = rho/rtz1
@@ -521,6 +535,8 @@
 
             call neklab_timer_start(t_solve)
             ntot2 = lx2*ly2*lz2*nelv
+
+            ! compute the lower and upper triangular factors of the preconditioner
             if (.not. iflag) then
                iflag = .true.
                call uzawa_gmres_split0(ml_gmres, mu_gmres, bm2, bm2inv, ntot2)
@@ -542,34 +558,54 @@
             call rzero(x_gmres, ntot2)
 
             do while (iconv == 0 .and. iter < maxit)
+
                if (iter == 0) then
-                  call col3(r_gmres, ml_gmres, res, ntot2)               ! r = L^-1 res
+                  ! initial residual
+                  call col3(r_gmres, ml_gmres, res, ntot2)                 ! r = L^-1 res
                else
+                  ! update residual
                   call copy(r_gmres, res, ntot2)
-                  call matvec(w_gmres, x_gmres, h1, h2, h2inv, intype)   ! w = A x
+                  call matvec(w_gmres, x_gmres, h1, h2, h2inv, intype)     ! matvec
                   call add2s2(r_gmres, w_gmres, -1.0_dp, ntot2)
-                  call col2(r_gmres, ml_gmres, ntot2)
+                  call col2(r_gmres, ml_gmres, ntot2)                      ! r = L^-1 (res - A x)
                end if
-               gamma_gmres(1) = sqrt(glsc2(r_gmres, r_gmres, ntot2))
+
+               gamma_gmres(1) = sqrt(glsc2(r_gmres, r_gmres, ntot2))       ! prec. residual norm
+
+               ! record initial residual norm for divergence check
                if (iter == 0) then
                   div0 = gamma_gmres(1)*norm_fac
                   if (param(21) < 0) tolpss = abs(param(21))*div0
                end if
+
+               ! check for lucky convergence
                rnorm = 0.0_dp
                if (gamma_gmres(1) == 0.0_dp) goto 9000
                temp = 1.0_dp/gamma_gmres(1)
-               call cmult2(v_gmres(1,1), r_gmres, temp, ntot2)
+               call cmult2(v_gmres(1,1), r_gmres, temp, ntot2)             ! v(:,1) = r / gamma(1)
+
                do j = 1, m
                   iter = iter + 1
-                  call col3(w_gmres, mu_gmres, v_gmres(1,j), ntot2)    ! w = U^-1 v
+
+                  ! apply inverse of the lower triangular factor U
+                  call col3(w_gmres, mu_gmres, v_gmres(1,j), ntot2)        ! w = U^-1 v
+
+                  ! apply hsmg preconditioner (internally assumes a singular operator)
                   etime2 = dnekclock()
                   call neklab_timer_start(t_prec)
-                  call hsmg_solve(z_gmres(1,j), w_gmres)               ! z = M^-1 w
-                  if (ebar /= 0.0_dp) call cadd(z_gmres(1,j), glsum(w_gmres,ntot2)/ebar, ntot2)
+                  call hsmg_solve(z_gmres(1,j), w_gmres)                   ! z = M^-1 w
                   call neklab_timer_stop(t_prec)
                   etime_p = etime_p + dnekclock() - etime2
-                  call matvec(w_gmres, z_gmres(1,j), h1, h2, h2inv, intype)   ! w = A z
+
+                  ! add back the mean if the operator is not singular (betaz /= 0)
+                  if (ebar /= 0.0_dp) call cadd(z_gmres(1,j), glsum(w_gmres,ntot2)/ebar, ntot2)
+
+                  call matvec(w_gmres, z_gmres(1,j), h1, h2, h2inv, intype)! matvec
+
+                  ! apply inverse of the upper triangular factor L
                   call col2(w_gmres, ml_gmres, ntot2)
+
+                  ! Gram-Schmidt orthogonalization
                   do i = 1, j
                      h_gmres(i,j) = vlsc2(w_gmres, v_gmres(1,i), ntot2)
                   end do
@@ -577,32 +613,43 @@
                   do i = 1, j
                      call add2s2(w_gmres, v_gmres(1,i), -h_gmres(i,j), ntot2)
                   end do
+
+                  ! apply Givens rotations
                   do i = 1, j-1
                      temp = h_gmres(i,j)
                      h_gmres(i  ,j) =  c_gmres(i)*temp + s_gmres(i)*h_gmres(i+1,j)
                      h_gmres(i+1,j) = -s_gmres(i)*temp + c_gmres(i)*h_gmres(i+1,j)
                   end do
-                  alpha = sqrt(glsc2(w_gmres, w_gmres, ntot2))
+
+                  alpha = sqrt(glsc2(w_gmres, w_gmres, ntot2))             ! new residual norm
                   rnorm = 0.0_dp
-                  if (alpha == 0.0_dp) goto 900
-                  l = sqrt(h_gmres(j,j)*h_gmres(j,j) + alpha*alpha)
+                  if (alpha == 0.0_dp) goto 900                            ! converged?
+
+                  ! compute new Givens rotation
+                  l = sqrt(h_gmres(j,j)*h_gmres(j,j) + alpha**2)
                   temp = 1.0_dp/l
                   c_gmres(j) = h_gmres(j,j)*temp
                   s_gmres(j) = alpha*temp
                   h_gmres(j,j) = l
                   gamma_gmres(j+1) = -s_gmres(j)*gamma_gmres(j)
                   gamma_gmres(j)   =  c_gmres(j)*gamma_gmres(j)
+
                   rnorm = abs(gamma_gmres(j+1))*norm_fac
                   ratio = rnorm/div0
                   if (ifprint .and. nio == 0) write(6,66) iter, tolpss, rnorm, div0, ratio, istep
    66             format(i5,1p4e12.5,i8,' Divergence')
-                  if (rnorm < tolpss) goto 900
-                  if (j == m) goto 1000
+
+                  if (rnorm < tolpss) goto 900                             ! converged?
+                  if (j == m) goto 1000                                    ! not converged, restart
+
                   temp = 1.0_dp/alpha
-                  call cmult2(v_gmres(1,j+1), w_gmres, temp, ntot2)
+                  call cmult2(v_gmres(1,j+1), w_gmres, temp, ntot2)        ! normalize
                end do
   900          iconv = 1
  1000          continue
+
+               ! solution update through back substitution
+               ! compute coefficients ...
                do k = j, 1, -1
                   temp = gamma_gmres(k)
                   do i = j, k+1, -1
@@ -610,6 +657,7 @@
                   end do
                   c_gmres(k) = temp/h_gmres(k,k)
                end do
+               ! ... for the linear combination of the basis vectors
                do i = 1, j
                   call add2s2(x_gmres, z_gmres(1,i), c_gmres(i), ntot2)
                end do

@@ -11,8 +11,8 @@
          use neklab_timing, only: neklab_timer_start, neklab_timer_stop, neklab_clock_tic, neklab_clock_toc,
      &                            t_axisym_advance, t_axisym_adv_setup, t_axisym_adv_advection, t_axisym_adv_rhs,
      &                            t_axisym_adv_uz, t_axisym_adv_urphi, t_axisym_adv_pressure, t_axisym_adv_correction,
-     &                            t_axisym_makefp, t_axisym_solve_hmh, t_axisym_solve_cpl, t_axisym_solve_pres,
-     &                            t_axisym_pres_precond, t_axisym_pres_proj, t_axisym_hmh_matvec, t_axisym_cpl_matvec,
+     &                            t_axisym_makefp, t_axisym_solve_helm, t_axisym_solve_cpl, t_axisym_solve_pres,
+     &                            t_axisym_pres_precond, t_axisym_pres_proj, t_axisym_helm_matvec, t_axisym_cpl_matvec,
      &                            t_axisym_pres_matvec
          implicit none
          include "SIZE"
@@ -68,7 +68,7 @@
             character(len=*), parameter :: this_procedure = 'nek_advance_2Dh_axisym'
             character(len=256) :: msg
             character(len=2) :: info_str
-            character(len=7) :: hmh_info
+            character(len=7) :: helm_info
             real(dp) :: dtbd
             logical :: ifprjp
             integer :: igeom, iter, intype, ipert
@@ -171,13 +171,13 @@
                
                call dssum(resv1, lx1, ly1, lz1)
                call col2 (resv1, v1mask, ntot1)
-               hmh_info = info_str//' V_Z  '
+               helm_info = info_str//' V_Z  '
                if (istep < 10) call chktcg1(tolhv, resv1, h1, h2, v1mask, vmult, imesh, 1)
                call neklab_timer_stop(t_axisym_adv_rhs)
                
                call neklab_timer_start(t_axisym_adv_uz)
                call solve_helmholtz_2Dh_axisym(dv1, resv1, h1, h2, v1mask, vmult, imesh,
-     &                                              tolhv, nmxv, 1, binvm1, hmh_info, h2z_shift)
+     &                                              tolhv, nmxv, 1, binvm1, helm_info, h2z_shift)
                call add2(vxp(1,jp), dv1, ntot1)
                call neklab_timer_stop(t_axisym_adv_uz)
                
@@ -214,17 +214,17 @@
                   info_str = merge('Re', 'Im', jp == 1)
                   call dssum(resv2_jp(1,1,1,1,jp), lx1, ly1, lz1)
                   call col2 (resv2_jp(1,1,1,1,jp), v2mask, ntot1)
-                  hmh_info = info_str//' V_R  '
+                  helm_info = info_str//' V_R  '
                   if (istep < 10) call chktcg1(tolhv, resv2_jp(1,1,1,1,jp), h1, h2, v2mask, vmult, imesh, 1)
                   call solve_helmholtz_2Dh_axisym(dv2, resv2_jp(1,1,1,1,jp), h1, h2, v2mask, vmult, imesh,
-     &                                             tolhv, nmxv, 1, binvm1, hmh_info, diag_shift_r)
+     &                                             tolhv, nmxv, 1, binvm1, helm_info, diag_shift_r)
                   
                   call dssum(resv3_jp(1,1,1,1,jp), lx1, ly1, lz1)
                   call col2 (resv3_jp(1,1,1,1,jp), wmask, ntot1)
-                  hmh_info = info_str//' V_PHI'
+                  helm_info = info_str//' V_PHI'
                   if (istep < 10) call chktcg1(tolhv, resv3_jp(1,1,1,1,jp), h1, h2, wmask, vmult, imesh, 1)
                   call solve_helmholtz_2Dh_axisym(dv3, resv3_jp(1,1,1,1,jp), h1, h2, wmask, vmult, imesh,
-     &                                             tolhv, nmxv, 1, binvm1, hmh_info, diag_shift)
+     &                                             tolhv, nmxv, 1, binvm1, helm_info, diag_shift)
                   
                   call add2(vyp(1,jp),  dv2, ntot1)
                   call add2(tp(1,1,jp), dv3, ntot1)
@@ -233,9 +233,9 @@
                do jp = 1, npert
                   ipert = npert + 1 - jp
                   csign_jp = merge(1.0_dp, -1.0_dp, jp == 1)
-                  hmh_info = merge('BLK A  ', 'BLK B  ', jp == 1)
+                  helm_info = merge('BLK A  ', 'BLK B  ', jp == 1)
                   call solve_coupled_helmholtz_2Dh_axisym(dv2, dv3, resv2_jp(1,1,1,1,jp), resv3_jp(1,1,1,1,ipert),
-     &                                                     h1, h2, wmask, vmult, imesh, tolhv, nmxv, binvm1, hmh_info,
+     &                                                     h1, h2, wmask, vmult, imesh, tolhv, nmxv, binvm1, helm_info,
      &                                                     diag_shift_r, diag_shift, couple_coef, csign_jp)
                   
                   call add2(vyp(1,jp),     dv2, ntot1)
@@ -380,7 +380,7 @@
             integer, intent(in) :: isd
             real, dimension(lx1,ly1,lz1,lelv) :: tmp
             integer :: imesh, ntot1
-            call neklab_timer_start(t_axisym_hmh_matvec)
+            call neklab_timer_start(t_axisym_helm_matvec)
             imesh = 1
             ntot1 = lx1*ly1*lz1*nelv
             call axhelm(Au, u, h1, h2, imesh, isd)
@@ -388,7 +388,7 @@
             call col2 (tmp, shift, ntot1)              ! field multiply, replaces beta_z**2 scalar
             call col2 (tmp, bm1, ntot1)
             call add2 (Au, tmp, ntot1)
-            call neklab_timer_stop(t_axisym_hmh_matvec)
+            call neklab_timer_stop(t_axisym_helm_matvec)
          end subroutine helmholtz_matvec_2Dh_axisym
          
          subroutine compute_gradp_axisym(gradp, prextr, alphaR)
@@ -902,7 +902,7 @@
             COMMON /CPRINT/ IFPRINT, IFHZPC
             logical ifdfrm, iffast, ifh2, ifsolv
             common /fastmd/ ifdfrm(lelt), iffast(lelt), ifh2, ifsolv
-            logical ifprint_hmh
+            logical ifprint_helm
             integer, parameter :: lg = lx1*ly1*lz1*lelt
             ! stacked scratch: [1:n] = field 1, [n+1:2n] = field 2
             real, dimension(2*lg) :: d, r, w, p, z
@@ -972,10 +972,10 @@
                if (param(22).lt.0) tol = abs(param(22))*rbn0
                if (tin.lt.0)       tol = abs(tin)*rbn0
                
-               ifprint_hmh = .false.
-               if (nio.eq.0.and.ifprint.and.param(74).ne.0) ifprint_hmh=.true.
-               if (nio.eq.0.and.istep.eq.1)                 ifprint_hmh=.true.
-               if (ifprint_hmh) write(6,3002) istep,'  CplHmh ' // name, iter, rbn2, h1(1), tol, h2(1)
+               ifprint_helm = .false.
+               if (nio.eq.0.and.ifprint.and.param(74).ne.0) ifprint_helm=.true.
+               if (nio.eq.0.and.istep.eq.1)                 ifprint_helm=.true.
+               if (ifprint_helm) write(6,3002) istep,'  CplHmh ' // name, iter, rbn2, h1(1), tol, h2(1)
                
                IF (rbn2.LE.TOL.and.(iter.gt.1 .or. istep.le.5)) THEN
                   NITER = ITER-1
@@ -1033,7 +1033,7 @@
             COMMON /CPRINT/ IFPRINT, IFHZPC
             logical ifdfrm, iffast, ifh2, ifsolv
             common /fastmd/ ifdfrm(lelt), iffast(lelt), ifh2, ifsolv
-            logical ifmcor,ifprint_hmh
+            logical ifmcor,ifprint_helm
             integer, parameter :: lg = lx1*ly1*lz1*lelt
             real, dimension(lg) :: d, r, w, p, z
             real :: scalar(2)
@@ -1046,7 +1046,7 @@
             common /iterhm/ niterhm
             real, external :: glamax, glmax, glmin, glsum, glsc2, glsc3, vlsc3, vlsc32
             
-            call neklab_timer_start(t_axisym_solve_hmh)
+            call neklab_timer_start(t_axisym_solve_helm)
             call rzero(diagt,maxcg)
             call rzero(upper,maxcg)
             rho = 0.00
@@ -1071,7 +1071,7 @@
             call rzero(p,n)
             fmax = glamax(f,n)
             if (fmax == 0.0) then
-               call neklab_timer_stop(t_axisym_solve_hmh)
+               call neklab_timer_stop(t_axisym_solve_helm)
                return
             end if
             
@@ -1095,10 +1095,10 @@
                if (param(22).lt.0) tol=abs(param(22))*rbn0
                if (tin.lt.0)       tol=abs(tin)*rbn0
                
-               ifprint_hmh = .false.
-               if (nio.eq.0.and.ifprint.and.param(74).ne.0) ifprint_hmh=.true.
-               if (nio.eq.0.and.istep.eq.1)                 ifprint_hmh=.true.
-               if (ifprint_hmh) write(6,3002) istep,'  Hmholtz ' // name,  iter,rbn2,h1(1),tol,h2(1),ifmcor
+               ifprint_helm = .false.
+               if (nio.eq.0.and.ifprint.and.param(74).ne.0) ifprint_helm=.true.
+               if (nio.eq.0.and.istep.eq.1)                 ifprint_helm=.true.
+               if (ifprint_helm) write(6,3002) istep,'  Hmholtz ' // name,  iter,rbn2,h1(1),tol,h2(1),ifmcor
                
                IF (rbn2.LE.TOL.and.(iter.gt.1 .or. istep.le.5)) THEN
                NITER = ITER-1
@@ -1137,7 +1137,7 @@
  9999       continue
             niterhm = niter
             ifsolv = .false.
-            call neklab_timer_stop(t_axisym_solve_hmh)
+            call neklab_timer_stop(t_axisym_solve_helm)
          end subroutine solve_helmholtz_2Dh_axisym
          
          subroutine solve_pressure_2Dh_axisym(res,h1,h2,h2inv,alphaR,alpha,intype,iter,ebar,info_str)

@@ -313,7 +313,7 @@
                if (axisym_) then
                   call nek_advance_2Dh_axisym(alpha)
                else
-                  call nek_advance_2Dh(alpha)
+                  call nek_advance_2Dh_planar(alpha)
                end if
                dtk = dt
                call pack_pert(w, nbf, nblk)

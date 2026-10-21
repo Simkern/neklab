@@ -92,6 +92,12 @@
       !--------------------------------------------------------------
       !     TIMER NAMES
       !--------------------------------------------------------------
+
+      ! --- group: common 2Dh solvers
+         character(len=*), parameter, public :: t_helm_solve = 'solve_helmholtz_2dh'
+         character(len=*), parameter, public :: t_pres_solve = 'solve_pressure_2dh'
+         character(len=*), parameter, public :: t_pres_prec = 'solve_pressure_2dh@prec'
+         character(len=*), parameter, public :: t_pres_proj = 'pressure_projection_2dh'
       
       ! --- group: planar 2Dh (beta_z) timestepper, module neklab_2Dh.
          character(len=*), parameter, public :: t_planar_advance = 'nek_advance_2dh'
@@ -104,15 +110,8 @@
          character(len=*), parameter, public :: t_planar_makefp = 'makefp_w_2dh'
          character(len=*), parameter, public :: t_planar_makeqp = 'makeqp_w_2dh'
       
-      ! --- group: planar 2Dh solvers
-         character(len=*), parameter, public :: t_planar_solve_hmh = 'solve_helmholtz_2dh'
-         character(len=*), parameter, public :: t_planar_solve_pres = 'solve_pressure_2dh'
-         character(len=*), parameter, public :: t_planar_pres_precond = 'solve_pressure_2dh@precond'
-         character(len=*), parameter, public :: t_planar_pres_proj = 'pressure_projection_2dh'
-      !! setrhs_ + gensoln_ + econj_, as for the axisym group.
-      
       ! --- group: planar 2Dh kernels (inclusive drill-down, overlaps the above)
-         character(len=*), parameter, public :: t_planar_hmh_matvec = 'helmholtz_matvec_2dh'
+         character(len=*), parameter, public :: t_planar_helm_matvec = 'helmholtz_matvec_2dh'
          character(len=*), parameter, public :: t_planar_pres_matvec = 'pressure_matvec_2dh'
       
       ! --- group: 2Dh timestepper, module neklab_2Dh_axisym.
@@ -129,16 +128,15 @@
       !! Nek's own nonlinear step, timed at the call site because it is F77.
       
       ! --- group: 2Dh solvers
-         character(len=*), parameter, public :: t_axisym_solve_hmh = 'solve_helmholtz_2dh_axisym'
+         character(len=*), parameter, public :: t_axisym_solve_helm = 'solve_helmholtz_2dh_axisym'
          character(len=*), parameter, public :: t_axisym_solve_cpl = 'solve_coupled_helmholtz_2dh_axisym'
          character(len=*), parameter, public :: t_axisym_solve_pres = 'solve_pressure_2dh_axisym'
          character(len=*), parameter, public :: t_axisym_pres_precond = 'solve_pressure_2dh_axisym@precond'
          character(len=*), parameter, public :: t_axisym_pres_proj = 'pressure_projection_2dh_axisym'
-      !! setrhs_ + gensoln_ + econj_, i.e. the whole mxprev projection.
       
       ! --- group: 2Dh kernels. Inclusive, and by design overlapping the two
       !     groups above: these are the drill-down, not part of any partition.
-         character(len=*), parameter, public :: t_axisym_hmh_matvec = 'helmholtz_matvec_2dh_axisym'
+         character(len=*), parameter, public :: t_axisym_helm_matvec = 'helmholtz_matvec_2dh_axisym'
          character(len=*), parameter, public :: t_axisym_cpl_matvec = 'coupled_helmholtz_matvec_2dh_axisym'
          character(len=*), parameter, public :: t_axisym_pres_matvec = 'pressure_matvec_2dh_axisym'
 
@@ -184,17 +182,18 @@
       ! here MUST be idle whenever neklab_timer_dump is called.
          character(len=lname), parameter, private :: csv_names(ncsv) =
      &      [character(len=lname) ::
+     & ! common
+     &       t_helm_solve, t_pres_solve, t_pres_proj, t_pres_prec,
      & ! planar
      &       t_planar_advance, t_planar_adv_setup, t_planar_adv_advection, t_planar_adv_rhs,
      &       t_planar_adv_velocity, t_planar_adv_pressure, t_planar_adv_correction,
-     &       t_planar_makefp, t_planar_makeqp, t_planar_solve_hmh, t_planar_solve_pres,
-     &       t_planar_pres_precond, t_planar_pres_proj, t_planar_hmh_matvec, t_planar_pres_matvec,
+     &       t_planar_makefp, t_planar_makeqp, t_planar_helm_matvec, t_planar_pres_matvec,
      & ! axisym
      &       t_axisym_advance, t_axisym_adv_setup, t_axisym_adv_advection, t_axisym_adv_rhs,
      &       t_axisym_adv_uz, t_axisym_adv_urphi, t_axisym_adv_pressure, t_axisym_adv_correction,
-     &       t_axisym_makefp, t_axisym_nl_step, t_axisym_solve_hmh, t_axisym_solve_cpl,
-     &       t_axisym_solve_pres, t_axisym_pres_precond, t_axisym_pres_proj, t_axisym_hmh_matvec,
-     &       t_axisym_cpl_matvec, t_axisym_pres_matvec,
+     &       t_axisym_makefp, t_axisym_nl_step, t_axisym_solve_helm, t_axisym_solve_cpl,
+     &       t_axisym_solve_pres, t_axisym_pres_precond, t_axisym_pres_proj, 
+     &       t_axisym_helm_matvec, t_axisym_cpl_matvec, t_axisym_pres_matvec,
      & ! baseflow + mflow
      &       t_bf_push, t_bf_set, t_bf_window, t_bf_write, t_bf_read,
      &       t_close_mflow]
@@ -291,6 +290,13 @@
             integer :: istart, iend
          
             call self%set_watch_name('neklab_timer')
+
+      ! ----common 2Dh solvers
+            call self%add_timer(t_helm_solve, count=istart)
+            call self%add_timer(t_pres_solve)
+            call self%add_timer(t_pres_prec)
+            call self%add_timer(t_pres_proj, count=iend)
+            call self%add_group('2Dh_common_solvers', istart=istart, iend=iend)
       
       ! --- planar 2Dh timestepper
             call self%add_timer(t_planar_advance, count=istart)
@@ -304,17 +310,10 @@
             call self%add_timer(t_planar_makeqp, count=iend)
             call self%add_group('2Dh_planar_timestepper', istart=istart, iend=iend)
       
-      ! --- planar 2Dh solvers
-            call self%add_timer(t_planar_solve_hmh, count=istart)
-            call self%add_timer(t_planar_solve_pres)
-            call self%add_timer(t_planar_pres_precond)
-            call self%add_timer(t_planar_pres_proj, count=iend)
-            call self%add_group('2Dh_planar_solvers', istart=istart, iend=iend)
-      
-      ! --- planar 2Dh kernels
-            call self%add_timer(t_planar_hmh_matvec, count=istart)
+      ! --- planar 2Dh matvecs
+            call self%add_timer(t_planar_helm_matvec, count=istart)
             call self%add_timer(t_planar_pres_matvec, count=iend)
-            call self%add_group('2Dh_planar_kernels', istart=istart, iend=iend)
+            call self%add_group('2Dh_planar_matvecs', istart=istart, iend=iend)
       
       ! --- axisym 2Dh timestepper
             call self%add_timer(t_axisym_advance, count=istart)
@@ -330,18 +329,18 @@
             call self%add_group('2Dh_axisym_timestepper', istart=istart, iend=iend)
       
       ! --- axisym 2Dh solvers
-            call self%add_timer(t_axisym_solve_hmh, count=istart)
+            call self%add_timer(t_axisym_solve_helm, count=istart)
             call self%add_timer(t_axisym_solve_cpl)
             call self%add_timer(t_axisym_solve_pres)
             call self%add_timer(t_axisym_pres_precond)
             call self%add_timer(t_axisym_pres_proj, count=iend)
             call self%add_group('2Dh_axisym_solvers', istart=istart, iend=iend)
       
-      ! --- axisym 2Dh kernels
-            call self%add_timer(t_axisym_hmh_matvec, count=istart)
+      ! --- axisym 2Dh matvecs
+            call self%add_timer(t_axisym_helm_matvec, count=istart)
             call self%add_timer(t_axisym_cpl_matvec)
             call self%add_timer(t_axisym_pres_matvec, count=iend)
-            call self%add_group('2Dh_axisym_kernels', istart=istart, iend=iend)
+            call self%add_group('2Dh_axisym_matvecs', istart=istart, iend=iend)
       
       ! --- drivers
             call self%add_timer(t_fp_solve, count=istart)

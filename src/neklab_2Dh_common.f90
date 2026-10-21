@@ -11,7 +11,8 @@
          use stdlib_optval, only: optval
          use LightKrylov, only: dp
          use neklab_nek_setup, only: nek_log_message, nek_log_warning, nek_stop_error
-         use neklab_timing, only: neklab_timer_start, neklab_timer_stop
+         use neklab_timing, only: neklab_timer_start, neklab_timer_stop,
+     &                            t_helm_solve, t_pres_solve, t_pres_prec, t_pres_proj
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -297,7 +298,7 @@
          
          subroutine bm2_map12_2Dh(y_m2, x_m1, const_fld)
             ! y_m2 = [const_fld *] bm2 * I12 @ x_m1
-            ! element local operation
+            ! apply to all elements
             real(dp), dimension(lx2*ly2*lz2,lelv), intent(out) :: y_m2
             real(dp), dimension(lx1*ly1*lz1,lelv), intent(in)  :: x_m1
             real(dp), dimension(lx2*ly2*lz2,lelv), intent(in), optional :: const_fld
@@ -312,7 +313,7 @@
          
          subroutine bm2_map12T_2Dh(y_m1, x_m2, const_fld)
             ! y_m1 = I12^T @ ( [const_fld *] bm2 * x_m2 )
-            ! element local operation
+            ! apply to all elements
             real(dp), dimension(lx1*ly1*lz1,lelv), intent(out) :: y_m1
             real(dp), dimension(lx2*ly2*lz2,lelv), intent(in)  :: x_m2
             real(dp), dimension(lx2*ly2*lz2,lelv), intent(in), optional :: const_fld
@@ -333,7 +334,7 @@
       !  Essentially a copy of the helmholtz solver in navier1.f, but with the abstract matvec as input.
       ! -------------------------------------------------------------------
          subroutine solve_helmholtz_2Dh(x, f, h1, h2, mask, mult, imsh, tin, maxit, isd,
-     &                                  binv, name, matvec, t_solve, shift_s, shift_f)
+     &                                  binv, name, matvec, shift_s, shift_f)
             include 'FDMH1'
             real(dp), dimension(lx1*ly1*lz1*lelv), intent(out) :: x
             real(dp), dimension(lx1*ly1*lz1*lelv), intent(in)  :: f, h1, h2, mask, mult, binv
@@ -341,7 +342,6 @@
             real(dp), intent(in) :: tin
             character(len=7), intent(in) :: name
             procedure(abstract_helmholtz_matvec) :: matvec
-            character(len=*), intent(in) :: t_solve
             real(dp), intent(in), optional :: shift_s
             real(dp), dimension(lx1*ly1*lz1*lelv), intent(in), optional :: shift_f
             ! internal
@@ -353,7 +353,7 @@
             common  /cprint/ ifprint, ifhzpc
             logical ifdfrm, iffast, ifh2, ifsolv
             common /fastmd/ ifdfrm(lelt), iffast(lelt), ifh2, ifsolv
-            logical :: ifmcor, ifprint_hmh
+            logical :: ifmcor, ifprint_helm
             integer, parameter :: lg = lx1*ly1*lz1*lelt
             real(dp), dimension(lg) :: d, r, w, p, z
             real(dp) :: scalar(2)
@@ -366,7 +366,7 @@
             common /iterhm/ niterhm
             real(dp), external :: glamax, glsc3, vlsc3, vlsc32
 
-            call neklab_timer_start(t_solve)
+            call neklab_timer_start(t_helm_solve)
             ! Initialization
             call rzero(diagt, maxcg)
             call rzero(upper, maxcg)
@@ -401,7 +401,7 @@
             call rzero(p, n)
             fmax = glamax(f, n)
             if (fmax == 0.0_dp) then
-               call neklab_timer_stop(t_solve)
+               call neklab_timer_stop(t_helm_solve)
                return
             end if
 
@@ -427,10 +427,10 @@
                if (param(22) < 0) tol = abs(param(22))*rbn0
                if (tin < 0)       tol = abs(tin)*rbn0
 
-               ifprint_hmh = .false.
-               if (nio == 0 .and. ifprint .and. param(74) /= 0) ifprint_hmh = .true.
-               if (nio == 0 .and. istep == 1)                   ifprint_hmh = .true.
-               if (ifprint_hmh) write(6,3002) istep, '  Hmholtz '//name, iter, rbn2, h1(1), tol, h2(1), ifmcor
+               ifprint_helm = .false.
+               if (nio == 0 .and. ifprint .and. param(74) /= 0) ifprint_helm = .true.
+               if (nio == 0 .and. istep == 1)                   ifprint_helm = .true.
+               if (ifprint_helm) write(6,3002) istep, '  Hmholtz '//name, iter, rbn2, h1(1), tol, h2(1), ifmcor
 
                if (rbn2 <= tol .and. (iter > 1 .or. istep <= 5)) then
                   niter = iter - 1
@@ -479,14 +479,16 @@
  9999       continue
             niterhm = niter
             ifsolv  = .false.
-            call neklab_timer_stop(t_solve)
+
+            call neklab_timer_stop(t_helm_solve)
+
          end subroutine solve_helmholtz_2Dh
         
-         subroutine add_shift_to_jacobi(diag_hmh_matvec, n, shift_s, shift_f)
+         subroutine add_shift_to_jacobi(diag_helm_matvec, n, shift_s, shift_f)
             !! setprec returns 1/diag(axhelm), assembled. Add the assembled diagonal
             !! of the shift term  shift*vdiff*bm1  (a mass-like, diagonal operator)
             !! and invert again.
-            real(dp), dimension(n), intent(inout) :: diag_hmh_matvec
+            real(dp), dimension(n), intent(inout) :: diag_helm_matvec
             integer, intent(in) :: n
             real(dp), intent(in), optional :: shift_s
             real(dp), dimension(n), intent(in), optional :: shift_f
@@ -496,9 +498,9 @@
             if (present(shift_f)) call col2 (wrk, shift_f, n)
             if (present(shift_s)) call cmult(wrk, shift_s, n)
             call dssum  (wrk, lx1, ly1, lz1)
-            call invcol1(diag_hmh_matvec, n)
-            call add2   (diag_hmh_matvec, wrk, n)
-            call invcol1(diag_hmh_matvec, n)
+            call invcol1(diag_helm_matvec, n)
+            call add2   (diag_helm_matvec, wrk, n)
+            call invcol1(diag_helm_matvec, n)
          end subroutine add_shift_to_jacobi
         
       ! -------------------------------------------------------------------
@@ -506,8 +508,7 @@
       !      if_ortho : project out the nullspace if the operator is singular (wavenumber = 0 only)
       ! -------------------------------------------------------------------
          subroutine solve_pressure_2Dh(res, h1, h2, h2inv, matvec, intype, iter, ebar,
-     &                                 if_ortho, maxit, label, wavenumber, info_str,
-     &                                 t_solve, t_prec)
+     &                                 if_ortho, maxit, label, wavenumber, info_str)
             include 'GMRES'
             real(dp), dimension(lx2*ly2*lz2*lelv), intent(inout) :: res
             real(dp), dimension(lx1*ly1*lz1*lelv), intent(in)    :: h1, h2, h2inv
@@ -517,7 +518,6 @@
             real(dp), intent(in) :: ebar, wavenumber
             logical, intent(in)  :: if_ortho
             character(len=*), intent(in) :: label, info_str
-            character(len=*), intent(in) :: t_solve, t_prec ! pass timer labels 
             ! internal
             character(len=*), parameter :: this_procedure = 'solve_pressure_2Dh'
             real(dp) :: divex
@@ -534,7 +534,7 @@
             real(dp), external :: vlsc2, glsc2, glsum
             character(len=128) :: msg
 
-            call neklab_timer_start(t_solve)
+            call neklab_timer_start(t_pres_solve)
             ntot2 = lx2*ly2*lz2*nelv
 
             ! compute the lower and upper triangular factors of the preconditioner
@@ -593,9 +593,9 @@
 
                   ! apply hsmg preconditioner (internally assumes a singular operator)
                   etime2 = dnekclock()
-                  call neklab_timer_start(t_prec)
+                  call neklab_timer_start(t_pres_prec)
                   call hsmg_solve(z_gmres(1,j), w_gmres)                   ! z = M^-1 w
-                  call neklab_timer_stop(t_prec)
+                  call neklab_timer_stop(t_pres_prec)
                   etime_p = etime_p + dnekclock() - etime2
 
                   ! add back the mean if the operator is not singular (betaz /= 0)
@@ -680,7 +680,9 @@
             if (nio == 0) write(6,9998) istep, '  U-PRES gmres  '//label//' = ', wavenumber,
      &         info_str, iter, divex, div0, tolpss, etime_p, etime1
  9998       format(i11,a,F5.1,1X,A,1X,I6,1p5e13.4)
-            call neklab_timer_stop(t_solve)
+
+            call neklab_timer_stop(t_pres_solve)
+
          end subroutine solve_pressure_2Dh
 
       !-------------------------------------------------------------------------------
@@ -689,13 +691,12 @@
       !-------------------------------------------------------------------------------
       !  Essentially a copy of setrhs_/gensoln_/econj
       !-------------------------------------------------------------------------------
-         subroutine setrhs_pressure_2Dh(dpr, h1, h2, h2inv, proj_set, niprev, matvec, t_pres_proj, info_str)
+         subroutine setrhs_pressure_2Dh(dpr, h1, h2, h2inv, proj_set, niprev, matvec, info_str)
             real(dp), dimension(lx2*ly2*lz2*lelv), intent(inout) :: dpr
             real(dp), dimension(lx1*ly1*lz1*lelv), intent(in)    :: h1, h2, h2inv
             real(dp), dimension(lx2*ly2*lz2*lelv,mxprev), intent(inout) :: proj_set
             integer, intent(inout) :: niprev
             procedure(abstract_pressure_matvec) :: matvec
-            character(len=*), intent(in) :: t_pres_proj ! pass timer label
             character(len=2), intent(in) :: info_str
             ! internal
             integer, parameter :: ltot2 = lx2*ly2*lz2*lelv
@@ -752,13 +753,12 @@
 
          end subroutine setrhs_pressure_2Dh
  
-         subroutine gensoln_pressure_2Dh(dpr, h1, h2, h2inv, proj_set, niprev, matvec, t_pres_proj)
+         subroutine gensoln_pressure_2Dh(dpr, h1, h2, h2inv, proj_set, niprev, matvec)
             real(dp), dimension(lx2*ly2*lz2*lelv), intent(inout) :: dpr
             real(dp), dimension(lx1*ly1*lz1*lelv), intent(in)    :: h1, h2, h2inv
             real(dp), dimension(lx2*ly2*lz2*lelv,mxprev), intent(inout) :: proj_set
             integer, intent(inout) :: niprev
             procedure(abstract_pressure_matvec) :: matvec
-            character(len=*), intent(in) :: t_pres_proj ! pass timer label
             ! internal
             integer, parameter :: ltot2 = lx2*ly2*lz2*lelv
             real(dp) :: pbar(ltot2), pnew(ltot2)

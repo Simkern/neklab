@@ -12,8 +12,7 @@
      &                            t_planar_advance, t_planar_adv_setup, t_planar_adv_advection,
      &                            t_planar_adv_rhs, t_planar_adv_velocity, t_planar_adv_pressure,
      &                            t_planar_adv_correction, t_planar_makefp, t_planar_makeqp,
-     &                            t_planar_solve_hmh, t_planar_solve_pres, t_planar_pres_precond,
-     &                            t_planar_pres_proj, t_planar_hmh_matvec, t_planar_pres_matvec
+     &                            t_planar_helm_matvec, t_planar_pres_matvec
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -74,7 +73,7 @@
             character(len=*), parameter :: fmt = '(A,I6)'
             character(len=256) :: msg
             character(len=2) :: info_str
-            character(len=7) :: hmh_info
+            character(len=7) :: helm_info
             real(dp) :: dtbd
             logical :: ifprjp, if_ortho
             integer :: igeom, iter, intype, kfldfdm
@@ -178,27 +177,24 @@
                
                call dssum  (resv1,lx1,ly1,lz1)
                call col2   (resv1,v1mask,ntot1)
-               hmh_info = info_str//' VELX'
+               helm_info = info_str//' VELX'
                if (istep < 10) call chktcg1 (tolhv,resv1,h1,h2,v1mask,vmult,imesh,1)
                call solve_helmholtz_2Dh(dv1,resv1,h1,h2,v1mask,vmult,imesh,
-     &                                  tolhv,nmxv,1,binvm1,hmh_info,
-     &                                  hmh_matvec_planar,t_planar_solve_hmh)
+     &                                  tolhv,nmxv,1,binvm1,helm_info,helm_matvec_planar)
                
                call dssum  (resv2,lx1,ly1,lz1)
                call col2   (resv2,v2mask,ntot1)
-               hmh_info = info_str//' VELY'
+               helm_info = info_str//' VELY'
                if (istep < 10) call chktcg1 (tolhv,resv2,h1,h2,v2mask,vmult,imesh,2)
                call solve_helmholtz_2Dh(dv2,resv2,h1,h2,v2mask,vmult,imesh,
-     &                                  tolhv,nmxv,2,binvm1,hmh_info,
-     &                                  hmh_matvec_planar,t_planar_solve_hmh)
+     &                                  tolhv,nmxv,2,binvm1,helm_info,helm_matvec_planar)
                
                call dssum  (resv3,lx1,ly1,lz1)
                call col2   (resv3,wmask,ntot1)
-               hmh_info = info_str//' VELZ'
+               helm_info = info_str//' VELZ'
                if (istep < 10) call chktcg1 (tolhv,resv3,h1,h2, wmask,vmult,imesh,3)
                call solve_helmholtz_2Dh(dv3,resv3,h1,h2,wmask,vmult,imesh,
-     &                                  tolhv,nmxv,3,binvm1,hmh_info,
-     &                                  hmh_matvec_planar,t_planar_solve_hmh)
+     &                                  tolhv,nmxv,3,binvm1,helm_info,helm_matvec_planar)
                
                call opadd2 (vxp(1,jp),vyp(1,jp),vzp(1,jp),dv1,dv2,dv3)
                call add2   (tp(1,1,jp),dv3,ntot1)
@@ -250,14 +246,13 @@
                
                if (ifprjp) then
                   call  setrhs_pressure_2Dh(dpr(1,jp), h1, h2, h2inv, pbasis(1,1,jp), nprev(jp),
-     &                                      pres_matvec_planar, t_planar_pres_proj, info_str)
+     &                                      pres_matvec_planar, info_str)
                end if
                call      solve_pressure_2Dh(dpr(1,jp), h1, h2, h2inv, pres_matvec_planar, intype, iter,
-     &                                      ebar, if_ortho, maxit_p, 'beta', betaz, info_str,
-     &                                      t_planar_solve_pres, t_planar_pres_precond)
+     &                                      ebar, if_ortho, maxit_p, 'beta', betaz, info_str)
                if (ifprjp) then
                   call gensoln_pressure_2Dh(dpr(1,jp), h1, h2, h2inv, pbasis(1,1,jp), nprev(jp),
-     &                                      pres_matvec_planar, t_planar_pres_proj)
+     &                                      pres_matvec_planar)
                end if
             end do ! jp
             
@@ -303,21 +298,16 @@
             real, intent(in) :: betaz
             ! internal
             integer :: ipert, spert, ntot1
-            real, dimension(lx1*ly1*lz1) :: wrk1, wrk2
             
             ipert = npert + 1 - jp
             spert = merge(1, -1, jp == 1)  ! +1 for jp = 1, -1 for jp = 2
             ntot1 = lx1*ly1*lz1*nelv
-            call rzero  (dw, ntot1)
-            call mappr  (dw, dpr(1,ipert), wrk1, wrk2)   ! map to vmesh
-            call cmult  (dw, -spert*betaz, ntot1)       ! collate coupling
-            !
-            call col2   (dw, bm1, ntot1)                 ! collate mass matrix
-            call col2   (dw, wmask, ntot1)               ! mask Dirichlet conditions
-            call dssum  (dw, lx1, ly1, lz1)              ! make continuous
-            call col2   (dw, binvm1, ntot1)              ! collate inverse mass matrix
-            !
-            call col2   (dw, h2inv, ntot1)               ! collate inverse h2
+            call bm2_map12t_2Dh(dw, dpr(1,ipert))            ! I12^T (bm2 dp)
+            call cmult         (dw, -spert*betaz, ntot1)     ! collate coupling coefficient
+            call col2          (dw, wmask, ntot1)            ! mask Dirichlet conditions
+            call dssum         (dw, lx1, ly1, lz1)           ! make continuous
+            call col2          (dw, binvm1, ntot1)           ! collate inverse mass matrix
+            call col2          (dw, h2inv, ntot1)            ! collate inverse h2
          end
       
          subroutine compute_frc_div(frc_div, w, betaz)
@@ -329,18 +319,13 @@
             real, dimension(lx1*ly1*lz1*lelv,ldimt,lpert), intent(in) :: w
             real, intent(in) :: betaz
             ! internal
-            integer :: ipert, spert, ie, ie1, nxyz1, ntot2
+            integer :: ipert, spert, ntot2
             
             ipert = npert + 1 - jp
             spert = merge(1, -1, jp == 1)  ! +1 for jp = 1, -1 for jp = 2
-            nxyz1 = lx1*ly1*lz1
             ntot2 = lx2*ly2*lz2*nelv
-            call rzero(frc_div, ntot2)
-            do ie = 1, nelv
-               ie1 = (ie-1)*nxyz1+1
-               call map12 (frc_div(1,1,1,ie), w(ie1,1,ipert), ie) ! map to pmesh
-            end do
-            call col2c(frc_div, bm2, spert*betaz, ntot2) ! this is to be consistent with opdiv output
+            call bm2_map12_2Dh(frc_div, w(1,1,ipert))       ! bm2 * I12 w
+            call cmult        (frc_div, spert*betaz, ntot2) ! this is to be consistent with opdiv output
          end
       
          subroutine compute_gradz_p(gradz_p, prextr, betaz)
@@ -353,14 +338,12 @@
             real, intent(in) :: betaz
             ! internal
             integer :: ipert, spert, ntot1
-            real, dimension(lx1*ly1*lz1) :: wrk1, wrk2
             
             ipert = npert + 1 - jp
             spert = merge(1, -1, jp == 1)  ! +1 for jp = 1, -1 for jp = 2
             ntot1 = lx1*ly1*lz1*nelv
-            call rzero(gradz_p(1,ipert), ntot1)
-            call mappr(gradz_p(1,ipert), prextr, wrk1, wrk2)  ! map to vmesh
-            call col2c(gradz_p(1,ipert), bm1, spert*betaz, ntot1)
+            call bm2_map12t_2Dh(gradz_p(1,ipert), prextr)             ! I12^T (bm2 p)
+            call cmult         (gradz_p(1,ipert), spert*betaz, ntot1)
             ! dssum will be called on the vel residual later
          end
       
@@ -471,9 +454,7 @@
             real, intent(in) :: betaz
             integer, intent(in) :: intype
             ! internal
-            real, dimension(lx1*ly1*lz1) :: wrk1, wrk2
-            
-            integer :: ie, ntot1, ntot2
+            integer :: ntot1, ntot2
             
             call neklab_timer_start(t_planar_pres_matvec)
             ! Regular Ax = D (h2*B)^(-1) D^T
@@ -486,20 +467,14 @@
             ! Note: we are only considering the ifanls = .false. case
             ntot1 = lx1*ly1*lz1*nelv
             ntot2 = lx2*ly2*lz2*nelv
-            call mappr  (pmv_tmp1, wp, wrk1, wrk2)                    ! map to vmesh
-            !
-            call col2   (pmv_tmp1, bm1,   ntot1)                      ! collate mass matrix
-            call col2   (pmv_tmp1, wmask, ntot1)                      ! mask Dirichlet conditions
-            call dssum  (pmv_tmp1, lx1, ly1, lz1)                     ! make continuous
-            call col2   (pmv_tmp1, binvm1, ntot1)                     ! collate inverse mass matrix
-            !
-            call col2   (pmv_tmp1, h2inv, ntot1)                      ! collate (h2)^-1
-            call cmult  (pmv_tmp1, -betaz**2, ntot1)                 ! collate -betaz^2
-            do ie = 1, nelv
-               call map12 (pmv_tmp2(1,1,1,ie), pmv_tmp1(1,1,1,ie), ie)! map wdiv to pmesh
-            end do
-            call col2(pmv_tmp2, bm2, ntot2)                           ! collate mass matrix (pressure mesh)
-            call sub2(ap, pmv_tmp2, ntot2)
+            call bm2_map12t_2Dh(pmv_tmp1, wp)                     ! I12^T (bm2 p)
+            call col2          (pmv_tmp1, wmask, ntot1)           ! mask Dirichlet conditions
+            call dssum         (pmv_tmp1, lx1, ly1, lz1)          ! make continuous
+            call col2          (pmv_tmp1, binvm1, ntot1)          ! collate inverse mass matrix
+            call col2          (pmv_tmp1, h2inv, ntot1)           ! collate (h2)^-1
+            call cmult         (pmv_tmp1, -betaz**2, ntot1)       ! collate -betaz^2
+            call bm2_map12_2Dh (pmv_tmp2, pmv_tmp1)               ! bm2 * I12 (.)
+            call sub2          (ap, pmv_tmp2, ntot2)
             call neklab_timer_stop(t_planar_pres_matvec)
          end subroutine pressure_matvec_2Dh
          
@@ -512,7 +487,7 @@
             real betaz
             ! internal
             integer :: imesh, ntot1
-            call neklab_timer_start(t_planar_hmh_matvec)
+            call neklab_timer_start(t_planar_helm_matvec)
             imesh = 1
             ntot1 = lx1*ly1*lz1*nelv
             ! regular Ax
@@ -521,15 +496,15 @@
             call col3 (hmv_tmp, u, vdiff(1,1,1,1,1), ntot1)
             call col2c(hmv_tmp, bm1, betaz**2, ntot1)
             call add2 (Au, hmv_tmp, ntot1)
-            call neklab_timer_stop(t_planar_hmh_matvec)
+            call neklab_timer_stop(t_planar_helm_matvec)
          end subroutine helmholtz_matvec_2Dh
 
-         subroutine hmh_matvec_planar(Au, u, h1, h2)
+         subroutine helm_matvec_planar(Au, u, h1, h2)
             ! Wrapper around helmholtz_matvec_2Dh to match the abstract interface while passing betaz
             real(dp), dimension(lx1*ly1*lz1*lelv), intent(out) :: Au
             real(dp), dimension(lx1*ly1*lz1*lelv), intent(in)  :: u, h1, h2
             call helmholtz_matvec_2Dh(Au, u, h1, h2, betaz_op)
-         end subroutine hmh_matvec_planar
+         end subroutine helm_matvec_planar
 
          subroutine pres_matvec_planar(Ap, p, h1, h2, h2inv, intype)
             ! Wrapper around the pressure_matvec_2Dh to match the abstract interface while passing betaz

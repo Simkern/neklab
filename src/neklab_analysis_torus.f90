@@ -517,94 +517,94 @@
             integer, optional, intent(in) :: nperiod
       !! Number of periods to compute the linear solution across (default = 1)
 		! internal
-		character(len=*), parameter :: this_procedure = 'monodromy_period'
-		integer :: nout_, nperiod_
-            integer :: i, idx, ns, outstep, nsaver
-		real(dp) :: norm, gr, Tend, FTLE, tper, tpern, pd
-            logical :: existfile
-		character(len=128) :: msg
-		character(len=132) :: fname
-		character(len=*), parameter :: fmt = '(A,1X,I4,1X,A,1X,2(F11.6),1X,A,1X,I2,3(1X,A,1X,E15.8))'
-            nout_ = optval(nout, 1)
-            nperiod_ = optval(nperiod, 1)
-            ns = 0
-		idx = 1
-		write(fname,'("f2dtorus",I3.3,".fld")') idx
-		inquire(file=fname, exist=existfile)
-		if (existfile) then
-		   do while (existfile)
-		   	! read first file and get nsteps
-		   	call pipe%get_nsteps_from_header(fname, nsaver)
-		   	ns = ns + nsaver              
-		   	idx = idx + 1
-		   	write(fname,'("f2dtorus",I3.3,".fld")') idx
-		   	inquire(file=fname, exist=existfile)
-		   end do
-		   call bcast(ns, isize)          ! broadcast number of saved snapshots
-		   call pipe%set_nsteps(ns)
-		   write(msg,'(A,I0,A,I0,A)') 'Found ', idx-1, ' baseflow files: ', ns, ' timesteps per period.'
-		   call nek_log_message(msg, this_module, this_procedure)
-		else
-		   msg = "No 2d baseflow files in the format f2dtorus???.fld found. Abort."
-		   call nek_stop_error(msg, this_module, this_procedure)
-		end if
+            character(len=*), parameter :: this_procedure = 'monodromy_period'
+            integer :: nout_, nperiod_
+                  integer :: i, idx, ns, outstep, nsaver
+            real(dp) :: norm, gr, Tend, FTLE, tper, tpern, pd
+                  logical :: existfile
+            character(len=128) :: msg
+            character(len=132) :: fname
+            character(len=*), parameter :: fmt = '(A,1X,I4,1X,A,1X,2(F11.6),1X,A,1X,I2,3(1X,A,1X,E15.8))'
+                  nout_ = optval(nout, 1)
+                  nperiod_ = optval(nperiod, 1)
+                  ns = 0
+            idx = 1
+            write(fname,'("f2dtorus",I3.3,".fld")') idx
+            inquire(file=fname, exist=existfile)
+            if (existfile) then
+               do while (existfile)
+                  ! read first file and get nsteps
+                  call pipe%get_nsteps_from_header(fname, nsaver)
+                  ns = ns + nsaver              
+                  idx = idx + 1
+                  write(fname,'("f2dtorus",I3.3,".fld")') idx
+                  inquire(file=fname, exist=existfile)
+               end do
+               call bcast(ns, isize)          ! broadcast number of saved snapshots
+               call pipe%set_nsteps(ns)
+               write(msg,'(A,I0,A,I0,A)') 'Found ', idx-1, ' baseflow files: ', ns, ' timesteps per period.'
+               call nek_log_message(msg, this_module, this_procedure)
+            else
+               msg = "No 2d baseflow files in the format f2dtorus???.fld found. Abort."
+               call nek_stop_error(msg, this_module, this_procedure)
+            end if
 
-            ! run a period to get GR and FTLE data
-            ns = pipe%get_nsteps()
-            pd = pipe%get_period()
-            outstep = floor(1.0*ns/nout_)
+                  ! run a period to get GR and FTLE data
+                  ns = pipe%get_nsteps()
+                  pd = pipe%get_period()
+                  outstep = floor(1.0*ns/nout_)
 
-            ! Initial perturbation
-            norm = pert_in%norm()
-            call pert_in%scal(1.0/norm)
-            norm = pert_in%norm()
-            call vec2nek(vxp, vyp, vzp, prp, tp, pert_in)
+                  ! Initial perturbation
+                  norm = pert_in%norm()
+                  call pert_in%scal(1.0/norm)
+                  norm = pert_in%norm()
+                  call vec2nek(vxp, vyp, vzp, prp, tp, pert_in)
 
-            do i = 1, nperiod_
-               Tend = i*pd
-               call setup_linear_solver(variable_dt = .true.,
-     &                                  endtime     = Tend,
-     &                                  cfl_limit   = 0.5_dp)
+                  do i = 1, nperiod_
+                     Tend = i*pd
+                     call setup_linear_solver(variable_dt = .true.,
+     &                                        endtime     = Tend,
+     &                                        cfl_limit   = 0.5_dp)
 
-               time = (i-1)*pd
+                     time = (i-1)*pd
 
-               tper = 0.0_dp
-               FTLE = 0.0_dp
-               call pipe%set_2d_mode('floquet') ! reset output counter to load baseflow files in order
-               do istep = 1, ns
-			! update baseflow
-			call pipe%set_baseflow(vx, vy, vz, istep)
-			
-                  ! compute linear step
-			call nek_advance()
-			
-                  ! compute growth rate
-			call nek2vec(pert_in, vxp, vyp, vzp, prp, tp)
-			gr = (pert_in%norm() - norm)/(norm*dt)
-			
-                  ! FTLE
-			FTLE = FTLE + gr*dt
-			tper = tper + dt
-                  tpern = tper/pd
-			if (nid == 0 .and. .not. istep == ns) then
-				write(msg,fmt) 'istep', istep, 't', time, tper, tpern, 'P', i,
-     &                          'norm', norm, 'gr', gr, 'FTLE', FTLE/tper
-				call nek_log_message(msg, this_module, this_procedure)
-			end if
+                     tper = 0.0_dp
+                     FTLE = 0.0_dp
+                     call pipe%set_2d_mode('floquet') ! reset output counter to load baseflow files in order
+                     do istep = 1, ns
+               ! update baseflow
+               call pipe%set_baseflow(vx, vy, vz, istep)
+               
+                        ! compute linear step
+               call nek_advance()
+               
+                        ! compute growth rate
+               call nek2vec(pert_in, vxp, vyp, vzp, prp, tp)
+               gr = (pert_in%norm() - norm)/(norm*dt)
+               
+                        ! FTLE
+               FTLE = FTLE + gr*dt
+               tper = tper + dt
+                        tpern = tper/pd
+               if (nid == 0 .and. .not. istep == ns) then
+                  write(msg,fmt) 'istep', istep, 't', time, tper, tpern, 'P', i,
+     &                           'norm', norm, 'gr', gr, 'FTLE', FTLE/tper
+                  call nek_log_message(msg, this_module, this_procedure)
+               end if
 
-			! update norm
-			norm = pert_in%norm()
+               ! update norm
+               norm = pert_in%norm()
 
-			! outpost
-			if (istep == 1 .or. mod(istep,outstep) == 0) then
-				call outpost_dnek(pert_in, 'prt')
-			end if
-		   end do
-		   if (nid == 0) then
-			write(msg,'(A,I3,A,E15.8)') 'Period ', i, ' FTLE ', FTLE/tper
-			call nek_log_message(msg, this_module, this_procedure)
-		   end if
-		end do
+               ! outpost
+               if (istep == 1 .or. mod(istep,outstep) == 0) then
+                  call outpost_dnek(pert_in, 'prt')
+               end if
+               end do
+               if (nid == 0) then
+               write(msg,'(A,I3,A,E15.8)') 'Period ', i, ' FTLE ', FTLE/tper
+               call nek_log_message(msg, this_module, this_procedure)
+               end if
+            end do
 
          end subroutine compute_monodromy_period_torus
       

@@ -414,6 +414,8 @@
             
             ntot1 = lx1*ly1*lz1*nelv
             ipert = npert + 1 - jp
+
+            call rzero(gradp(1,ipert), ntot1)
             
             if (alpha_eq_zero .and. if_torsion_zero) return
             
@@ -497,8 +499,12 @@
             
             ntot1 = lx1*ly1*lz1*nelv
             ntot2 = lx2*ly2*lz2*nelv
+
+            call rzero(frc_div, ntot2)
             
             if (alpha_eq_zero .and. if_torsion_zero) return
+
+            call rzero(wtmp, ntot1)
             
             ! --- alpha part, from the opposite slot
             if (.not. alpha_eq_zero) then

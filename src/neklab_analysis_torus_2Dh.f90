@@ -642,7 +642,7 @@
             type(nek_dvector), intent(inout) :: bf
       !! In: initial guess. Out: fixed point at the prescribed flow rate.
             real(dp), intent(inout) :: dpds
-      !! In: initial forcing. Out: converged forcing. Same in both conventions.
+      !! In: initial forcing. Out: converged forcing.
             real(dp), intent(in) :: Q_target
       !! Target bulk velocity, Q = (1/A) int_A u_phi dA.
             real(dp), intent(in) :: tol
@@ -702,18 +702,19 @@
       !!
       !! CONVENTIONS AT THIS INTERFACE
       !!
-      !!   dpds          HELIX array convention on the way in and on the way out
-      !!                 (the amplitudes agree with native; the stored cosine and
-      !!                 sine entries differ by a factor 2 and a sign).
+      !!   Everything is in the native one-sided convention of neklab_t2Dh
+      !!   (f = a_0 + 2 sum_k [a_ck cos + a_sk sin], Q likewise).
+      !!
+      !!   dpds          native forcing (a_0, a_c1, a_s1, ...) on the way in and
+      !!                 the converged forcing on the way out.
       !!
       !!   mflow_target  RATIOS:  index 1 is Q(0), the mean, absolute;
-      !!                 index k+1 is 2*Q(k)/Q(0), the amplitude ratio.
-      !!                 Since the native amplitude is the peak excursion and
-      !!                 therefore exactly 2*Q(k), this is the identity at the
-      !!                 usual Q(0) = 1.
+      !!                 index k+1 is Q(k)/Q(0), Q(k) the one-sided amplitude
+      !!                 (half the peak excursion) -- the number mflow_summary
+      !!                 prints. At Q(0) = 1 it is Q(k) itself.
       !!
-      !! A helix deck quotes Q(k) itself, i.e. HALF the peak excursion, so a
-      !! number copied from one must be doubled before it lands here.
+      !! A helix deck quotes Q(k) directly and can be copied as is. A deck
+      !! written for convention 1 (2*Q(k)/Q(0), peak over mean) must be halved.
       !!
       !! As with the steady wrapper, t2Dh%init_geom must have been called first.
             class(abstract_system_rdp), intent(inout) :: sys
@@ -725,10 +726,10 @@
             integer, intent(in) :: kharm
       !! Number of active harmonics K. nf = 2K+1, nmf = K+1.
             real(dp), dimension(:), intent(inout) :: dpds
-      !! In: initial forcing, nf values, helix convention. Out: converged forcing.
+      !! In: initial forcing, nf values, native. Out: converged (and gauged) forcing.
             real(dp), dimension(:), intent(in) :: mflow_target
       !! Flowrate targets, nmf values. Index 1 is the mean Q(0), absolute.
-      !! Index k+1 is the amplitude RATIO 2*Q(k)/Q(0) of harmonic k.
+      !! Index k+1 is the amplitude RATIO Q(k)/Q(0) of harmonic k.
             real(dp), intent(in) :: tol
             real(dp), intent(in) :: rtol_mf
       !! RELATIVE tolerance in the scaled max-norm. NOTE: this argument changed
@@ -754,8 +755,8 @@
             character(len=*), parameter :: this_procedure = 'unsteady_flowrate_newton'
             character(len=256) :: msg
             type(nek_dvector) :: res
-            real(dp), dimension(lfc) :: d_native
             real(dp), dimension(lmfc) :: amp, phase
+            real(dp), dimension(lfc) :: d
             logical :: save_orbit_, gauge_
             integer :: nmf, nf, i, k, nfft
 
@@ -796,9 +797,8 @@
                call nek_stop_error(msg, this_module, this_procedure)
             end if
 
-      ! ---- configure. helix -> native on the forcing and on the targets.
-            d_native = helix2native(dpds)
-            call t2Dh%init_flow(d_native(1:nf), womersley=Wo)
+      ! ---- configure
+            call t2Dh%init_flow(dpds(1:nf), womersley=Wo)
             call t2Dh%set_target_ratio(mflow_target)
 
       ! ---- a cold start from a steady solve arrives with every harmonic at
@@ -851,10 +851,11 @@
                call tfft_free()
             end if
 
-      ! ---- hand the forcing back in helix units and leave a restart sidecar
-            call t2Dh%get_dpds_helix(dpds)
-            call t2Dh%get_dpds(d_native)
-            call bf_write_t2Dh(d_native, nf, t2Dh%get_omega(), t2Dh%get_period())
+      ! ---- hand the converged forcing back and leave a restart sidecar. Taken
+      !      after the gauge, which rotates the forcing.
+            call t2Dh%get_dpds(d)
+            dpds(1:nf) = d(1:nf)
+            call bf_write_t2Dh(dpds, nf, t2Dh%get_omega(), t2Dh%get_period())
 
             call set_fldindex('BFP', 1)
             call outpost_dnek(bf, 'BFP')
@@ -865,11 +866,11 @@
       ! Report in the input convention too, so what comes out is directly
       ! comparable with what the deck asked for.
             call t2Dh%get_mflow_ratio(amp)
-            write (msg, '(3X,A,*(1X,F16.10))') 'Q(0), 2Q(k)/Q(0) :', (amp(i), i=1, nmf)
+            write (msg, '(3X,A,*(1X,F16.10))') 'Q(0), Q(k)/Q(0)  :', (amp(i), i=1, nmf)
             call nek_log_message(msg, this_module, this_procedure)
             write (msg, '(3X,A,*(1X,F16.10))') 'requested        :', (mflow_target(i), i=1, nmf)
             call nek_log_message(msg, this_module, this_procedure)
-            write (msg, '(3X,A,*(1X,F16.10))') 'helix dpds       :', (dpds(i), i=1, nf)
+            write (msg, '(3X,A,*(1X,F16.10))') 'dpds             :', (dpds(i), i=1, nf)
             call nek_log_message(msg, this_module, this_procedure)
             write (msg, '(3X,A,1X,I0)')        'steps/period     :', bf_get_nsteps()
             call nek_log_message(msg, this_module, this_procedure)
@@ -890,8 +891,9 @@
       !!   nperiods  -- number of periods to integrate (>= 1).
       !!   atol      -- tolerance forwarded to sys%response.
       !!   if_write_residual  -- Print residual norm at each period. Default .true.
-      !!   if_write_residual  -- Print mass flow and phase at each period. Default .true.
-      !!   if_outpost         -- write the state to disk after each period. Default .false.
+      !!   if_write_mflow     -- Print the flow rate at each period, native
+      !!                         one-sided amplitudes. Default .true.
+      !!   if_outpost_fld     -- write the state to disk after each period. Default .false.
       !!   prefix             -- prefix for the output files. Default 'wst'.
             class(abstract_system_rdp), intent(inout) :: sys
             type(nek_dvector),          intent(inout) :: x
@@ -907,7 +909,7 @@
             type(nek_dvector) :: res
             character(len=3)  :: pfx_warm
             real(dp) :: rnrm, T
-            real(dp), dimension(:), allocatable :: mf
+            real(dp), dimension(lmfc) :: mf
             integer  :: k
             logical  :: do_out, do_mflow, do_res, is_unsteady
  
@@ -955,7 +957,7 @@
             call nek_log_message(msg, this_module, this_procedure)
             call nek_log_message('', this_module, this_procedure)
 
-            if (do_out) call set_fldindex(pfx_warm, k)
+            if (do_out) call set_fldindex(pfx_warm, 1)
  
             do k = 1, nperiods
  
@@ -964,7 +966,8 @@
                call x%add(res)
 
                if (do_mflow) then
-                  !if (.not. is_unsteady) call t2Dh%measure_mflow(x%theta(:, 1), mf)
+      ! the unsteady response measures over the period; the steady one does not
+                  if (.not. is_unsteady) call t2Dh%measure_mflow(x%theta(:, 1), mf)
                   call t2Dh%mflow_summary()
                end if
                

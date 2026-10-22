@@ -57,8 +57,8 @@
      &                                  solve_temperature = .true.,
      &                                  recompute_dt   = .true.,
      &                                  cfl_limit      = 0.4_dp, 
-     &                                  vtol           = atol*0.5,
-     &                                  ptol           = atol*0.5)
+     &                                  vtol           = atol*0.1,
+     &                                  ptol           = atol*0.1)
       ! Set the initial condition for Nek5000's linearized solver.
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
       ! Integrate the equations forward in time.
@@ -99,9 +99,9 @@
      &                                  solve_baseflow = .false.,
      &                                  solve_temperature = .true.,
      &                                  recompute_dt   = .true.,
-     &                                  cfl_limit      = 0.5_dp, 
-     &                                  vtol           = atol*0.5, 
-     &                                  ptol           = atol*0.5)
+     &                                  cfl_limit      = 0.4_dp, 
+     &                                  vtol           = atol*0.1, 
+     &                                  ptol           = atol*0.1)
       ! Set the initial condition for Nek5000's linearized solver.
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
       ! Integrate the equations forward in time.

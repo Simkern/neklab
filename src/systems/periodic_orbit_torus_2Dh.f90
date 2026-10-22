@@ -206,8 +206,8 @@
      &                                  variable_dt    = .true.,
      &                                  endtime        = t2Dh%get_period(),
      &                                  cfl_limit      = cfl_upo,
-     &                                  vtol           = atol*0.5,
-     &                                  ptol           = atol*0.5)
+     &                                  vtol           = atol*0.1,
+     &                                  ptol           = atol*0.1)
       ! Set the initial condition for Nek5000's linearized solver.
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
       ! Replay the recorded trajectory. bf_set installs snapshot k and forces
@@ -275,8 +275,8 @@
      &                                  variable_dt    = .true.,
      &                                  endtime        = t2Dh%get_period(),
      &                                  cfl_limit      = cfl_upo,
-     &                                  vtol           = atol*0.5,
-     &                                  ptol           = atol*0.5)
+     &                                  vtol           = atol*0.1,
+     &                                  ptol           = atol*0.1)
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
       ! Backward replay: step istep of the adjoint integration linearises about
       ! step k = nsteps - istep + 1 of the forward trajectory.

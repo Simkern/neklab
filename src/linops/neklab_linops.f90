@@ -203,6 +203,43 @@
                class(abstract_vector_rdp), intent(out) :: vec_out
             end subroutine
          end interface
+
+      !-----------------------------------------------
+      !-----     FLOQUET OPERATOR 2Dh axisym     -----
+      !-----------------------------------------------
+
+      ! --> Type.
+         type, extends(abstract_linop_cdp), public :: floquet_2Dh_axisym_linop
+            real(kind=dp) :: alpha
+            real(kind=dp) :: tau = 0.0_dp
+            character(len=32) :: base = ''
+            character(len=1) :: prefix = 'n'
+            logical :: is_initialized = .false.
+         contains
+            private
+            procedure, pass(self), public :: init => init_floquet_2Dh_axisym
+            procedure, pass(self), public :: matvec => floquet_2Dh_axisym_matvec
+            procedure, pass(self), public :: rmatvec => floquet_2Dh_axisym_rmatvec
+         end type floquet_2Dh_axisym_linop
+
+      ! --> Type-bound procedures: floquet_operator_2Dh.f90
+         interface
+            module subroutine init_floquet_2Dh_axisym(self)
+               class(floquet_2Dh_axisym_linop), intent(inout) :: self
+            end subroutine
+
+            module subroutine floquet_2Dh_axisym_matvec(self, vec_in, vec_out)
+               class(floquet_2Dh_axisym_linop), intent(inout) :: self
+               class(abstract_vector_cdp), intent(in) :: vec_in
+               class(abstract_vector_cdp), intent(out) :: vec_out
+            end subroutine
+
+            module subroutine floquet_2Dh_axisym_rmatvec(self, vec_in, vec_out)
+               class(floquet_2Dh_axisym_linop), intent(inout) :: self
+               class(abstract_vector_cdp), intent(in) :: vec_in
+               class(abstract_vector_cdp), intent(out) :: vec_out
+            end subroutine
+         end interface
       
       contains
       

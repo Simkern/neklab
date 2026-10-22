@@ -66,6 +66,7 @@
          public :: exptA_2Dh_planar_linop
          public :: exptA_2Dh_axisym_linop
          public :: floquet_linop
+         public :: floquet_2Dh_axisym_linop
          public :: resolvent_linop
       
       ! Implementation of the abstract systems and Jacobians

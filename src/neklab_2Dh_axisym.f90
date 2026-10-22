@@ -19,6 +19,7 @@
          implicit none
          include "SIZE"
          include "TOTAL"
+         include "ADJOINT" !ifadj
          
          private
          character(len=*), parameter, private :: this_module = 'neklab_2Dh_axisym'

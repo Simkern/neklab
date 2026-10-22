@@ -96,6 +96,7 @@
                intype = -1
                ifield = 1
                call sethlm(h1, h2, intype)
+               if (ifadj) call seth2bc(h2)   ! adjoint O/ON boundary term
                call cresvipp_2Dh(resv1, resv2, resv3, gradw(1,jp))
                call ophx_2Dh_planar(resv1, resv2, resv3, h1, h2)
                call neklab_timer_stop(t_planar_adv_rhs)
@@ -206,5 +207,86 @@
             call neklab_timer_stop(t_axisym_advance)
             jp = 0   ! back to the nonlinear solver's slot
          end subroutine nek_advance_2Dh_axisym
+
+         subroutine seth2bc(h2)
+      ! THIS SHOULD BE IN THE NEK CORE LATER BUT IS CURRENTLY NOT
+      !
+      !     sets diagonal terms for boundary conditions if required
+      !
+         include 'SIZE'
+         include 'MASS'
+         include 'PARALLEL'
+         include 'SOLN'
+         include 'ADJOINT'
+         include 'TSTEP'
+         include 'INPUT'
+         include 'NEKUSE'
+         include 'GEOM'
+         
+         real      h2(lx1,ly1,lz1,1)
+         character cb*3
+         integer   nfaces,nxyz,nel,ntot,iel,iface,ieg
+         integer   kx1,kx2,ky1,ky2,kz1,kz2,ix,iy,iz,ia
+         logical   ifalgn,ifnorx,ifnory,ifnorz
+         real      unorm
+         
+         nfaces=2*ldim
+         nxyz  =nx1*ny1*nz1
+         nel   =nelfld(ifield)
+         ntot  =nxyz*nel
+         
+         do iel=1,nelv
+            ieg=lglel(iel)
+            do iface=1,nfaces
+               cb = cbc(iface,iel,ifield)
+      !
+      !     Adjoint O/o/ON/on conditions
+      !
+               if ((cb.eq.'O  '.or.cb.eq.'o  '.or.cb.eq.'ON '.or.cb.eq.'on ').and.ifadj) then
+                  ia = 0
+      !     Loop on the points of the face
+                  call facind(kx1,kx2,ky1,ky2,kz1,kz2,nx1,ny1,nz1,iface)
+                  do iz=kz1,kz2
+                     do iy=ky1,ky2
+                        do ix=kx1,kx2
+                           ia = ia + 1
+      !     add an U_n (baseflow velocity) coefficient to H2
+                           h2(ix,iy,iz,iel)=h2(ix,iy,iz,iel)+
+     &                     area(ia,1,iface,iel)/bm1(ix,iy,iz,iel)*
+     &                     (unx(ia,1,iface,iel)*vx(ix,iy,iz,iel)
+     &                     +uny(ia,1,iface,iel)*vy(ix,iy,iz,iel)
+     &                     +unz(ia,1,iface,iel)*vz(ix,iy,iz,iel))
+                        end do
+                     end do
+                  end do
+               end if
+      !
+      !     bn condition
+      !
+               if (cb.eq.'bn ') then
+                  ia = 0
+                  call chknord (ifalgn,ifnorx,ifnory,ifnorz,iface,iel)
+                  call facind(kx1,kx2,ky1,ky2,kz1,kz2,nx1,ny1,nz1,iface)
+                  do iz=kz1,kz2
+                     do iy=ky1,ky2
+                        do ix=kx1,kx2
+                           ia = ia + 1
+      !     add an un (from userbc) coefficient to H2
+                           if (optlevel.le.2) call nekasgn (ix,iy,iz,iel)
+                           call userbc(ix,iy,iz,iface,ieg)
+                           if(ifnorx) unorm=ux*unx(ia,1,iface,iel)
+                           if(ifnory) unorm=uy*uny(ia,1,iface,iel)
+                           if(ifnorz) unorm=uz*unz(ia,1,iface,iel)
+                           h2(ix,iy,iz,iel)=h2(ix,iy,iz,iel)-param(1)*unorm
+     &                       *area(ia,1,iface,iel)/bm1(ix,iy,iz,iel)
+                        end do
+                     end do
+                  end do
+               end if
+            enddo
+         enddo
+
+         return
+         end
 
       end module neklab_2Dh

@@ -45,7 +45,7 @@
       !  busy-waiting MPI that tracks wall time closely, but it is not the same
       !  quantity. `neklab_clock_tic`/`toc` therefore accumulate an INDEPENDENT
       !  wall (dnekclock) and cpu total over the body of the 2Dh stepper
-      !  (nek_advance_2Dh_axisym or nek_advance_2Dh, whichever runs),
+      !  (nek_advance_2Dh_axisym or nek_advance_2Dh_planar, whichever runs),
       !  and finalize prints both. If cpu/wall drifts away from 1 on rank 0,
       !  every number in the table is suspect and that is worth seeing.
       !
@@ -99,22 +99,22 @@
          character(len=*), parameter, public :: t_pres_prec = 'solve_pressure_2dh@prec'
          character(len=*), parameter, public :: t_pres_proj = 'pressure_projection_2dh'
       
-      ! --- group: planar 2Dh (beta_z) timestepper, module neklab_2Dh.
-         character(len=*), parameter, public :: t_planar_advance = 'nek_advance_2dh'
-         character(len=*), parameter, public :: t_planar_adv_setup = 'nek_advance_2dh@setup'
-         character(len=*), parameter, public :: t_planar_adv_advection = 'nek_advance_2dh@advection'
-         character(len=*), parameter, public :: t_planar_adv_rhs = 'nek_advance_2dh@rhs'
-         character(len=*), parameter, public :: t_planar_adv_velocity = 'nek_advance_2dh@velocity'
-         character(len=*), parameter, public :: t_planar_adv_pressure = 'nek_advance_2dh@pressure'
-         character(len=*), parameter, public :: t_planar_adv_correction = 'nek_advance_2dh@correction'
-         character(len=*), parameter, public :: t_planar_makefp = 'makefp_w_2dh'
-         character(len=*), parameter, public :: t_planar_makeqp = 'makeqp_w_2dh'
+      ! --- group: planar 2Dh (beta_z) stepper, modules neklab_2Dh / neklab_2Dh_planar.
+         character(len=*), parameter, public :: t_planar_advance = 'nek_advance_2dh_planar'
+         character(len=*), parameter, public :: t_planar_adv_setup = 'nek_advance_2dh_planar@setup'
+         character(len=*), parameter, public :: t_planar_adv_advection = 'nek_advance_2dh_planar@advection'
+         character(len=*), parameter, public :: t_planar_adv_rhs = 'nek_advance_2dh_planar@rhs'
+         character(len=*), parameter, public :: t_planar_adv_velocity = 'nek_advance_2dh_planar@velocity'
+         character(len=*), parameter, public :: t_planar_adv_pressure = 'nek_advance_2dh_planar@pressure'
+         character(len=*), parameter, public :: t_planar_adv_correction = 'nek_advance_2dh_planar@correction'
+         character(len=*), parameter, public :: t_planar_makefp = 'makefp_uv_2dh_planar'
+         character(len=*), parameter, public :: t_planar_makeqp = 'makeqp_w_2dh_planar'
       
-      ! --- group: planar 2Dh kernels (inclusive drill-down, overlaps the above)
-         character(len=*), parameter, public :: t_planar_helm_matvec = 'helmholtz_matvec_2dh'
-         character(len=*), parameter, public :: t_planar_pres_matvec = 'pressure_matvec_2dh'
+      ! --- group: planar 2Dh matvecs
+         character(len=*), parameter, public :: t_planar_helm_matvec = 'helmholtz_matvec_2dh_planar'
+         character(len=*), parameter, public :: t_planar_pres_matvec = 'pressure_matvec_2dh_planar'
       
-      ! --- group: 2Dh timestepper, module neklab_2Dh_axisym.
+      ! --- group: axisym 2Dh (alpha) stepper, modules neklab_2Dh / neklab_2Dh_axisym.
          character(len=*), parameter, public :: t_axisym_advance = 'nek_advance_2dh_axisym'
          character(len=*), parameter, public :: t_axisym_adv_setup = 'nek_advance_2dh_axisym@setup'
          character(len=*), parameter, public :: t_axisym_adv_advection = 'nek_advance_2dh_axisym@advection'
@@ -127,15 +127,12 @@
          character(len=*), parameter, public :: t_axisym_nl_step = 'nek_advance@nonlinear_2dh'
       !! Nek's own nonlinear step, timed at the call site because it is F77.
       
-      ! --- group: 2Dh solvers
-         character(len=*), parameter, public :: t_axisym_solve_helm = 'solve_helmholtz_2dh_axisym'
+      ! --- group: axisym 2Dh coupled solvers (alpha /= 0)
          character(len=*), parameter, public :: t_axisym_solve_cpl = 'solve_coupled_helmholtz_2dh_axisym'
-         character(len=*), parameter, public :: t_axisym_solve_pres = 'solve_pressure_2dh_axisym'
-         character(len=*), parameter, public :: t_axisym_pres_precond = 'solve_pressure_2dh_axisym@precond'
-         character(len=*), parameter, public :: t_axisym_pres_proj = 'pressure_projection_2dh_axisym'
+         character(len=*), parameter, public :: t_axisym_solve_pres_cpl = 'solve_pressure_coupled_2dh_axisym'
+         character(len=*), parameter, public :: t_axisym_pres_prec_cpl = 'solve_pressure_coupled_2dh_axisym@prec'
       
-      ! --- group: 2Dh kernels. Inclusive, and by design overlapping the two
-      !     groups above: these are the drill-down, not part of any partition.
+      ! --- group: axisym 2Dh matvecs.
          character(len=*), parameter, public :: t_axisym_helm_matvec = 'helmholtz_matvec_2dh_axisym'
          character(len=*), parameter, public :: t_axisym_cpl_matvec = 'coupled_helmholtz_matvec_2dh_axisym'
          character(len=*), parameter, public :: t_axisym_pres_matvec = 'pressure_matvec_2dh_axisym'
@@ -176,7 +173,7 @@
       !--------------------------------------------------------------
       
          integer, parameter, private :: lname = 48
-         integer, parameter, private :: ncsv = 39         ! number of timers, update as needed
+         integer, parameter, private :: ncsv = 37         ! number of timers, update as needed
       
       ! Step-level timers only. See the note at the top of this file: every name
       ! here MUST be idle whenever neklab_timer_dump is called.
@@ -191,8 +188,8 @@
      & ! axisym
      &       t_axisym_advance, t_axisym_adv_setup, t_axisym_adv_advection, t_axisym_adv_rhs,
      &       t_axisym_adv_uz, t_axisym_adv_urphi, t_axisym_adv_pressure, t_axisym_adv_correction,
-     &       t_axisym_makefp, t_axisym_nl_step, t_axisym_solve_helm, t_axisym_solve_cpl,
-     &       t_axisym_solve_pres, t_axisym_pres_precond, t_axisym_pres_proj, 
+     &       t_axisym_makefp, t_axisym_nl_step, t_axisym_solve_cpl,
+     &       t_axisym_solve_pres_cpl, t_axisym_pres_prec_cpl,
      &       t_axisym_helm_matvec, t_axisym_cpl_matvec, t_axisym_pres_matvec,
      & ! baseflow + mflow
      &       t_bf_push, t_bf_set, t_bf_window, t_bf_write, t_bf_read,
@@ -329,11 +326,9 @@
             call self%add_group('2Dh_axisym_timestepper', istart=istart, iend=iend)
       
       ! --- axisym 2Dh solvers
-            call self%add_timer(t_axisym_solve_helm, count=istart)
-            call self%add_timer(t_axisym_solve_cpl)
-            call self%add_timer(t_axisym_solve_pres)
-            call self%add_timer(t_axisym_pres_precond)
-            call self%add_timer(t_axisym_pres_proj, count=iend)
+            call self%add_timer(t_axisym_solve_cpl, count=istart)
+            call self%add_timer(t_axisym_solve_pres_cpl)
+            call self%add_timer(t_axisym_pres_prec_cpl, count=iend)
             call self%add_group('2Dh_axisym_solvers', istart=istart, iend=iend)
       
       ! --- axisym 2Dh matvecs
@@ -410,9 +405,9 @@
       
             if (if_time) then
                call log_message('#########   neklab clock cross-check   ##########', this_module)
-               write (msg, '(2X,A30," : ",F14.6," s")') 'nek_advance_2Dh (wall)', wall_acc
+               write (msg, '(2X,A30," : ",F14.6," s")') '2Dh stepper (wall)', wall_acc
                call log_message(msg, this_module)
-               write (msg, '(2X,A30," : ",F14.6," s")') 'nek_advance_2Dh (cpu)', cpu_acc
+               write (msg, '(2X,A30," : ",F14.6," s")') '2Dh stepper (cpu) ', cpu_acc
                call log_message(msg, this_module)
                if (wall_acc > 0.0_dp) then
                   write (msg, '(2X,A30," : ",F14.6)') 'cpu/wall (rank 0)', cpu_acc/wall_acc
@@ -604,7 +599,7 @@
       
          subroutine neklab_clock_tic()
       !! Independent wall and cpu accumulation, used ONLY around the body of
-      !! nek_advance_2Dh_axisym / nek_advance_2Dh. Not affected by resets,
+      !! nek_advance_2Dh_axisym / nek_advance_2Dh_planar. Not affected by resets,
       !! so the totals reported at finalize cover the whole run.
             real(dp), external :: dnekclock
             if (.not. if_time) return

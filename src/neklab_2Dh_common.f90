@@ -19,6 +19,8 @@
 
          private
          character(len=*), parameter, private :: this_module = 'neklab_2Dh_common'
+         integer, parameter :: lv = lx1*ly1*lz1*lelv
+         integer, parameter :: lp = lx2*ly2*lz2*lelv
 
          real(dp), dimension(lx1, ly1, lz1, lelv), public :: wmask
          logical, public :: wmask_defined = .false.
@@ -27,10 +29,10 @@
          public :: setup_incomprp_2Dh, ebar_2Dh
          public :: incomprp_solve_2Dh, incomprp_update_2Dh
 
-         real(dp), private :: pbasis(lx2*ly2*lz2*lelv,mxprev,lpert)
+         real(dp), private :: pbasis(lp,mxprev,lpert)
          integer,  private :: nprev(lpert) = 0
          real(dp), private :: dtbdlast = 0.0_dp
-         real(dp), dimension(lx2*ly2*lz2*lelv), private :: prextr_c, onep, ep
+         real(dp), dimension(lp), private :: prextr_c, onep, ep
          
          ! abstract interfactes for the helmholtz and pressure matvecs passed to the solvers
          public :: abstract_helmholtz_matvec, abstract_pressure_matvec
@@ -220,8 +222,8 @@
       !! Momentum right-hand side of slot jp without the H u term (cf. cresvipp):
       !! Dirichlet values, extrapolated pressure gradient (in-plane: opgradt,
       !! third component: gradw_jp from makecpl), forcing.
-            real(dp), dimension(lx1*ly1*lz1*lelv), intent(out) :: resv1, resv2, resv3
-            real(dp), dimension(lx1*ly1*lz1*lelv), intent(in)  :: gradw_jp
+            real(dp), dimension(lv), intent(out) :: resv1, resv2, resv3
+            real(dp), dimension(lv), intent(in)  :: gradw_jp
             ! internal
             integer :: ntot1
             ntot1 = lx1*ly1*lz1*nelv
@@ -237,7 +239,7 @@
          subroutine setup_incomprp_2Dh(h1, h2, h2inv)
       !! Helmholtz coefficients of the pressure step (intype = 1). The projection
       !! basis is discarded when dt/bd(1) changes.
-            real(dp), dimension(lx1*ly1*lz1*lelv), intent(out) :: h1, h2, h2inv
+            real(dp), dimension(lv), intent(out) :: h1, h2, h2inv
             ! internal
             real(dp) :: dtbd
             integer :: ntot1
@@ -258,7 +260,7 @@
       !! preconditioner removes the mean; the solver adds it back with ebar.
             real(dp), intent(out) :: ebar
             procedure(abstract_pressure_matvec) :: matvec
-            real(dp), dimension(lx1*ly1*lz1*lelv), intent(in) :: h1, h2, h2inv
+            real(dp), dimension(lv), intent(in) :: h1, h2, h2inv
             real(dp), intent(in) :: wavenumber
             ! internal
             logical :: if_singular
@@ -276,8 +278,8 @@
 
          subroutine incomprp_solve_2Dh(dpr_jp, h1, h2, h2inv, matvec, ebar, wavenumber, maxit, label)
       !! Pressure correction of slot jp: E dp = rhs, with projection (param(95)).
-            real(dp), dimension(lx2*ly2*lz2*lelv), intent(inout) :: dpr_jp
-            real(dp), dimension(lx1*ly1*lz1*lelv), intent(in)    :: h1, h2, h2inv
+            real(dp), dimension(lp), intent(inout) :: dpr_jp
+            real(dp), dimension(lv), intent(in)    :: h1, h2, h2inv
             procedure(abstract_pressure_matvec) :: matvec
             real(dp), intent(in) :: ebar, wavenumber
             integer, intent(in)  :: maxit
@@ -303,12 +305,13 @@
      &                                   matvec)
             end if
          end subroutine incomprp_solve_2Dh
-          subroutine incomprp_update_2Dh(dpr_jp, dw, h2inv)
+
+         subroutine incomprp_update_2Dh(dpr_jp, dw, h2inv)
       !! Velocity and pressure update of slot jp from the pressure correction
       !! (cf. the end of incomprp). dw is the third-component correction, computed
       !! by the model (incomprp_dw_*).
-            real(dp), dimension(lx2*ly2*lz2*lelv), intent(in) :: dpr_jp
-            real(dp), dimension(lx1*ly1*lz1*lelv), intent(in) :: dw, h2inv
+            real(dp), dimension(lp), intent(in) :: dpr_jp
+            real(dp), dimension(lv), intent(in) :: dw, h2inv
             real(dp), dimension(lx1,ly1,lz1,lelv) :: w1, w2, w3, resv1, resv2, resv3, dv1, dv2, dv3
             common /SCRNS/ w1, w2, w3, resv1, resv2, resv3, dv1, dv2, dv3
             integer :: ntot1, ntot2
@@ -451,16 +454,14 @@
       !  Essentially a copy of the helmholtz solver in navier1.f, but with the abstract matvec as input.
       ! -------------------------------------------------------------------
          subroutine solve_helmholtz_2Dh(x, f, h1, h2, mask, mult, imsh, tin, maxit, isd,
-     &                                  binv, name, matvec, shift_s, shift_f)
+     &                                  binv, name, matvec)
             include 'FDMH1'
-            real(dp), dimension(lx1*ly1*lz1*lelv), intent(out) :: x
-            real(dp), dimension(lx1*ly1*lz1*lelv), intent(in)  :: f, h1, h2, mask, mult, binv
+            real(dp), dimension(lv), intent(out) :: x
+            real(dp), dimension(lv), intent(in)  :: f, h1, h2, mask, mult, binv
             integer, intent(in) :: imsh, maxit, isd
             real(dp), intent(in) :: tin
             character(len=7), intent(in) :: name
             procedure(abstract_helmholtz_matvec) :: matvec
-            real(dp), intent(in), optional :: shift_s
-            real(dp), dimension(lx1*ly1*lz1*lelv), intent(in), optional :: shift_f
             ! internal
             character(len=*), parameter :: this_procedure = 'solve_helmholtz_2Dh'
             integer :: iter, krylov, n, nel, niter, nxyz
@@ -508,9 +509,6 @@
 
             ! Setup the Jacobi preconditioner: d = 1/diag(H_nek), assembled
             call setprec(d, h1, h2, imsh, isd)
-            if (present(shift_s) .or. present(shift_f)) then
-               call add_shift_to_jacobi(d, n, shift_s, shift_f)
-            end if
 
             ! Check for trivial solution
             call copy (r, f, n)
@@ -601,25 +599,6 @@
 
          end subroutine solve_helmholtz_2Dh
         
-         subroutine add_shift_to_jacobi(diag_helm_matvec, n, shift_s, shift_f)
-            !! setprec returns 1/diag(axhelm), assembled. Add the assembled diagonal
-            !! of the shift term  shift*vdiff*bm1  (a mass-like, diagonal operator)
-            !! and invert again.
-            real(dp), dimension(n), intent(inout) :: diag_helm_matvec
-            integer, intent(in) :: n
-            real(dp), intent(in), optional :: shift_s
-            real(dp), dimension(n), intent(in), optional :: shift_f
-            ! internal
-            real(dp), dimension(lx1*ly1*lz1*lelv) :: wrk
-            call col3(wrk, vdiff(1,1,1,1,1), bm1, n)
-            if (present(shift_f)) call col2 (wrk, shift_f, n)
-            if (present(shift_s)) call cmult(wrk, shift_s, n)
-            call dssum  (wrk, lx1, ly1, lz1)
-            call invcol1(diag_helm_matvec, n)
-            call add2   (diag_helm_matvec, wrk, n)
-            call invcol1(diag_helm_matvec, n)
-         end subroutine add_shift_to_jacobi
-        
       ! -------------------------------------------------------------------
       !  Essentially a copy of the uzawa_gmres in gmres.f, but with the abstract matvec as input.
       !      if_ortho : project out the nullspace if the operator is singular (wavenumber = 0 only)
@@ -627,8 +606,8 @@
          subroutine solve_pressure_2Dh(res, h1, h2, h2inv, matvec, intype, iter, ebar,
      &                                 if_ortho, maxit, label, wavenumber, info_str)
             include 'GMRES'
-            real(dp), dimension(lx2*ly2*lz2*lelv), intent(inout) :: res
-            real(dp), dimension(lx1*ly1*lz1*lelv), intent(in)    :: h1, h2, h2inv
+            real(dp), dimension(lp), intent(inout) :: res
+            real(dp), dimension(lv), intent(in)    :: h1, h2, h2inv
             procedure(abstract_pressure_matvec) :: matvec
             integer, intent(in)  :: intype, maxit
             integer, intent(out) :: iter
@@ -789,7 +768,6 @@
                call nek_log_warning(msg, this_module, this_procedure)
             end if
 
-            if (if_ortho) call ortho(w_gmres)
             call copy(res, x_gmres, ntot2)
             if (if_ortho) call ortho(res)
 
@@ -809,9 +787,9 @@
       !  Essentially a copy of setrhs_/gensoln_/econj
       !-------------------------------------------------------------------------------
          subroutine setrhs_pressure_2Dh(dpr, h1, h2, h2inv, proj_set, niprev, matvec, info_str)
-            real(dp), dimension(lx2*ly2*lz2*lelv), intent(inout) :: dpr
-            real(dp), dimension(lx1*ly1*lz1*lelv), intent(in)    :: h1, h2, h2inv
-            real(dp), dimension(lx2*ly2*lz2*lelv,mxprev), intent(inout) :: proj_set
+            real(dp), dimension(lp), intent(inout) :: dpr
+            real(dp), dimension(lv), intent(in)    :: h1, h2, h2inv
+            real(dp), dimension(lp,mxprev), intent(inout) :: proj_set
             integer, intent(inout) :: niprev
             procedure(abstract_pressure_matvec) :: matvec
             character(len=2), intent(in) :: info_str
@@ -871,9 +849,9 @@
          end subroutine setrhs_pressure_2Dh
  
          subroutine gensoln_pressure_2Dh(dpr, h1, h2, h2inv, proj_set, niprev, matvec)
-            real(dp), dimension(lx2*ly2*lz2*lelv), intent(inout) :: dpr
-            real(dp), dimension(lx1*ly1*lz1*lelv), intent(in)    :: h1, h2, h2inv
-            real(dp), dimension(lx2*ly2*lz2*lelv,mxprev), intent(inout) :: proj_set
+            real(dp), dimension(lp), intent(inout) :: dpr
+            real(dp), dimension(lv), intent(in)    :: h1, h2, h2inv
+            real(dp), dimension(lp,mxprev), intent(inout) :: proj_set
             integer, intent(inout) :: niprev
             procedure(abstract_pressure_matvec) :: matvec
             ! internal
@@ -913,9 +891,9 @@
  
          subroutine econj_pressure_2Dh(proj_set, nprev, h1, h2, h2inv, matvec, ierr)
             ! E-conjugate the last vector in proj_set wrt. the previous vectors
-            real(dp), dimension(lx2*ly2*lz2*lelv,mxprev), intent(inout) :: proj_set
+            real(dp), dimension(lp,mxprev), intent(inout) :: proj_set
             integer, intent(inout) :: nprev
-            real(dp), dimension(lx1*ly1*lz1*lelv), intent(in) :: h1, h2, h2inv
+            real(dp), dimension(lv), intent(in) :: h1, h2, h2inv
             procedure(abstract_pressure_matvec) :: matvec
             integer, intent(out) :: ierr
             ! internal

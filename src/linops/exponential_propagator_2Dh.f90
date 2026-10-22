@@ -129,7 +129,7 @@
          ! Integrate the equations forward in time.
                time = 0.0_dp
                do istep = 1, nsteps
-                  call nek_advance_2Dh_axisym(self%alphas)
+                  call nek_advance_2Dh_axisym(self%alpha)
                end do
          ! Copy the final solution to vector.
                call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
@@ -160,7 +160,7 @@
          ! Integrate the equations forward in time.
                time = 0.0_dp
                do istep = 1, nsteps
-                  call nek_advance_2Dh_axisym(-self%alphas) ! sign flip for adjoint integration
+                  call nek_advance_2Dh_axisym(-self%alpha) ! sign flip for adjoint integration
                end do
          ! Copy the final solution to vector.
                call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)

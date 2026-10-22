@@ -110,7 +110,7 @@
       ! --> Type.
          type, extends(abstract_linop_cdp), public :: exptA_2Dh_axisym_linop
             real(kind=dp) :: tau
-            real(kind=dp) :: alphas
+            real(kind=dp) :: alpha
             real(kind=dp) :: Ls
             type(nek_dvector) :: baseflow
          contains

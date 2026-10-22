@@ -40,14 +40,16 @@
 
          private
          character(len=*), parameter, private :: this_module = 'neklab_2Dh'
+         integer, parameter :: lv = lx1*ly1*lz1*lelv
+         integer, parameter :: lp = lx2*ly2*lz2*lelv
 
       ! Fields handed from one stage to the next.
       ! m1
-         real(dp), dimension(lx1*ly1*lz1*lelv,lpert),   private :: gradw    ! third-component pressure gradient (make_coupling -> cresvipp)
-         real(dp), dimension(lx1*ly1*lz1*lelv,3,lpert), private :: resv_jp  ! momentum residuals per slot (axisym: ophx after the slot loop)
-         real(dp), dimension(lx1*ly1*lz1*lelv),         private :: dw       ! third-component pressure correction
+         real(dp), dimension(lv,lpert),   private :: gradw    ! third-component pressure gradient (make_coupling -> cresvipp)
+         real(dp), dimension(lv,3,lpert), private :: resv_jp  ! momentum residuals per slot (axisym: ophx after the slot loop)
+         real(dp), dimension(lv),         private :: dw       ! third-component pressure correction
       ! m2
-         real(dp), dimension(lx2*ly2*lz2*lelv,lpert),   private :: dpr      ! pressure correction
+         real(dp), dimension(lp,lpert),   private :: dpr      ! pressure correction
 
          public :: nek_advance_2Dh_planar
          public :: nek_advance_2Dh_axisym
@@ -130,9 +132,7 @@
          subroutine nek_advance_2Dh_axisym(alpha)
       !! One linear step of the axisymmetric 2Dh problem, azimuthal wavenumber alpha.
             real(dp), intent(in) :: alpha
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: w1, w2, w3, resv1, resv2, resv3, dv1, dv2, dv3
             real(dp), dimension(lx1,ly1,lz1,lelv) :: h1, h2, h2inv
-            common /SCRNS/  w1, w2, w3, resv1, resv2, resv3, dv1, dv2, dv3
             common /SCRVH/  h1
             common /SCRCH/  h2
             common /scrhi/  h2inv

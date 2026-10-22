@@ -47,7 +47,7 @@
       !!     regardless of lambda);
       !!   - explicit advection terms (linearised (U.grad)u + (u.grad)U along
       !!     the torsion-corrected streamwise direction), added exactly where
-      !!     add_torus_curv_R/phi are added, so they ride EXT3 for free;
+      !!     add_axisym_curv_R/phi are added, so they ride EXT3 for free;
       !!   - explicit viscous terms (the alpha-free part of the vector
       !!     Laplacian's torsion correction);
       !!   - a genuinely new pressure/continuity coupling,
@@ -297,7 +297,7 @@
       !
       !  Both routines below accumulate into LOCAL buffers first and only
       !  ADD the (weighted) result onto the caller's rhs at the very end --
-      !  exactly mirroring add_torus_curv_R/phi. rhs arrives already carrying
+      !  exactly mirroring add_axisym_curv_R/phi. rhs arrives already carrying
       !  other, already-weighted contributions (advZ/advR and the torus
       !  curvature terms); weighting the torsion contribution in isolation
       !  before the final add2 is what keeps those earlier contributions from
@@ -305,7 +305,7 @@
 
          subroutine add_torsion_forcing_RZ(rhs_z, rhs_r, jp_)
       !! Adds the torsion RHS to the Z- and R-momentum equations. Injected at
-      !! the same point in makefp_2Dh_axisym as add_torus_curv_R, i.e. after
+      !! the same point in makefp_2Dh_axisym as add_axisym_curv_R, i.e. after
       !! the convective step and before EXT3, so it rides makextp automatically.
       !!
       !! ADVECTION -- from (U.grad)u + (u.grad)U with the torsion-corrected
@@ -332,7 +332,7 @@
       !! buffers and weighted independently before being summed onto the rhs.
       !! This mirrors how the code already treats the two contributions
       !! elsewhere: the advection RHS is weighted by vtrans in
-      !! add_torus_curv_R, while the viscous shift terms are weighted by vdiff
+      !! add_axisym_curv_R, while the viscous shift terms are weighted by vdiff
       !! inside helmholtz_matvec_2Dh_axisym.
       !!
       !! STABILITY NOTE: the advective group above is a solid-body rotation
@@ -407,7 +407,7 @@
 
          subroutine add_torsion_forcing_phi(rhs_phi, jp_)
       !! Adds the torsion RHS to the phi ("swirl") equation. Injected in
-      !! makefp_2Dh_axisym at the same point as add_torus_curv_phi.
+      !! makefp_2Dh_axisym at the same point as add_axisym_curv_phi.
       !!
       !!   phi += (lambda U_phi/R) dtheta(u_phi) + (lambda u_phi/R) dtheta(U_phi)
       !!        + lambda^2*Ltheta(u_phi) - (2*lambda/R^2)*dtheta(u_R)
@@ -482,7 +482,7 @@
       !!       way the Helmholtz operator is. Advective groups carry vtrans
       !!       (= rho) explicitly, matching the existing torus userf force
       !!       ffy = temp**2/y (bare density, rho = 1). Signs follow the same
-      !!       LHS -> RHS flip as add_torus_curv_R.
+      !!       LHS -> RHS flip as add_axisym_curv_R.
       !!
       !! The phi ("swirl") force is carried in u_phi's slot, i.e. temperature;
       !! it is written into the fz component of the jp = 0 vector, to be read
@@ -575,7 +575,7 @@
       !!   Re[i w] = -w^I,  Im[i w] = +w^R,
       !! i.e. sign +1 when writing into the Imag slot (ipert=2), -1 when writing
       !! into the Real slot (ipert=1). Same convention as
-      !! compute_torus_s_advection (whose term is -i*alpha, opposite sign).
+      !! compute_swirl_advection_axisym (whose term is -i*alpha, opposite sign).
       !!
       !! All terms are viscous (from the vector Laplacian, 1/Re prefactor), so
       !! weighted by nu (vdiff). Treated explicitly via EXT3; O(alpha*lambda/R^2

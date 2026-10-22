@@ -19,6 +19,7 @@
       !! --> Stability analysis routines
          use neklab_analysis_torus
       !! --> Analysis of the torus
+         use neklab_2Dh
          use neklab_2Dh_common
          use neklab_2Dh_planar
          use neklab_2Dh_axisym

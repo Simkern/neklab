@@ -21,7 +21,7 @@
          use neklab_utils
          use neklab_nek_setup
          use neklab_helix
-         use neklab_2Dh_axisym
+         use neklab_2Dh
          use neklab_t2Dh, only: t2Dh
          use t2Dh_bf_buffer, only: bf_reset, bf_begin_step, bf_end_step,
      &                             bf_close_record, bf_replay_start,

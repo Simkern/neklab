@@ -15,7 +15,7 @@
          call setup_linear_solver(solve_baseflow = .false.,
      &                            endtime        = self%tau,
      &                            recompute_dt   = .true.,
-     &                            cfl_limit      = 0.5_dp)
+     &                            cfl_limit      = 0.4_dp)
          ! Check whether we need to consider spanwise advection (W)
          if_advW = check_W(self%if_advW, self%betaz, wtol)
          msg = 'W advection is '//merge('active.  ','inactive.',if_advW)
@@ -45,7 +45,7 @@
      &                                  silent        = .false.,
      &                                  endtime       = self%tau,
      &                                  recompute_dt  = .true.,
-     &                                  cfl_limit     = 0.5_dp)
+     &                                  cfl_limit     = 0.4_dp)
          ! Set initial condition for the linearized solver.
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
          ! Integrate the equations forward in time.
@@ -85,7 +85,7 @@
          ! Integrate the equations forward in time.
                time = 0.0_dp
                do istep = 1, nsteps
-                  call nek_advance_2Dh_planar(-self%betaz, if_advW) ! sign flip for adjoint integration
+                  call nek_advance_2Dh_planar(self%betaz, if_advW)
                end do
          ! Copy the final solution to vector.
                call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
@@ -107,7 +107,7 @@
          call setup_linear_solver(solve_baseflow = .false.,
      &                            endtime        = self%tau,
      &                            recompute_dt   = .true.,
-     &                            cfl_limit      = 0.5_dp)
+     &                            cfl_limit      = 0.4_dp)
          end procedure init_exptA_2Dh_axisym
 
          module procedure exptA_2Dh_axisym_matvec
@@ -123,7 +123,7 @@
      &                                  silent        = .false.,
      &                                  endtime       = self%tau,
      &                                  recompute_dt  = .true.,
-     &                                  cfl_limit     = 0.5_dp)
+     &                                  cfl_limit     = 0.4_dp)
          ! Set initial condition for the linearized solver.
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
          ! Integrate the equations forward in time.
@@ -154,13 +154,13 @@
      &                                  silent        = .false.,
      &                                  endtime       = self%tau,
      &                                  recompute_dt  = .true.,
-     &                                  cfl_limit     = 0.5_dp)
+     &                                  cfl_limit     = 0.4_dp)
          ! Set initial condition for the linearized solver.
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
          ! Integrate the equations forward in time.
                time = 0.0_dp
                do istep = 1, nsteps
-                  call nek_advance_2Dh_axisym(-self%alpha) ! sign flip for adjoint integration
+                  call nek_advance_2Dh_axisym(self%alpha)
                end do
          ! Copy the final solution to vector.
                call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)

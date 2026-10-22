@@ -37,6 +37,7 @@
          implicit none
          include "SIZE"
          include "TOTAL"
+         include "ADJOINT" ! ifadj
 
          private
          character(len=*), parameter, private :: this_module = 'neklab_2Dh'
@@ -164,6 +165,7 @@
                intype = -1
                ifield = 1
                call sethlm(h1, h2, intype)
+               if (ifadj) call seth2bc(h2)   ! adjoint O/ON boundary term
                call cresvipp_2Dh(resv_jp(1,1,jp), resv_jp(1,2,jp), resv_jp(1,3,jp), gradw(1,jp))
             end do
       ! --- H u: u_Z per slot; u_R/u_phi coupled across the slots at alpha /= 0

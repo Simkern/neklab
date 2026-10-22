@@ -130,6 +130,12 @@
             call init_2Dh_axisym() ! for safety; normally done already
             call check_torsion_cache(this_procedure)
             if (.not. axisym_coeffs_defined .or. alpha /= alpha_cached) call build_axisym_coeffs(alpha)
+            if (ifadj) then
+               if (.not. if_torsion_zero) call nek_stop_error(
+     &            'adjoint mode is not implemented with torsion (lambda /= 0).',
+     &            this_module, this_procedure)
+               call gradm1(dTdx, dTdy, dTdz, t)   ! grad(U_phi) for advabp_adjoint
+            end if
             ! Re/Im pairing is only meaningful for alpha /= 0; npert must match
             ! or the caller has set up the wrong number of perturbation slots.
             alpha_eq_zero = (alpha == 0.0_dp)
@@ -481,6 +487,10 @@
             ! step, so that makextp/makeabqp apply EXT3 to them and roll them
             ! into the lag arrays (exx1p/exx2p, vgradt1p/vgradt2p) automatically.
             !
+            ! Adjoint mode (ifadj): advabp_adjoint/convabp give Nek's adjoint
+            ! transport; the swirl advection flips sign (compute_swirl_advection_axisym)
+            ! and the curvature block is transposed (add_axisym_curv_R/_phi).
+            !
             ! Operates on the current global `jp` (the Nek routines called here
             ! all read it), and restores `ifield` on exit.
             implicit none
@@ -497,20 +507,19 @@
             ntot1 = lx1*ly1*lz1*nelv
             ifield_bak = ifield
             
-            ! The swirl/curvature/torsion terms are linearised about the forward
-            ! base flow and are not adjoint-aware; refuse rather than silently
-            ! solve the wrong system.
-            if (ifadj) call nek_stop_error(
-     &         'adjoint mode not supported by the 2Dh axisym solver',
-     &         this_module, this_procedure)
-            
             ! ---------------- velocity: u_Z, u_R ----------------
             ifield = 1
             call makeufp
-            if (ifnav .and. .not. ifchar) call advabp
-            call add2(bfxp(1,jp), advZ(1,jp), ntot1)   ! -i*alpha*(U_phi/R)*u_Z
-            call add2(bfyp(1,jp), advR(1,jp), ntot1)   ! -i*alpha*(U_phi/R)*u_R
-            call add_axisym_curv_R(bfyp(1,jp), jp)      ! +2*U_phi*u'_phi/R
+            if (ifnav .and. .not. ifchar) then
+               if (ifadj) then
+                  call advabp_adjoint                  ! +(U.grad)u - (grad U)^T u - u_phi grad(U_phi)
+               else
+                  call advabp
+               end if
+            end if
+            call add2(bfxp(1,jp), advZ(1,jp), ntot1)   ! -+i*alpha*(U_phi/R)*u_Z  (direct/adjoint)
+            call add2(bfyp(1,jp), advR(1,jp), ntot1)   ! -+i*alpha*(U_phi/R)*u_R
+            call add_axisym_curv_R(bfyp(1,jp), jp)     ! direct: +2 U_phi u_phi/R, adjoint: -U_phi u_phi/R
             if (.not. if_torsion_zero) call add_torsion_forcing_RZ(bfxp(1,jp), bfyp(1,jp), jp)
             if (iftran) call makextp                   ! <-- EXT3
             call makebdfp
@@ -524,8 +533,9 @@
             
             call makeuqp
             if (ifadvc(ifield) .and. .not. ifchar) call convabp
-            call add2(bqp(1,ifield-1,jp), advPhi(1,jp), ntot1)   ! -i*alpha*(U_phi/R)*u_phi
-            call add_axisym_curv_phi(bqp(1,ifield-1,jp), jp)      ! -(U_phi*u'_R + U_R*u'_phi)/R
+            call add2(bqp(1,ifield-1,jp), advPhi(1,jp), ntot1)   ! -+i*alpha*(U_phi/R)*u_phi
+            call add_axisym_curv_phi(bqp(1,ifield-1,jp), jp)     ! direct: -(U_phi u_R + U_R u_phi)/R
+                                                                 ! adjoint: (2 U_phi u_R - U_R u_phi)/R
             if (.not. if_torsion_zero) call add_torsion_forcing_phi(bqp(1,ifield-1,jp), jp)
             if (iftran) call makeabqp                            ! <-- EXT3
             if ((iftran .and. .not. ifchar) .or.
@@ -552,7 +562,7 @@
             !     linearization of the missing -U_phi^2/R term in (U.grad U)_R
             call col3   (tmp_m1a, t(1,1,1,1,1), tp(1,1,jp_), ntot1)   ! U_phi * u'_phi
             call invcol2(tmp_m1a, ym1, ntot1)                          ! / R
-            call cmult  (tmp_m1a, 2.0_dp, ntot1)
+            call cmult  (tmp_m1a, merge(-1.0_dp, 2.0_dp, ifadj), ntot1)   ! adjoint: transposed block
             call col2   (tmp_m1a, vtrans(1,1,1,1,1), ntot1)            ! rho  (density = 1.0 in your .par)
             call col2   (tmp_m1a, bm1, ntot1)
             call add2   (rhs, tmp_m1a, ntot1)
@@ -574,6 +584,7 @@
             ! --- swirl ("phi") equation: - (U_phi*u'_R + U_R*u'_phi)/R * rhocp * bm1
             !     linearization of the missing +U_R*U_phi/R term in (U.grad U)_phi
             call col3   (tmp_m1a, t(1,1,1,1,1), vyp(1,jp_),  ntot1)    ! U_phi * u'_R
+            if (ifadj) call cmult(tmp_m1a, -2.0_dp, ntot1)             ! adjoint: -2 U_phi u_R
             call col3   (tmp_m1b, vy,           tp(1,1,jp_), ntot1)    ! U_R   * u'_phi  (drop if U_R deemed negligible)
             call add2   (tmp_m1a, tmp_m1b, ntot1)
             call invcol2(tmp_m1a, ym1, ntot1)                          ! / R
@@ -606,7 +617,8 @@
             if (alpha_eq_zero) return
             
             call col3(tmp_m1a, alphaR_coef, t(1,1,1,1,1), ntot1)   ! (alpha/R) * U_phi
-            if (ipert == 1) call chsign(tmp_m1a, ntot1)             ! sign keyed to the READING jp, not the caller
+            if (ifadj) call chsign(tmp_m1a, ntot1)                 ! antisymmetric in slot space: adjoint = -direct
+            if (ipert == 1) call chsign(tmp_m1a, ntot1)            ! sign keyed to the READING jp, not the caller
             
             call col3 (advZ(1,ipert), tmp_m1a, vxp(1,jp_), ntot1)
             call col2 (advZ(1,ipert), vtrans(1,1,1,1,1), ntot1)

@@ -18,38 +18,43 @@
       !! FOURIER CONVENTION  (native)
       !!--------------------------------------------------------------------
       !!
-      !!   f(t) = a_0 + sum_k [ a_ck cos(k w t) + a_sk sin(k w t) ]
-      !!   Q(t) = q_0 + sum_k [ q_ck cos(k w t) + q_sk sin(k w t) ]
+      !!   f(t) = a_0 + 2 sum_k [ a_ck cos(k w t) + a_sk sin(k w t) ]
+      !!   Q(t) = q_0 + 2 sum_k [ q_ck cos(k w t) + q_sk sin(k w t) ]
       !!
-      !!   amp_k   = hypot(._c, ._s)      ! PEAK EXCURSION, both quantities
+      !!   forcing amplitude    |a_k| = hypot(a_ck, a_sk)     half the peak excursion
+      !!   flow-rate amplitude  mf_k  = 2 hypot(q_ck, q_sk)   THE PEAK EXCURSION
       !!   phase_k = atan2(._s, ._c)      ! same sign, both quantities
       !!   t -> t+s :  phase_k -> phase_k - k w s   ! same direction, both
       !!
-      !! ONE convention for the forcing and the flow rate, unlike the helix
-      !! code this was ported from, which projects the forcing onto exp(-ikwt)
-      !! and the flow rate onto exp(+ikwt) and reports the forcing amplitude
-      !! as a peak excursion but the flow-rate amplitude as half of one. The
-      !! packing is dpds = (a_0, a_c1, a_s1, a_c2, a_s2, ...), stored exactly
-      !! as it is evaluated: there is no separate internal 'g' representation.
+      !! (c, s) are the real and minus the imaginary part of the one-sided
+      !! complex coefficient, f = a_0 + 2 Re sum_k (a_ck - i a_sk) exp(ikwt), i.e.
+      !! exactly the c_k = (1/T) int f exp(-ikwt) dt an FFT returns. ONE
+      !! convention for the forcing and the flow rate, and the one that is
+      !! reported everywhere. The packing is dpds = (a_0, a_c1, a_s1, a_c2, ...),
+      !! stored exactly as it is evaluated.
       !!
-      !! Helix decks are still readable through set_dpds_helix / get_dpds_helix
-      !! and mflow_from_helix / mflow_to_helix, which are the ONLY places the
-      !! old convention appears:
+      !! Relation to the helix code (for reading old decks by hand):
       !!
-      !!   a_0 = d_0 ,  a_ck =  2 d_ck ,  a_sk = -2 d_sk      (forcing)
-      !!   q_0 = m_0 ,  q_ck =  2 m_ck ,  q_sk =  2 m_sk      (flow rate)
+      !!   a_0 = d_0 ,  a_ck = d_ck ,  a_sk = -d_sk      (forcing: sine flipped)
+      !!   q_0 = m_0 ,  q_ck = m_ck ,  q_sk =  m_sk      (flow rate: identical)
       !!
-      !! so a helix flow-rate amplitude is HALF the native one, while the two
-      !! forcing amplitudes agree.
+      !! The sine flip is what makes the forcing and flow-rate phases rotate in
+      !! the same direction under a time shift.
       !!
-      !! FLOW-RATE TARGETS are given as RATIOS, not as helix amplitudes:
+      !! FLOW-RATE TARGETS are given as RATIOS:
       !!
       !!   target(1)   = Q(0)                 the mean, absolute
-      !!   target(k+1) = 2*Q(k)/Q(0)          the amplitude ratio
+      !!   target(k+1) = 2*Q(k)/Q(0)          peak excursion over mean
       !!
-      !! Since the native amplitude IS 2*Q(k), the conversion is a
-      !! multiplication by the mean and reduces to the identity at Q(0) = 1.
+      !! with Q(k) = hypot(q_ck, q_sk), so the stored target is the peak
+      !! excursion target(k+1)*Q(0) -- at Q(0) = 1 exactly the deck number,
+      !! and exactly what mflow_summary prints. The flow-rate coefficients
+      !! qfour stay one-sided; only the amplitude mf carries the factor 2.
       !! See set_target_ratio / get_mflow_ratio.
+      !!
+      !! Records (.nwt, .t2Dh) carry convention = t2Dh_fourier_convention and
+      !! are refused without it: files from the earlier convention, whose
+      !! harmonics were twice the present values, cannot be read.
       !!
       !!--------------------------------------------------------------------
       !! FORCING PROFILE
@@ -61,8 +66,9 @@
       !! uniform f_phi is not: curl f = f/R). This matches helix exactly --
       !! helix_legacy_utils divides by curv_radius and then multiplies by
       !! fshape = 1/(1 + delta*rr*sin(alpha)), whose product is 1/R -- so the
-      !! same dpds means the same physical forcing in both codes. The earlier
-      !! 2Dh port carried a spurious reference radius R0 in front; it is gone.
+      !! same physical forcing is obtained once the coefficients are related as
+      !! above. The earlier 2Dh port carried a spurious reference radius R0 in
+      !! front; it is gone.
          use stdlib_optval, only: optval
          use stdlib_strings, only: padl, padr
          use LightKrylov, only: dp, atol_dp
@@ -89,6 +95,10 @@
          integer, parameter, public :: lmfc = kmax_t2Dh + 1
       !! Number of amplitude unknowns / constraints, one mean + one per harmonic.
 
+         integer, parameter, public :: t2Dh_fourier_convention = 2
+      !! Version tag written to and required from every record that stores
+      !! Fourier coefficients. 2 = one-sided coefficients (factor 2 in the basis).
+
          real(dp), parameter, public :: c_inertial = 0.3_dp
       !! Empirical prefactor of the inertial forcing law used to seed the
       !! outer Jacobian,
@@ -97,16 +107,17 @@
       !!
       !! calibrated at Q_mean = 1 over a range of omega and delta, for which
       !! all amplitude curves collapse onto a line of this slope once scaled
-      !! by omega/delta. NOTE: the angular-momentum balance
-      !! R_c d(u_phi)/dt = f_phi with f_phi = a/R gives a prefactor of ONE, and
-      !! viscosity can only push the required forcing UP (impedances add in
-      !! quadrature), so a measured value below one is almost certainly a
-      !! definition offset between the plotted axes and the symbols above --
-      !! peak versus half excursion, or r versus D as the length scale. The
-      !! value is therefore treated as a calibration, not as physics, and the
-      !! first Broyden update logs the measured-to-seeded ratio so that a
-      !! systematic factor shows up in every run instead of in a plot. See
-      !! seed_jacobian.
+      !! by omega/delta. The law relates forcing and flow-rate amplitudes taken
+      !! in the SAME convention, so it does not depend on the factor 2 of the
+      !! basis. NOTE: the angular-momentum balance R_c d(u_phi)/dt = f_phi with
+      !! f_phi = a/R gives a prefactor of ONE, and viscosity can only push the
+      !! required forcing UP (impedances add in quadrature), so a measured value
+      !! below one is almost certainly a definition offset between the plotted
+      !! axes and the symbols above -- r versus D as the length scale, for
+      !! instance. The value is therefore treated as a calibration, not as
+      !! physics, and the first Broyden update logs the measured-to-seeded ratio
+      !! so that a systematic factor shows up in every run instead of in a plot.
+      !! See seed_jacobian.
 
       !--------------------------------------------------------------------
       !-----     THE CONTROL TYPE                                     -----
@@ -182,8 +193,6 @@
       ! t2Dh_gs
             procedure, pass(self), public :: get_dpds
             procedure, pass(self), public :: set_dpds
-            procedure, pass(self), public :: get_dpds_helix
-            procedure, pass(self), public :: set_dpds_helix
             procedure, pass(self), public :: get_amp_phase
             procedure, pass(self), public :: add_amplitude_step
             procedure, pass(self), public :: probe_dpds
@@ -230,10 +239,6 @@
 
          public :: t2Dh_basis
       !! Temporal basis function, exposed for the analysis driver's diagnostics.
-         public :: helix2native, native2helix
-      !! Forcing-convention converters. The internal storage is always native;
-      !! anything that reads or writes to a user-facing plot, log, or driver
-      !! deck goes through one of these.
 
       !--------------------------------------------------------------------
       !-----     SUBMODULE INTERFACES                                 -----
@@ -252,16 +257,6 @@
                class(nek_t2Dh), intent(inout) :: self
                real(dp), dimension(:), intent(in) :: dpds
             end subroutine set_dpds
-
-            module subroutine get_dpds_helix(self, dpds)
-               class(nek_t2Dh), intent(in) :: self
-               real(dp), dimension(:), intent(out) :: dpds
-            end subroutine get_dpds_helix
-
-            module subroutine set_dpds_helix(self, dpds)
-               class(nek_t2Dh), intent(inout) :: self
-               real(dp), dimension(:), intent(in) :: dpds
-            end subroutine set_dpds_helix
 
             module subroutine get_amp_phase(self, amp, phase)
                class(nek_t2Dh), intent(in) :: self
@@ -665,7 +660,7 @@
             end if
          end subroutine check_helix_embedding
 
-         subroutine init_flow(self, dpds, womersley, overwrite, helix_legacy)
+         subroutine init_flow(self, dpds, womersley, overwrite)
       !! Configures the control from a forcing vector and a Womersley number,
       !! mirroring neklab_helix % init_flow.
       !!
@@ -679,11 +674,8 @@
       !! Wo is fixed for the whole run: the driver calls this once and the
       !! period never changes afterwards.
       !!
-      !! CONVENTION: dpds is native by default. Pass helix_legacy=.true. for a deck
-      !! written in the helix_legacy convention (the one physicists write on paper:
-      !! d0 the mean, d_ck + i d_sk the complex amplitude of the k-th harmonic);
-      !! the routine then applies helix2native before storing. This is the
-      !! shape a userchk warm-up deck usually takes.
+      !! CONVENTION: dpds is native (see the module header). A helix deck
+      !! (d_0, d_c1, d_s1, ...) is passed as (d_0, d_c1, -d_s1, ...).
             class(nek_t2Dh), intent(inout) :: self
             real(dp), dimension(:), intent(in) :: dpds
       !! Forcing components, nf = 2K+1 of them. Length is not fixed and does
@@ -692,23 +684,18 @@
       !! Womersley number of the fundamental. Zero or absent: steady problem.
             logical, optional, intent(in) :: overwrite
       !! Reconfigure even if already initialised. Default .false.
-            logical, optional, intent(in) :: helix_legacy
-      !! Interpret dpds in the helix_legacy convention and convert before storing.
-      !! Default .false. (native, i.e. what the Newton solver stores back).
       ! internal
             character(len=*), parameter :: this_procedure = 'init_flow'
             character(len=256) :: msg
-            real(dp), dimension(size(dpds)) :: d_use
             real(dp) :: Wo, pi
             integer :: n
-            logical :: overwrite_, helix_legacy_
+            logical :: overwrite_
             integer, parameter :: pad = 10
 
             pi = 4.0_dp*atan(1.0_dp)
             n = size(dpds)
             Wo = optval(womersley, 0.0_dp)
             overwrite_ = optval(overwrite, .false.)
-            helix_legacy_ = optval(helix_legacy, .false.)
 
             if (self%is_initialized) then
                call nek_log_message('init_flow called on an already-initialized t2Dh.',
@@ -729,7 +716,7 @@
                if (overwrite_) then
                   call nek_log_warning('Overwriting the existing configuration.', this_module, this_procedure)
                else
-                  call nek_log_message('Use existing configuration. Use overwrite=.true. to force reconfiguration.', 
+                  call nek_log_message('Use existing configuration. Use overwrite=.true. to force reconfiguration.',
      &               this_module, this_procedure)
                   return
                end if
@@ -746,16 +733,6 @@
             if (mod(n, 2) == 0) then
                write (msg, '(A,I0,A)') 'nf= ', n, ' is even. nf must be 2K+1.'
                call nek_stop_error(msg, this_module, this_procedure)
-            end if
-
-      ! ---- convert to native if requested. From here on everything is native,
-      !      matching self%dpds and every downstream reader.
-            if (helix_legacy_) then
-               d_use = helix2native(dpds)
-               call nek_log_message('init_flow: input dpds interpreted in helix_legacy convention.',
-     &            this_module, this_procedure)
-            else
-               d_use = dpds
             end if
 
             self%if_unsteady = (abs(Wo) > atol_dp)
@@ -785,7 +762,7 @@
             self%nmf = self%kharm + 1
 
             self%dpds = 0.0_dp
-            self%dpds(1:self%nf) = d_use(1:self%nf)
+            self%dpds(1:self%nf) = dpds(1:self%nf)
             call bcast(self%dpds, lfc*wdsize)
 
       ! measurement state belongs to a trajectory, not to a configuration
@@ -812,7 +789,8 @@
       !====================================================================
 
          real(dp) function amplitude(self, tval) result(f)
-      !! Instantaneous streamwise forcing amplitude in the native convention.
+      !! Instantaneous streamwise forcing amplitude in the native convention,
+      !! f = a_0 + 2 sum_k (a_ck cos + a_sk sin).
       !! This is the analogue of neklab_helix % forcing_amplitude and it is the
       !! ONLY place the temporal shape of the forcing is defined.
             class(nek_t2Dh), intent(in) :: self
@@ -825,7 +803,7 @@
                do k = 1, self%kharm
                   i = 2*k
                   wt = k*self%omega*tval
-                  f = f + self%dpds(i)*cos(wt) + self%dpds(i + 1)*sin(wt)
+                  f = f + 2.0_dp*(self%dpds(i)*cos(wt) + self%dpds(i + 1)*sin(wt))
                end do
             end if
          end function amplitude
@@ -874,7 +852,9 @@
          real(dp) function t2Dh_basis(i, omega, tval) result(phi)
       !! i-th temporal basis function: 1, cos(wt), sin(wt), cos(2wt), ...
       !! Module-level rather than type-bound so that the accumulator can call
-      !! it without a self reference in an inner loop.
+      !! it without a self reference in an inner loop. The factor 2 of the
+      !! one-sided convention is NOT part of the basis: projections onto it are
+      !! normalised by 1/T, and syntheses (amplitude) carry the 2 explicitly.
             integer, intent(in) :: i
             real(dp), intent(in) :: omega
             real(dp), intent(in) :: tval
@@ -891,53 +871,5 @@
                end if
             end if
          end function t2Dh_basis
-
-         pure function helix2native(d) result(a)
-      !! HELIX -> NATIVE forcing convention:
-      !!
-      !!    a_0  =    d_0
-      !!    a_ck =  2 d_ck
-      !!    a_sk = -2 d_sk           (k = 1 .. (n-1)/2)
-      !!
-      !! The factor of two is the usual accounting when the complex helix
-      !! coefficient is expanded into a real cos-sin pair; the sign flip on
-      !! the sine is what makes the forcing and the flow-rate phases rotate
-      !! in the same direction once written in the native basis, which is
-      !! the whole point of the native convention.
-      !!
-      !! The result has the same length as the input; if the input is even in
-      !! length (an incomplete harmonic pair) the trailing element is dropped.
-      !! Callers should have checked mod(size(d), 2) == 1 first.
-            real(dp), dimension(:), intent(in) :: d
-            real(dp), dimension(size(d)) :: a
-      ! internal
-            integer :: k, i, n
-            n = size(d)
-            a = 0.0_dp
-            if (n < 1) return
-            a(1) = d(1)
-            do k = 1, (n - 1)/2
-               i = 2*k
-               a(i)     =  2.0_dp*d(i)
-               a(i + 1) = -2.0_dp*d(i + 1)
-            end do
-         end function helix2native
-
-         pure function native2helix(a) result(d)
-      !! NATIVE -> HELIX forcing convention. Inverse of helix2native.
-            real(dp), dimension(:), intent(in) :: a
-            real(dp), dimension(size(a)) :: d
-      ! internal
-            integer :: k, i, n
-            n = size(a)
-            d = 0.0_dp
-            if (n < 1) return
-            d(1) = a(1)
-            do k = 1, (n - 1)/2
-               i = 2*k
-               d(i)     =  0.5_dp*a(i)
-               d(i + 1) = -0.5_dp*a(i + 1)
-            end do
-         end function native2helix
 
       end module neklab_t2Dh

@@ -18,6 +18,11 @@
       !! Newton-Krylov residual history, the step sizes or the timings: those
       !! belong in the log, they differ every run, and nothing consumes them.
       !!
+      !! FOURIER CONVENTION. Every coefficient in the record is in the native
+      !! one-sided convention of neklab_t2Dh, and the record carries
+      !! convention = t2Dh_fourier_convention. nwt_restore refuses a record
+      !! without that tag: older files hold harmonics twice the present values.
+      !!
       !! NUMBER FORMAT. Anything between 1e-4 and 1e7 is written in fixed point
       !! with trailing zeros trimmed, so a Womersley number of 40 reads as 40.0
       !! rather than 0.4000000000000000E+02. Outside that window it falls back
@@ -44,7 +49,7 @@
          use LightKrylov, only: dp
          use neklab_nek_setup, only: nek_log_message, nek_log_information,
      &                               nek_log_warning, nek_stop_error
-         use neklab_t2Dh, only: t2Dh, lfc, lmfc
+         use neklab_t2Dh, only: t2Dh, lfc, lmfc, t2Dh_fourier_convention
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -68,6 +73,8 @@
          type, public :: t2Dh_nwt_record
       !! Fixed-size arrays throughout (lfc, lmfc are compile-time), so the type
       !! is trivially broadcastable and a record can be copied by assignment.
+      ! --- Fourier convention of every coefficient below. Required on restore.
+            integer :: convention = 0
       ! --- sizes
             integer :: nf = 0
             integer :: nmf = 0
@@ -85,13 +92,12 @@
             real(dp) :: period = 0.0_dp
       ! --- forcing. dpds IS the restart.
             real(dp), dimension(lfc) :: dpds = 0.0_dp
-      !! Native convention. What init_flow consumes.
-            real(dp), dimension(lfc) :: dpds_helix = 0.0_dp
-      !! Legacy helix convention, for comparison with a helix deck. Never read.
+      !! Native (one-sided) convention. What init_flow consumes.
             real(dp), dimension(lmfc) :: amp = 0.0_dp
             real(dp), dimension(lmfc) :: phase = 0.0_dp
       ! --- flow rate
             real(dp), dimension(lmfc) :: mflow = 0.0_dp
+      !! Harmonics are peak excursions, as t2Dh%mf. Never restored.
             real(dp), dimension(lmfc) :: mf_target = 0.0_dp
             real(dp), dimension(lmfc) :: mf_err = 0.0_dp
             real(dp), dimension(lmfc) :: qerr = 0.0_dp
@@ -194,6 +200,7 @@
             real(dp), dimension(lfc) :: d
             real(dp), dimension(lmfc) :: a, p
 
+            self%convention = t2Dh_fourier_convention
             self%nf = t2Dh%get_nf()
             self%nmf = t2Dh%get_nmf()
             self%kharm = t2Dh%get_kharm()
@@ -213,8 +220,6 @@
             self%dpds = d
             self%amp = a
             self%phase = p
-            self%dpds_helix = 0.0_dp
-            call t2Dh%get_dpds_helix(self%dpds_helix)
 
             self%mf_target = t2Dh%get_target()
 
@@ -302,6 +307,7 @@
 
             write (iunit, '(A)') '#'
             write (iunit, '(A)') '# --- identification'
+            call put_i(iunit, 'convention', rec%convention)
             call put_i(iunit, 'nf', rec%nf)
             call put_i(iunit, 'nmf', rec%nmf)
             call put_i(iunit, 'kharm', rec%kharm)
@@ -317,8 +323,7 @@
             call put_r(iunit, 'omega', rec%omega)
             call put_r(iunit, 'period', rec%period)
             write (iunit, '(A)') '# --- forcing'
-            call put_v(iunit, 'dpds  (native)', rec%dpds, n)
-            call put_v(iunit, 'dpds_helix  (legacy)', rec%dpds_helix, n)
+            call put_v(iunit, 'dpds  (native, one-sided)', rec%dpds, n)
             call put_v(iunit, 'amplitude', rec%amp, m)
             call put_v(iunit, 'phase', rec%phase, m)
             write (iunit, '(A)') '# --- flow rate'
@@ -478,6 +483,7 @@
                      n = max(rec%nf, 1)
                      m = max(rec%nmf, 1)
                      select case (trim(key))
+                     case ('convention'); read (val, *) rec%convention
                      case ('nf'); read (val, *) rec%nf
                      case ('nmf'); read (val, *) rec%nmf
                      case ('kharm'); read (val, *) rec%kharm
@@ -491,7 +497,6 @@
                      case ('omega'); read (val, *) rec%omega
                      case ('period'); read (val, *) rec%period
                      case ('dpds'); read (val, *) (rec%dpds(i), i=1, n)
-                     case ('dpds_helix'); read (val, *) (rec%dpds_helix(i), i=1, n)
                      case ('amplitude'); read (val, *) (rec%amp(i), i=1, m)
                      case ('phase'); read (val, *) (rec%phase(i), i=1, m)
                      case ('mflow'); read (val, *) (rec%mflow(i), i=1, m)
@@ -545,6 +550,9 @@
       !! converged on one mesh at one Re is not a good guess on another, and
       !! finding that out from a diverging Newton three hours in is worse than
       !! finding it out here.
+      !!
+      !! The Fourier convention tag is REQUIRED: a record without it (or with a
+      !! different one) stops the run.
             character(len=*), intent(in) :: fname
             type(t2Dh_nwt_record), intent(out) :: rec
             integer, intent(out) :: ierr
@@ -574,6 +582,15 @@
 
             call nwt_read(fname, rec, ierr)
             if (ierr /= 0) return
+
+      ! ---- Fourier convention. Records without the tag hold harmonics twice
+      !      the present values; there is no conversion.
+            if (rec%convention /= t2Dh_fourier_convention) then
+               write (msg, '(A,A,A,I0,A,I0,A)') trim(fname), ' has Fourier convention ',
+     &            'tag ', rec%convention, ', this build needs ', t2Dh_fourier_convention,
+     &            '. Old records are not supported.'
+               call nek_stop_error(msg, this_module, this_procedure)
+            end if
 
       ! ---- Womersley number
             if (use_file_Wo) then
@@ -690,6 +707,7 @@
       !! Component by component: a derived type with default initialisation is
       !! not guaranteed contiguous and nek's bcast is byte-based.
             type(t2Dh_nwt_record), intent(inout) :: rec
+            call bcast(rec%convention, isize)
             call bcast(rec%nf, isize)
             call bcast(rec%nmf, isize)
             call bcast(rec%kharm, isize)
@@ -710,7 +728,6 @@
             call bcast(rec%eabs, wdsize)
             call bcast(rec%noise, wdsize)
             call bcast(rec%dpds, lfc*wdsize)
-            call bcast(rec%dpds_helix, lfc*wdsize)
             call bcast(rec%amp, lmfc*wdsize)
             call bcast(rec%phase, lmfc*wdsize)
             call bcast(rec%mflow, lmfc*wdsize)

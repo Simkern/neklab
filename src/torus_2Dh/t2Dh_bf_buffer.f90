@@ -53,6 +53,10 @@
       !! the GLOBAL element numbering, so files are portable across a change in
       !! the number of MPI ranks.
       !!
+      !! The text sidecar (<prefix><base>.t2Dh, see bf_write_t2Dh) carries the
+      !! forcing in the native one-sided Fourier convention and a convention tag;
+      !! sidecars without the tag are refused.
+      !!
       !! NOTE ON NAMING: the parameter lbuf below shadows the lbuf of
       !! neklab_helix. Any scoping unit that uses both modules must import at
       !! least one of them with an explicit only-list.
@@ -81,6 +85,11 @@
          integer, parameter, public :: lbuf = 1000
       !! Maximum number of snapshots held in memory before the chunk is spilled
       !! to disk. Compile-time, same convention as lelv / lpert.
+
+         integer, parameter, private :: sidecar_convention = 2
+      !! Fourier convention of the dpds in the sidecar. Must equal
+      !! neklab_t2Dh's t2Dh_fourier_convention (this module does not use
+      !! neklab_t2Dh, hence the copy).
 
       !--------------------------------------------------------------------
       !-----     BUFFER STATE                                         -----
@@ -663,6 +672,9 @@
       !! field files. Kept out of the binary so the format stays byte-identical
       !! to the helix files and the existing Python readers keep working.
       !! Not currently consumed by the driver: partial-run restart is not wired.
+      !!
+      !! dpds is in the native one-sided Fourier convention; the file carries
+      !! the convention tag, and bf_read_t2Dh refuses files without it.
             real(dp), dimension(:), intent(in) :: dpds
             integer, intent(in) :: nf
             real(dp), intent(in) :: omega
@@ -676,6 +688,7 @@
             write (fname, '(A,A,A)') fprefix, trim(fbase), '.t2Dh'
             open (newunit=iunit, file=trim(fname), status='replace', action='write')
             write (iunit, '(A)') '# neklab baseflow buffer t2Dh state'
+            write (iunit, '(A,I0)') 'convention = ', sidecar_convention
             write (iunit, '(A,I0)') 'nf     = ', nf
             write (iunit, '(A,I0)') 'nsteps = ', nsteps_rec
             write (iunit, '(A,I0)') 'nchunk = ', nchunk
@@ -688,7 +701,11 @@
          end subroutine bf_write_t2Dh
 
          subroutine bf_read_t2Dh(dpds, nf, omega, period, ierr)
-      !! Reads the sidecar file back. ierr /= 0 if it is missing.
+      !! Reads the sidecar file back. ierr /= 0 if it is missing. Stops if the
+      !! file carries no (or a different) Fourier convention tag.
+      !!
+      !! The parser matches keys by substring. 'convention' contains none of
+      !! the other keys ('nf', 'nsteps', 'nchunk', 'omega', 'period', 'dpds').
             real(dp), dimension(:), intent(out) :: dpds
             integer, intent(out) :: nf
             real(dp), intent(out) :: omega
@@ -698,9 +715,9 @@
             character(len=*), parameter :: this_procedure = 'bf_read_t2Dh'
             character(len=132) :: fname
             character(len=1024) :: line
-            integer :: iunit, i, ipos
+            integer :: iunit, i, ipos, iconv
             logical :: exists
-            dpds = 0.0_dp; nf = 0; omega = 0.0_dp; period = 0.0_dp; ierr = 0
+            dpds = 0.0_dp; nf = 0; omega = 0.0_dp; period = 0.0_dp; ierr = 0; iconv = 0
             fname = ' '
             write (fname, '(A,A,A)') fprefix, trim(fbase), '.t2Dh'
             if (nid == 0) then
@@ -720,9 +737,11 @@
                      if (index(line, 'nchunk') > 0) read (line(ipos + 1:), *) nchunk
                      if (index(line, 'omega') > 0) read (line(ipos + 1:), *) omega
                      if (index(line, 'period') > 0) read (line(ipos + 1:), *) period
+                     if (index(line, 'convention') > 0) read (line(ipos + 1:), *) iconv
                   end do
 100               rewind (iunit)
                   if (nf > size(dpds)) ierr = 2
+                  if (iconv /= sidecar_convention) ierr = 3
                   if (ierr == 0) then
                      do
                         read (iunit, '(A)', end=200) line
@@ -735,6 +754,11 @@
                end if
             end if
             call bcast(ierr, isize)
+            if (ierr == 3) then
+               call nek_stop_error(trim(fname)//' has no Fourier convention tag (old sidecar): '//
+     &            'its dpds harmonics are twice the present values. Old sidecars are not supported.',
+     &            this_module, this_procedure)
+            end if
             if (ierr /= 0) then
                call nek_log_warning('Could not read t2Dh state from '//trim(fname), this_module, this_procedure)
                return

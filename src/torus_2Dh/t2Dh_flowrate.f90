@@ -15,10 +15,16 @@
       !! over one period,
       !!
       !!    q_1     = (1/T) int_0^T Q dt
-      !!    q_{2k}  = (2/T) int_0^T Q cos(k w t) dt
-      !!    q_{2k+1}= (2/T) int_0^T Q sin(k w t) dt
+      !!    q_{2k}  = (1/T) int_0^T Q cos(k w t) dt
+      !!    q_{2k+1}= (1/T) int_0^T Q sin(k w t) dt
       !!
-      !! accumulated along the trajectory. For the steady problem it is simply
+      !! i.e. the one-sided coefficients of Q = q_1 + 2 sum_k (q_2k cos + q_2k+1 sin),
+      !! accumulated along the trajectory. qfour holds them as they are. The
+      !! harmonic AMPLITUDE mf(k+1) -- what is reported, targeted and
+      !! constrained -- is the PEAK EXCURSION 2*hypot(q_2k, q_2k+1), so that at
+      !! Q(0) = 1 it reads directly as 2Q(k)/Q(0). The mean is q_1.
+      !!
+      !! For the steady problem it is simply
       !! the instantaneous bulk velocity of the converged state, read from the
       !! state vector rather than from the Nek field -- the last residual
       !! evaluation of the inner Newton does not necessarily leave the iterate
@@ -216,13 +222,11 @@
      &             + self%q_lag*t2Dh_basis(i, self%omega, self%t_lag))
             end do
          end if
-      ! normalise: mean, then twice the projection for each harmonic
+      ! normalise: 1/T on every component (one-sided coefficients)
          cfine = 0.0_dp; ccrs = 0.0_dp
-         cfine(1) = self%q_acc(1)/self%t_acc
-         ccrs(1) = self%q_crs(1)/self%t_acc
-         do i = 2, self%nf
-            cfine(i) = 2.0_dp*self%q_acc(i)/self%t_acc
-            ccrs(i) = 2.0_dp*self%q_crs(i)/self%t_acc
+         do i = 1, self%nf
+            cfine(i) = self%q_acc(i)/self%t_acc
+            ccrs(i) = self%q_crs(i)/self%t_acc
          end do
          self%qfour = cfine
       ! Richardson estimate of the trapezoidal error
@@ -234,9 +238,10 @@
          self%mf_qerr(1) = cerr(1)
          do k = 1, self%kharm
             i = 2*k
-            self%mf(k + 1) = hypot(cfine(i), cfine(i + 1))
+      ! amplitude = peak excursion, twice the one-sided modulus
+            self%mf(k + 1) = 2.0_dp*hypot(cfine(i), cfine(i + 1))
             self%mf_phase(k + 1) = atan2(cfine(i + 1), cfine(i))
-            self%mf_qerr(k + 1) = hypot(cerr(i), cerr(i + 1))
+            self%mf_qerr(k + 1) = 2.0_dp*hypot(cerr(i), cerr(i + 1))
          end do
          if (self%nacc < 4) then
             self%mf_qerr = 0.0_dp
@@ -299,12 +304,14 @@
       !!
       !! Impedances add in quadrature, so
       !!
-      !!    J_kk = 1 / sqrt( (1/G)**2 + (c k w/delta)**2 )
+      !!    J_kk = 2 / sqrt( (1/G)**2 + (c k w/delta)**2 )
       !!
       !! which is exact in both limits and monotone between them. k = 0 gives
       !! J_11 = G, so the steady case is the same formula. The true Womersley
       !! admittance would need Bessel functions for a correction that Broyden
-      !! removes within one or two outer steps.
+      !! removes within one or two outer steps. The factor 2 on the harmonics:
+      !! mf is the peak excursion while |a_k| is one-sided, half of one; the
+      !! RL model (and c_inertial) relate quantities of the same kind.
       !!
       !! If no steady resistance is on record, the Stokes estimate G = Q_0/a_0
       !! is taken from the current measurement. For creeping flow that is exact;
@@ -339,7 +346,7 @@
          J(1, 1) = G
          do k = 1, min(self%kharm, n - 1)
             wk = c_inertial*k*self%omega/self%delta
-            J(k + 1, k + 1) = 1.0_dp/sqrt((1.0_dp/G)**2 + wk**2)
+            J(k + 1, k + 1) = 2.0_dp/sqrt((1.0_dp/G)**2 + wk**2)
          end do
          write (msg, '(A,*(1X,E16.8))') 'Seeded outer Jacobian diagonal:', (J(k, k), k=1, n)
          call nek_log_message(msg, this_module, this_procedure)

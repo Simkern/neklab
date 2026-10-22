@@ -1,16 +1,8 @@
       submodule(neklab_t2Dh) t2Dh_gs
-      !! Getters, setters, convention converters and summaries for nek_t2Dh.
-      !!
-      !! The helix converters here are the ONLY place the old (helix) Fourier
-      !! convention appears. Everything else in neklab is native:
-      !!
-      !!   forcing    a_0 = d_0 ,  a_ck =  2 d_ck ,  a_sk = -2 d_sk
-      !!   flow rate  q_0 = m_0 ,  q_ck =  2 m_ck ,  q_sk =  2 m_sk
-      !!
-      !! so the two forcing amplitudes agree while a helix flow-rate amplitude
-      !! is HALF the native one. The sign flip on the forcing sine is what makes
-      !! helix's forcing and flow-rate phases rotate in opposite directions
-      !! under a time shift; natively they rotate together.
+      !! Getters, setters and summaries for nek_t2Dh. Everything is in the
+      !! native one-sided convention of the module header. Forcing amplitudes
+      !! are one-sided (half the peak excursion); flow-rate amplitudes mf are
+      !! PEAK EXCURSIONS (see t2Dh_flowrate).
          implicit none
       contains
 
@@ -42,40 +34,6 @@
          self%dpds(1:n) = dpds(1:n)
          call bcast(self%dpds, lfc*wdsize)
          end procedure set_dpds
-
-         module procedure get_dpds_helix
-         integer :: k, i, n
-         n = min(size(dpds), self%nf)
-         dpds = 0.0_dp
-         dpds(1) = self%dpds(1)
-         do k = 1, self%kharm
-            i = 2*k
-            if (i + 1 > n) exit
-            dpds(i) = 0.5_dp*self%dpds(i)
-            dpds(i + 1) = -0.5_dp*self%dpds(i + 1)
-         end do
-         end procedure get_dpds_helix
-
-         module procedure set_dpds_helix
-         character(len=*), parameter :: this_procedure = 'set_dpds_helix'
-         character(len=128) :: msg
-         real(dp), dimension(lfc) :: d
-         integer :: k, i, n
-         n = min(size(dpds), self%nf)
-         if (n < self%nf) then
-            write (msg, '(A,I0,A,I0,A)') 'Only ', n, ' of nf= ', self%nf, ' components supplied.'
-            call nek_log_warning(msg, this_module, this_procedure)
-         end if
-         d = 0.0_dp
-         d(1) = dpds(1)
-         do k = 1, self%kharm
-            i = 2*k
-            if (i + 1 > n) exit
-            d(i) = 2.0_dp*dpds(i)
-            d(i + 1) = -2.0_dp*dpds(i + 1)
-         end do
-         call self%set_dpds(d)
-         end procedure set_dpds_helix
 
          module procedure get_amp_phase
          real(dp), dimension(lfc) :: d
@@ -149,6 +107,9 @@
       !!    |a_k|  = target_k / J_kk ,   J_kk = 1/sqrt( (1/G)**2 + (c k w/d)**2 )
       !!    phase  = atan( c k w G / d )
       !!
+      !! target_k and |a_k| are both one-sided amplitudes, so the factor 2 of
+      !! the convention cancels in J_kk.
+      !!
       !! The phase matters more than the amplitude here. A zero harmonic has no
       !! phase, atan2(0,0) returns zero, and the frozen-phase machinery would
       !! then probe along an arbitrary direction and build a meaningless
@@ -197,7 +158,8 @@
             if (amp(k + 1) > atol_dp .and. .not. force_) cycle
             wk = c_inertial*k*self%omega/self%delta
             xk = sqrt((1.0_dp/G)**2 + wk**2)
-            ak = tgt(k + 1)*xk
+      ! tgt is a peak excursion, the forcing amplitude one-sided: hence 1/2
+            ak = 0.5_dp*tgt(k + 1)*xk
             pk = atan(wk*G)
             self%dpds(i) = ak*cos(pk)
             self%dpds(i + 1) = ak*sin(pk)
@@ -243,6 +205,8 @@
          end procedure get_target
 
          module procedure set_target
+      !! Absolute targets: tgt(1) the mean, tgt(k+1) the flow-rate amplitude
+      !! as mf reports it, i.e. the PEAK EXCURSION 2|q_k|.
          integer :: n
          n = min(size(tgt), self%nmf)
          self%mf_target = 0.0_dp
@@ -254,17 +218,11 @@
       !! Targets in the input convention:
       !!
       !!    tgt(1)   = Q(0)          mean bulk velocity, ABSOLUTE
-      !!    tgt(k+1) = 2*Q(k)/Q(0)   amplitude RATIO of harmonic k
+      !!    tgt(k+1) = 2*Q(k)/Q(0)   peak excursion over mean, harmonic k
       !!
-      !! The native amplitude is the peak excursion, which is exactly 2*Q(k),
-      !! so the harmonic conversion is a multiplication by the mean. At the
-      !! usual Q(0) = 1 this is the identity and the input passes through
-      !! unchanged; it only bites if the mean target is ever moved off one,
-      !! which is precisely why the ratio is stored rather than assumed away.
-      !!
-      !! NOTE the factor 2: a helix deck reports Q(k) itself (half the peak
-      !! excursion), so a helix number must be doubled before it is handed to
-      !! this routine.
+      !! Q(k) is the one-sided amplitude, and mf(k+1) = 2Q(k) the peak
+      !! excursion, so the stored target is tgt(k+1)*Q(0). At Q(0) = 1 the
+      !! input is the identity: mflow_summary prints the number the deck gave.
          character(len=*), parameter :: this_procedure = 'set_target_ratio'
          real(dp), dimension(lmfc) :: t_
          integer :: n, i
@@ -314,8 +272,8 @@
 
          module procedure get_mflow_ratio
       !! The measured flow rate in the same convention as set_target_ratio:
-      !! index 1 is the absolute mean, index k+1 is 2*Q(k)/Q(0). Directly
-      !! comparable with what the deck asked for.
+      !! index 1 is the absolute mean, index k+1 is 2*Q(k)/Q(0) (peak over
+      !! mean). Directly comparable with what the deck asked for.
          integer :: n, i
          n = min(size(amp), self%nmf)
          amp = 0.0_dp

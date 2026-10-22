@@ -7,32 +7,30 @@
       !! CONVENTION
       !!--------------------------------------------------------------------
       !!
-      !! Native, i.e. identical to neklab_t2Dh:
+      !! Native, i.e. identical to neklab_t2Dh (one-sided coefficients):
       !!
-      !!   f(x,t) = a_0(x) + sum_m [ a_m(x) cos(m w t) + b_m(x) sin(m w t) ]
+      !!   f(x,t) = a_0(x) + 2 sum_m [ a_m(x) cos(m w t) + b_m(x) sin(m w t) ]
       !!
       !!   a_0 = (1/T) int_0^T f dt
-      !!   a_m = (2/T) int_0^T f cos(m w t) dt
-      !!   b_m = (2/T) int_0^T f sin(m w t) dt
+      !!   a_m = (1/T) int_0^T f cos(m w t) dt
+      !!   b_m = (1/T) int_0^T f sin(m w t) dt
       !!
       !! and the packing of the third index of `fh` is exactly the packing of
       !! dpds / qfour:  j = 1 -> a_0,  j = 2m -> a_m,  j = 2m+1 -> b_m.
       !!
       !! The COMPLEX coefficient handed out by tfft_get is
       !!
-      !!   fhat_m = a_m - i b_m      so that   f = Re[ fhat_m exp(i m w t) ]
+      !!   fhat_m = a_m - i b_m = (1/T) int_0^T f exp(-i m w t) dt ,
+      !!   f = a_0 + 2 Re sum_m [ fhat_m exp(i m w t) ]
       !!
-      !! which makes |fhat_m| = hypot(a_m,b_m) agree with t2Dh%mf, but
+      !! i.e. what an FFT library returns. 2|fhat_m| = 2 hypot(a_m,b_m) agrees
+      !! with t2Dh%mf (a peak excursion), and
       !!
       !!   arg(fhat_m) = - t2Dh%mf_phase
       !!
       !! because mf_phase is stored in the LAG convention A cos(m w t - phi).
       !! Amplitudes match, phases are negatives of each other. This is the one
       !! sign in the module worth reading twice.
-      !!
-      !! With two_sided = .true. the result is halved, giving the two-sided
-      !! c_m = (1/T) int f exp(-i m w t) dt that an FFT library would return.
-      !! The mean is never halved in either convention.
       !!
       !!--------------------------------------------------------------------
       !! QUADRATURE
@@ -111,7 +109,7 @@
       !! Trapezoidal accumulator of sum_i int_0^T (int f_i^2 dV) dt. After
       !! close, tsq/period is the time-averaged spatial energy, and the
       !! Parseval identity says it should equal
-      !!   sum_i [ int a_0^i^2 dV + 0.5 sum_{m>=1} (int a_m^i^2 + b_m^i^2) dV ]
+      !!   sum_i [ int a_0^i^2 dV + 2 sum_{m>=1} (int a_m^i^2 + b_m^i^2) dV ]
       !! for M -> inf. The relative gap is the truncation tail.
          real(dp) :: flg_sq = 0.0_dp
       !! Cached sum_i int flg_i^2 dV, so that tfft_add computes one norm per
@@ -241,8 +239,8 @@
          end subroutine tfft_add
 
          subroutine tfft_close(period_in)
-      !! Normalises: 1/T on the mean, 2/T on every harmonic. After this the
-      !! coefficients are in native convention and tfft_get works.
+      !! Normalises: 1/T on every component. After this the coefficients are
+      !! in native (one-sided) convention and tfft_get works.
             real(dp), optional, intent(in) :: period_in
       ! internal
             character(len=*), parameter :: this_procedure = 'tfft_close'
@@ -266,8 +264,8 @@
                   call nek_stop_error(msg, this_module, this_procedure)
                end if
             end if
+            s = 1.0_dp/T
             do j = 1, 2*mharm + 1
-               s = merge(1.0_dp, 2.0_dp, j == 1)/T
                do i = 1, nfld
                   call cmult(fh(1, i, j), s, nbf)
                end do
@@ -364,12 +362,12 @@
       !     EXTRACTION
       !====================================================================
 
-         subroutine tfft_get(m, fre, fim, two_sided)
+         subroutine tfft_get(m, fre, fim)
       !! Complex coefficient of harmonic m as a pair of real field sets:
       !!
-      !!    f(x,t) = Re[ (fre + i fim) exp(i m w t) ]
+      !!    f(x,t) = a_0 + 2 Re sum_m [ (fre + i fim) exp(i m w t) ]
       !!
-      !! so |fre + i fim| matches t2Dh%mf and arg(fre + i fim) is MINUS
+      !! so 2|fre + i fim| matches t2Dh%mf and arg(fre + i fim) is MINUS
       !! t2Dh%mf_phase. See the module header.
       !!
       !! For a spatially complex field set (nfld = 6) this is applied to both
@@ -379,16 +377,14 @@
       !!   -B_m = fim(:,1:3) + i fim(:,4:6)     minus that of sin(m w t)
       !!
       !! and the two-sided complex spectrum of the complex signal is
-      !! c_{+-m} = (A_m -+ i B_m)/2. Note c_{-m} is NOT the conjugate of c_m
-      !! for a complex signal, so both signs carry information.
+      !! c_{+-m} = A_m -+ i B_m. Note c_{-m} is NOT the conjugate of c_m for a
+      !! complex signal, so both signs carry information.
             integer, intent(in) :: m
             real(dp), dimension(:, :), intent(out) :: fre
             real(dp), dimension(:, :), intent(out) :: fim
-            logical, optional, intent(in) :: two_sided
       ! internal
             character(len=*), parameter :: this_procedure = 'tfft_get'
             character(len=256) :: msg
-            real(dp) :: s
             integer :: i
             call check_closed(this_procedure)
             if (m < 0 .or. m > mharm) then
@@ -399,18 +395,15 @@
      &          size(fim, 1) < nbf .or. size(fim, 2) < nfld) then
                call nek_stop_error('Output arrays are too small.', this_module, this_procedure)
             end if
-            s = merge(0.5_dp, 1.0_dp, optval(two_sided, .false.))
             do i = 1, nfld
                if (m == 0) then
-      ! The mean is real, and it is not halved in either convention.
+      ! The mean is real.
                   call copy(fre(1, i), fh(1, i, 1), nbf)
                   call rzero(fim(1, i), nbf)
                else
                   call copy(fre(1, i), fh(1, i, 2*m), nbf)
                   call copy(fim(1, i), fh(1, i, 2*m + 1), nbf)
                   call chsign(fim(1, i), nbf)
-                  call cmult(fre(1, i), s, nbf)
-                  call cmult(fim(1, i), s, nbf)
                end if
             end do
          end subroutine tfft_get
@@ -436,7 +429,7 @@
       !! A Parseval consistency line is also logged: with the same measure,
       !!
       !!   E_time = (1/T) int_0^T sum_i int f_i^2 dV dt   (accumulated in tsq)
-      !!   E_spec = sum_i [ amp(0,i)^2 + 0.5 sum_{m>=1} amp(m,i)^2 ]
+      !!   E_spec = sum_i [ amp(0,i)^2 + 2 sum_{m>=1} amp(m,i)^2 ]
       !!
       !! agree in the M -> infinity limit. The tail (E_time - E_spec)/E_time
       !! is the fraction of energy the accumulator threw away, which is the
@@ -491,7 +484,7 @@
             do m = 1, mharm
                E_spec = 0.0_dp
                do i = 1, nfld
-                  E_spec = E_spec + 0.5_dp*amp_(m, i)**2
+                  E_spec = E_spec + 2.0_dp*amp_(m, i)**2
                end do
                E_frac(m) = E_spec
             end do
@@ -579,6 +572,7 @@
       !! so r__2dtorus0.f00001 is the mean and r__2dtorus0.f00017 is m = 16,
       !! and a post-processor opens the series once and steps through m.
       !! The harmonic also rides on the time stamp, so m is the time axis.
+      !! The fields written are the one-sided coefficients fhat_m.
       !!
       !! Field slots inside each file are (u_z, u_R, --, --, u_phi): the third
       !! velocity component and the pressure are written as zeros because the
@@ -715,7 +709,7 @@
      &         '# t2Dh spectrum  label=', trim(label), '   nfld=', nfld,
      &         '   M=', mharm, '   T=', period, '   omega=', omega
             write (iunit, '(A,E16.8)') '# U0 = <u_phi>_A(m=0) = ', U0
-            write (iunit, '(A)') '# Amplitude convention:'
+            write (iunit, '(A)') '# Amplitude convention (one-sided: f = a_0 + 2 sum (a_m cos + b_m sin)):'
             write (iunit, '(A)') '#   A_m^(i) = sqrt( int_V a_m^i(x)^2 dV + int_V b_m^i(x)^2 dV )   for m>=1'
             write (iunit, '(A)') '#   A_0^(i) = sqrt( int_V a_0^i(x)^2 dV )'
             write (iunit, '(A)') '#'

@@ -170,7 +170,7 @@
             real(dp), allocatable :: fdata(:, :, :, :)
             real(dp), allocatable :: xr(:, :, :), yr(:, :, :)
             real(dp) :: timer(1), xyavg, xyavgr
-            real(dp), parameter :: mesh_tol = 1.0e-10_dp
+            real(dp), parameter :: mesh_tol = 1.0e-8_dp
             character(len=132) :: hdr
             character(len=256) :: msg
             character(len=4) :: sdummy

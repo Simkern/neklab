@@ -73,7 +73,7 @@
          use neklab_2Dh_common, only: wmask, wmask_defined, build_wmask
          use neklab_nek_setup, only: nek_log_debug, nek_log_message,
      &                               nek_log_warning, nek_stop_error
-         use neklab_nek_forcing, only: set_neklab_forcing
+         use neklab_nek_forcing, only: set_neklab_forcing, set_neklab_source
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -529,7 +529,9 @@
             call add_cxy_nu(fPhi, lamR2_f,  vx,        1.0_dp, ntot1)   ! (lambda/R^2) U_Z
             call add_cxy_nu(fPhi, lamzR3_f, vy,        1.0_dp, ntot1)   ! (lambda zhat/R^3) U_R
 
-            call set_neklab_forcing(fZ, fR, fPhi, 0)
+            call rzero(tmp, ntot1)
+            call set_neklab_forcing(fZ, fR, tmp, 0)    ! fz is not read in 2D
+            call set_neklab_source(fPhi, 0)
          end subroutine build_torsion_forcing_nl
 
          subroutine add_torsion_coupling(rhs_z, rhs_r, rhs_phi, alpha, jp_)

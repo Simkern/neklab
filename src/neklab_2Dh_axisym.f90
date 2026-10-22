@@ -17,6 +17,7 @@
      &                            t_axisym_makefp, t_axisym_solve_helm, t_axisym_solve_cpl, t_axisym_solve_pres,
      &                            t_axisym_pres_precond, t_axisym_pres_proj, t_axisym_helm_matvec, t_axisym_cpl_matvec,
      &                            t_axisym_pres_matvec
+         use neklab_nek_forcing, only: add_neklab_forcing_term, add_neklab_source_term
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -48,6 +49,7 @@
          public :: nek_advance_2Dh_axisym
          public :: pressure_matvec_coupled_2Dh_axisym
          public :: solve_pressure_coupled_2Dh_axisym
+         public :: enable_axisym_curvature_terms
          
       contains
          
@@ -673,6 +675,32 @@
             call col2 (advPhi(1,ipert), vtrans(1,1,1,1,2), ntot1)
             call col2 (advPhi(1,ipert), bm1, ntot1)
          end subroutine compute_torus_s_advection
+
+         subroutine enable_axisym_curvature_terms()
+      !! Adds the curvature terms of (U.grad)U that Nek's axisymmetric advection
+      !! leaves out, to the nonlinear solver (ipert = 0):
+      !!   R  : + U_phi^2 / R
+      !!   phi: - U_R U_phi / R
+      !! Call once from userchk (istep = 0). Idempotent.
+            call add_neklab_forcing_term(axisym_curv_forcing, 'axisym_curvature')
+            call add_neklab_source_term (axisym_curv_source,  'axisym_curvature')
+         end subroutine enable_axisym_curvature_terms
+
+         subroutine axisym_curv_forcing(fx, fy, fz, ix, iy, iz, e)
+            real(dp), intent(inout) :: fx, fy, fz
+            integer, intent(in) :: ix, iy, iz, e
+            real(dp) :: r
+            r = ym1(ix, iy, iz, e)
+            if (r > 0.0_dp) fy = fy + t(ix, iy, iz, e, 1)**2 / r
+         end subroutine axisym_curv_forcing
+
+         subroutine axisym_curv_source(q, ix, iy, iz, e)
+            real(dp), intent(inout) :: q
+            integer, intent(in) :: ix, iy, iz, e
+            real(dp) :: r
+            r = ym1(ix, iy, iz, e)
+            if (r > 0.0_dp) q = q - vy(ix, iy, iz, e)*t(ix, iy, iz, e, 1) / r
+         end subroutine axisym_curv_source
          
          subroutine pressure_matvec_2Dh_axisym(ap, wp, h1, h2, h2inv, alphaR, intype)
             implicit none

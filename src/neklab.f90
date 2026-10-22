@@ -95,6 +95,7 @@
          public :: init_2Dh_planar
          public :: nek_advance_2Dh_planar
          public :: nek_advance_2Dh_axisym
+         public :: enable_axisym_curvature_terms
          public :: steady_flowrate_newton
          public :: unsteady_flowrate_newton
       
@@ -110,6 +111,9 @@
       
       ! Forcing function export
          public :: neklab_forcing
+         public :: get_neklab_forcing, set_neklab_forcing, neklab_forcing
+         public :: get_neklab_source, set_neklab_source, neklab_source
+         public :: add_neklab_forcing_term, add_neklab_source_term, remove_neklab_term
       
       ! Various utilities.
          public :: nek2vec, vec2nek

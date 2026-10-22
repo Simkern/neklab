@@ -69,6 +69,7 @@
          use LightKrylov_Logger
          use neklab_nek_setup, only: nek_log_message, nek_log_information,
      &                               nek_log_warning, nek_log_debug, nek_stop_error
+         use neklab_nek_forcing, only: add_neklab_source_term
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -800,6 +801,9 @@
      &            't2Dh%init_geom before t2Dh%init_flow.', this_module, this_procedure)
             end if
 
+      ! Register the source term with Nek's nonlinear solver.
+            call add_neklab_source_term(t2Dh_source_term, 't2Dh_forcing')
+
             self%is_initialized = .true.
          end subroutine init_flow
 
@@ -844,6 +848,14 @@
             real(dp), intent(in) :: y
             f = self%amplitude(tval)/y
          end function forcing
+
+         subroutine t2Dh_source_term(q, ix, iy, iz, e)
+      !! Pointwise case source for the nonlinear solver: f_phi = a(t)/R. Registered
+      !! by init_flow. Nek's makeuq has already shifted 'time' to t_{n-1}.
+            real(dp), intent(inout) :: q
+            integer, intent(in) :: ix, iy, iz, e
+            q = q + t2Dh%forcing(time, ym1(ix, iy, iz, e))
+         end subroutine t2Dh_source_term
 
       !====================================================================
       !     SMALL PREDICATES AND THE TEMPORAL BASIS

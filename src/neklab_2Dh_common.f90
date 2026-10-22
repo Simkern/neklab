@@ -22,7 +22,16 @@
 
          real(dp), dimension(lx1, ly1, lz1, lelv), public :: wmask
          logical, public :: wmask_defined = .false.
-         logical, private :: init_2Dh_planar_done = .false.
+         ! shared stage wrappers of the 2Dh steppers
+         public :: setup_step_2Dh, cresvipp_2Dh
+         public :: setup_incomprp_2Dh, ebar_2Dh
+         public :: incomprp_solve_2Dh, incomprp_update_2Dh
+
+         logical,  private :: init_2Dh_planar_done = .false.
+         real(dp), private :: pbasis(lx2*ly2*lz2*lelv,mxprev,lpert)
+         integer,  private :: nprev(lpert) = 0
+         real(dp), private :: dtbdlast = 0.0_dp
+         real(dp), dimension(lx2*ly2*lz2*lelv), private :: prextr_c, onep, ep
          
          ! abstract interfactes for the helmholtz and pressure matvecs passed to the solvers
          public :: abstract_helmholtz_matvec, abstract_pressure_matvec
@@ -36,11 +45,16 @@
          public :: check_2Dh_masks
 
          ! weighted/unweighted mappings from m1 -> m2 and their discrete transposes
-         public :: map12_2Dh, map12T_2Dh, bm2_map12_2Dh, bm2_map12T_2Dh
+         public ::     map12_2Dh
+         public ::     map12T_2Dh
+         public :: bm2_map12_2Dh
+         public :: bm2_map12T_2Dh
          ! generic solvers for the helmholtz (pCG) and pressure system (pGMRES); concrete matvecs are inputs
-         public :: solve_helmholtz_2Dh, solve_pressure_2Dh
+         public :: solve_helmholtz_2Dh
+         public :: solve_pressure_2Dh
          ! genergic projection / reconstruction routines for the pressure solver; contrete matvecs are inputs
-         public :: setrhs_pressure_2Dh, gensoln_pressure_2Dh
+         public ::  setrhs_pressure_2Dh
+         public :: gensoln_pressure_2Dh
 
       !-----------------------------------------------------------------------------------
       !
@@ -204,6 +218,132 @@
       !     COMMON ROUTINES for planar (cartesian) and axisymmetric 2Dh solvers
       !
       !-------------------------------------------------------------------------------
+
+      !-------------------------------------------------------------------------------
+      !  Shared stage wrappers of the 2Dh steppers (names follow perturb.f)
+      !-------------------------------------------------------------------------------
+
+         subroutine setup_step_2Dh()
+      !! Per-step solver setup, as in Nek's nek_advance.
+            if (istep == 1) nprev(:) = 0     ! new linear pass: discard the pressure projection basis
+            call nekgsync
+            call settime
+            call setup_convect(2)
+            call setsolv
+            call comment
+            call setprop
+            ifield = 1
+            imesh  = 1
+            call unorm
+            call settolv
+         end subroutine setup_step_2Dh
+
+         subroutine cresvipp_2Dh(resv1, resv2, resv3, gradw_jp)
+      !! Momentum right-hand side of slot jp without the H u term (cf. cresvipp):
+      !! Dirichlet values, extrapolated pressure gradient (in-plane: opgradt,
+      !! third component: gradw_jp from makecpl), forcing.
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(out) :: resv1, resv2, resv3
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(in)  :: gradw_jp
+            ! internal
+            integer :: ntot1
+            ntot1 = lx1*ly1*lz1*nelv
+            call bcdirvc  (vxp(1,jp), vyp(1,jp), vzp(1,jp), v1mask, v2mask, v3mask)
+            call col2     (tp(1,1,jp), wmask, ntot1)
+            call extrapprp(prextr_c)
+            call opgradt  (resv1, resv2, resv3, prextr_c)
+            call opadd2   (resv1, resv2, resv3, bfxp(1,jp), bfyp(1,jp), bfzp(1,jp))
+            call copy     (resv3, gradw_jp, ntot1)
+            call add2     (resv3, bqp(1,1,jp), ntot1)
+         end subroutine cresvipp_2Dh
+
+         subroutine setup_incomprp_2Dh(h1, h2, h2inv)
+      !! Helmholtz coefficients of the pressure step (intype = 1). The projection
+      !! basis is discarded when dt/bd(1) changes.
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(out) :: h1, h2, h2inv
+            ! internal
+            real(dp) :: dtbd
+            integer :: ntot1
+            ntot1  = lx1*ly1*lz1*nelv
+            ifield = 1
+            dtbd   = bd(1)/dt
+            if (dtbd /= dtbdlast) then
+               nprev(:) = 0                  ! operator changed: basis is stale
+               dtbdlast = dtbd
+            end if
+            call rzero  (h1, ntot1)
+            call cmult2 (h2, vtrans(1,1,1,1,ifield), dtbd, ntot1)
+            call invers2(h2inv, h2, ntot1)
+         end subroutine setup_incomprp_2Dh
+
+         subroutine ebar_2Dh(ebar, matvec, h1, h2, h2inv, wavenumber)
+      !! Mean of E*1. For a nonzero wavenumber E is not singular, but the hsmg
+      !! preconditioner removes the mean; the solver adds it back with ebar.
+            real(dp), intent(out) :: ebar
+            procedure(abstract_pressure_matvec) :: matvec
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(in) :: h1, h2, h2inv
+            real(dp), intent(in) :: wavenumber
+            ! internal
+            logical :: if_singular
+            real(dp), external :: glsum
+            integer :: ntot2
+            ntot2 = lx2*ly2*lz2*nelv
+            ebar = 0.0_dp
+            if_singular = (wavenumber == 0.0_dp)
+            if (.not. if_singular .and. ifvcor) then
+               call rone(onep, ntot2)
+               call matvec(ep, onep, h1, h2, h2inv, 1)
+               ebar = glsum(ep, ntot2)
+            end if
+         end subroutine ebar_2Dh
+
+         subroutine incomprp_solve_2Dh(dpr_jp, h1, h2, h2inv, matvec, ebar, wavenumber, maxit, label)
+      !! Pressure correction of slot jp: E dp = rhs, with projection (param(95)).
+            real(dp), dimension(lx2*ly2*lz2*lelv), intent(inout) :: dpr_jp
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(in)    :: h1, h2, h2inv
+            procedure(abstract_pressure_matvec) :: matvec
+            real(dp), intent(in) :: ebar, wavenumber
+            integer, intent(in)  :: maxit
+            character(len=*), intent(in) :: label
+            ! internal
+            logical :: if_singular
+            character(len=2) :: info_str
+            logical :: ifprjp
+            integer :: istart, iter
+            info_str = merge('Re', 'Im', jp == 1)
+            if_singular = (wavenumber == 0.0_dp)
+            if (if_singular) call ortho(dpr_jp)
+            istart = param(95)
+            ifprjp = (istep >= istart .and. istart /= 0)
+            if (ifprjp) then
+               call  setrhs_pressure_2Dh(dpr_jp, h1, h2, h2inv, pbasis(1,1,jp), nprev(jp),
+     &                                   matvec, info_str)
+            end if
+            call      solve_pressure_2Dh(dpr_jp, h1, h2, h2inv, matvec, 1, iter, ebar,
+     &                                   if_singular, maxit, label, wavenumber, info_str)
+            if (ifprjp) then
+               call gensoln_pressure_2Dh(dpr_jp, h1, h2, h2inv, pbasis(1,1,jp), nprev(jp),
+     &                                   matvec)
+            end if
+         end subroutine incomprp_solve_2Dh
+          subroutine incomprp_update_2Dh(dpr_jp, dw, h2inv)
+      !! Velocity and pressure update of slot jp from the pressure correction
+      !! (cf. the end of incomprp). dw is the third-component correction, computed
+      !! by the model (incomprp_dw_*).
+            real(dp), dimension(lx2*ly2*lz2*lelv), intent(in) :: dpr_jp
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(in) :: dw, h2inv
+            real(dp), dimension(lx1,ly1,lz1,lelv) :: w1, w2, w3, resv1, resv2, resv3, dv1, dv2, dv3
+            common /SCRNS/ w1, w2, w3, resv1, resv2, resv3, dv1, dv2, dv3
+            integer :: ntot1, ntot2
+            ntot1 = lx1*ly1*lz1*nelv
+            ntot2 = lx2*ly2*lz2*nelv
+            call opgradt  (w1, w2, w3, dpr_jp)
+            call opbinv   (dv1, dv2, dv3, w1, w2, w3, h2inv)
+            call opadd2   (vxp(1,jp), vyp(1,jp), vzp(1,jp), dv1, dv2, dv3)
+            call add2     (tp(1,1,jp), dw, ntot1)
+            call extrapprp(prextr_c)
+            call lagpresp
+            call add3     (prp(1,jp), prextr_c, dpr_jp, ntot2)
+         end subroutine incomprp_update_2Dh
       
       !-------------------------------------------------------------------------------
       !  Weighted/unweighted mappings from m1 -> m2 and their discrete transposes

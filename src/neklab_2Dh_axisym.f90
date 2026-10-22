@@ -2,8 +2,7 @@
          use LightKrylov, only: dp
          use neklab_2Dh_common, only: wmask, wmask_defined, build_wmask,
      &                                bm2_map12_2Dh, bm2_map12T_2Dh,
-     &                                solve_helmholtz_2Dh, solve_pressure_2Dh,
-     &                                setrhs_pressure_2Dh, gensoln_pressure_2Dh
+     &                                solve_helmholtz_2Dh
          use neklab_2Dh_torsion, only: if_torsion_zero,
      &                                 build_torsion_coeffs, torsion_shift_add,
      &                                 dphi_apply, dphi_apply_t,
@@ -11,11 +10,9 @@
      &                                 add_torsion_forcing_RZ, add_torsion_forcing_phi,
      &                                 add_torsion_coupling
          use neklab_nek_setup, only: nek_log_debug, nek_log_message, nek_stop_error
-         use neklab_timing, only: neklab_timer_start, neklab_timer_stop, neklab_clock_tic, neklab_clock_toc,
-     &                            t_axisym_advance, t_axisym_adv_setup, t_axisym_adv_advection, t_axisym_adv_rhs,
-     &                            t_axisym_adv_uz, t_axisym_adv_urphi, t_axisym_adv_pressure, t_axisym_adv_correction,
-     &                            t_axisym_makefp, t_axisym_solve_helm, t_axisym_solve_cpl, t_axisym_solve_pres,
-     &                            t_axisym_pres_precond, t_axisym_pres_proj, t_axisym_helm_matvec, t_axisym_cpl_matvec,
+         use neklab_timing, only: neklab_timer_start, neklab_timer_stop,
+     &                            t_axisym_makefp, t_axisym_solve_cpl, t_axisym_solve_pres,
+     &                            t_axisym_pres_precond, t_axisym_helm_matvec, t_axisym_cpl_matvec,
      &                            t_axisym_pres_matvec
          use neklab_nek_forcing, only: add_neklab_forcing_term, add_neklab_source_term
          implicit none
@@ -24,13 +21,9 @@
          
          private
          character(len=*), parameter, private :: this_module = 'neklab_2Dh_axisym'
-         integer, parameter :: maxit_p = 1000 ! max iterations for pressure solve
+         integer, parameter, public :: maxit_p_axisym = 1000 ! max iterations for pressure solve
          
-         real(dp), private :: pbasis(lx2*ly2*lz2*lelv,mxprev,lpert)
-         real(dp), private :: dtbdlast = 0.0_dp
-         real(dp), private :: betaz_op = 0.0_dp ! module variable to pass to the abstract operators
          real(dp), dimension(:,:,:,:), pointer, private :: shift_op => null() ! shift seen by helm_matvec_axisym
-         integer,  private :: nprev(lpert) = 0
          
          real(dp), dimension(lx1,ly1,lz1,lelv), public, target :: h2z_shift
          real(dp), dimension(lx1,ly1,lz1,lelv), public, target :: diag_shift
@@ -44,52 +37,47 @@
          logical, public :: torus_coeffs_defined = .false.
          logical, public :: alpha_eq_zero = .false.
          real(dp), private :: alpha_cached = huge(1.0_dp)
+
+      ! Fields produced and consumed inside the model
+      ! m1
+         real(dp), dimension(lx1*ly1*lz1*lelv,lpert), private :: advZ, advR, advPhi   ! slot-swapping explicit terms
+         real(dp), dimension(lx1*ly1*lz1*lelv),       private :: tmp_m1a, tmp_m1b     ! ophx / ophinv scratch
+      ! m2
+         real(dp), dimension(lx2*ly2*lz2*lelv),       private :: frc_div              ! divergence
+         real(dp), dimension(lx2*ly2*lz2*lelv),       private :: prextr               ! extrapolated p
          
+         public ::     prepare_step_2Dh_axisym
+         public ::    make_coupling_2Dh_axisym
+         public ::           makefp_2Dh_axisym
+         public ::             ophx_2Dh_axisym
+         public ::        ophinv_uz_2Dh_axisym
+         public ::     ophinv_urphi_2Dh_axisym
+         public ::     incomprp_div_2Dh_axisym
+         public ::      incomprp_dw_2Dh_axisym
+         public :: incomprp_coupled_2Dh_axisym
+         public ::          pres_matvec_axisym
+
          public :: build_torus_coeffs
-         public :: nek_advance_2Dh_axisym
          public :: pressure_matvec_coupled_2Dh_axisym
          public :: solve_pressure_coupled_2Dh_axisym
          public :: enable_axisym_curvature_terms
          
       contains
-         
-         subroutine nek_advance_2Dh_axisym(alpha)
-            implicit none
+
+      !-----------------------------------------------------------------!
+      !                                                                 !
+      !     PUBLIC STAGE WRAPPERS FOR THE AXISYMMETRIC 2Dh SOLVER       !
+      !                                                                 !
+      !-----------------------------------------------------------------!
+
+         subroutine prepare_step_2Dh_axisym(alpha)
+      !! Coefficients and checks for the current wavenumber. Called first by
+      !! nek_advance_2Dh_axisym.
             real(dp), intent(in) :: alpha
-            
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: w1, w2, w3
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: resv1, resv2, resv3
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: dv1, dv2, dv3
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: h1, h2, h2inv
-            common /SCRNS/  w1, w2, w3, resv1, resv2, resv3, dv1, dv2, dv3
-            common /SCRVH/  h1
-            common /SCRCH/  h2
-            common /scrhi/  h2inv
-            
-            real(dp), dimension(lx1,ly1,lz1,lelv,lpert) :: resv2_jp, resv3_jp
-            real(dp), dimension(lx1*ly1*lz1*lelv,lpert) :: gradp, advZ, advR, advPhi
-            
-            real(dp), dimension(lx2*ly2*lz2*lelv,lpert) :: dpr
-            real(dp), dimension(lx2*ly2*lz2*lelv) :: prextr, frc_div, onep, ep
-            real(dp), dimension(lx1*ly1*lz1*lelv) :: dw
-            real(dp) :: ebar, csign_jp
-            
-            character(len=*), parameter :: this_procedure = 'nek_advance_2Dh_axisym'
-            character(len=256) :: msg
-            character(len=2) :: info_str
-            character(len=7) :: helm_info
-            real(dp) :: dtbd
-            logical :: ifprjp
-            integer :: igeom, iter, intype, ipert
-            integer :: ntot1, ntot2, istart
-            real, external :: glsum
-            
-            ntot1 = lx1*ly1*lz1*nelv
-            ntot2 = lx2*ly2*lz2*nelv
-            
+            ! internal
+            character(len=*), parameter :: this_procedure = 'prepare_step_2Dh_axisym'
             if (.not. wmask_defined) call build_wmask(.true.)
             if (.not. torus_coeffs_defined .or. alpha /= alpha_cached) call build_torus_coeffs(alpha)
-            
             ! Re/Im pairing is only meaningful for alpha /= 0; npert must match
             ! or the caller has set up the wrong number of perturbation slots.
             alpha_eq_zero = (alpha == 0.0_dp)
@@ -98,257 +86,164 @@
             else
                if (lpert /= 2) call nek_stop_error('alpha /= 0 requires npert = 2.', this_module, this_procedure)
             end if
-            if (istep == 1) nprev(:) = 0
-            
-            ! Timing. 
-            call neklab_timer_start(t_axisym_advance)
-            call neklab_clock_tic()
-            
-            call neklab_timer_start(t_axisym_adv_setup)
-            call nekgsync
-            call settime
-            call setup_convect(2)
-            call setsolv
-            call comment
-            call setprop
-            
-            ifield = 1
-            imesh  = 1
-            call unorm
-            call settolv
-            call neklab_timer_stop(t_axisym_adv_setup)
-            
-            ! --- pressure-gradient / alpha-R coupling forcing (analog of gradz_p)
-            
-            msg = 'Compute explicit pressure gradient term for w'
-            call nek_log_debug(msg,this_module,this_procedure)
-            
-            call neklab_timer_start(t_axisym_adv_advection)
-            do jp = 1, npert
-               call extrapprp(prextr)
-               call compute_gradp_axisym(gradp, prextr, alphaR_coef)
-               call compute_torus_s_advection(advZ, advR, advPhi, jp)
-            end do
-            ! Torsion alpha*lambda coupling. Like compute_torus_s_advection it reads
-            ! slot jp and writes the OPPOSITE slot, so it runs in this same pre-loop,
-            ! augmenting (not overwriting) the advZ/advR/advPhi swap-slot buffers,
-            ! which makefp_2Dh_axisym then adds into bfxp/bfyp/bqp per jp. Guarded
-            ! internally on alpha /= 0 and lambda /= 0.
+         end subroutine prepare_step_2Dh_axisym
+
+         subroutine make_coupling_2Dh_axisym(gradw)
+      !! Slot-coupled explicit terms of slot jp (read jp, write ipert): the
+      !! alpha/lambda pressure gradient of the u_phi equation, the swirl advection
+      !! -i alpha (U_phi/R) u, and the torsion alpha*lambda coupling. Runs for all
+      !! slots before any slot is advanced.
+            real(dp), dimension(lx1*ly1*lz1*lelv,lpert), intent(inout) :: gradw
+            call extrapprp(prextr)
+            call compute_gradp_axisym(gradw, prextr, alphaR_coef)
+            call compute_torus_s_advection(advZ, advR, advPhi, jp)
             if (.not. alpha_eq_zero .and. .not. if_torsion_zero) then
-               do jp = 1, npert
-                  call add_torsion_coupling(advZ, advR, advPhi, alpha, jp)
-               end do
+               call add_torsion_coupling(advZ, advR, advPhi, alpha_cached, jp)
             end if
-            call neklab_timer_stop(t_axisym_adv_advection)
-            
-            ! --- assemble RHS for both jp; solve u_Z immediately (uncoupled across jp);
-            !     stash u_R/u_phi RHS for the deferred, jointly-solved transform step.
-            
-            msg = 'Solve momentum equations for u/v/w'
-            call nek_log_debug(msg, this_module, this_procedure)
-            
+         end subroutine make_coupling_2Dh_axisym
+
+         subroutine ophx_2Dh_axisym(resv_jp, h1, h2)
+      !! resv -= H u for all slots (cf. ophx in cresvipp). u_Z per slot; u_R of
+      !! slot jp couples to u_phi of the other slot at alpha /= 0.
+            real(dp), dimension(lx1*ly1*lz1*lelv,3,lpert), intent(inout) :: resv_jp
+            real(dp), dimension(lx1*ly1*lz1*lelv),         intent(in)    :: h1, h2
+            ! internal
+            real(dp) :: csign_jp
+            integer :: ipert, ntot1
+            ntot1 = lx1*ly1*lz1*nelv
             do jp = 1, npert
-               info_str = merge('Re', 'Im', jp == 1)
-               call neklab_timer_start(t_axisym_adv_rhs)
-               igeom = 1
-               !
-               !  Old geometry, old velocity
-               !
-               call makefp_2Dh_axisym(advZ, advR, advPhi)
-               !
-               igeom = 2
-               !
-               !  New geometry, new velocity
-               !
-               intype = -1
-               ifield = 1
-               call sethlm(h1, h2, intype)
-               ! cresvipp
-               call bcdirvc(vxp(1,jp), vyp(1,jp), vzp(1,jp), v1mask, v2mask, v3mask)
-               call col2   (tp(1,1,jp), wmask, ntot1)
-               call extrapprp(prextr)
-               call opgradt(resv1, resv2, resv3, prextr)
-               call opadd2 (resv1, resv2, resv3, bfxp(1,jp), bfyp(1,jp), bfzp(1,jp))
-               
-               ! compute w term
-               call copy(resv3, gradp(1,jp),  ntot1)
-               call add2(resv3, bqp(1,1,jp),  ntot1)
-               
-               ! hv1
-               call helmholtz_matvec_2Dh_axisym(w1, vxp(1,jp), h1, h2, h2z_shift, 1)
-               call sub2 (resv1, w1, ntot1)
-               
-               call dssum(resv1, lx1, ly1, lz1)
-               call col2 (resv1, v1mask, ntot1)
-               helm_info = info_str//' V_Z  '
-               if (istep < 10) call chktcg1(tolhv, resv1, h1, h2, v1mask, vmult, imesh, 1)
-               call neklab_timer_stop(t_axisym_adv_rhs)
-               
-               call neklab_timer_start(t_axisym_adv_uz)
-               shift_op => h2z_shift
-               call solve_helmholtz_2Dh(dv1, resv1, h1, h2, v1mask, vmult, imesh,
-     &                                  tolhv, nmxv, 1, binvm1, helm_info, helm_matvec_axisym)
-               call add2(vxp(1,jp), dv1, ntot1)
-               call neklab_timer_stop(t_axisym_adv_uz)
-               
-               ! stash u_R/u_phi RHS for the joint transform+solve below
-               call neklab_timer_start(t_axisym_adv_rhs)
-               call copy(resv2_jp(1,1,1,1,jp), resv2, ntot1)
-               call copy(resv3_jp(1,1,1,1,jp), resv3, ntot1)
-               call neklab_timer_stop(t_axisym_adv_rhs)
-            end do ! jp
-            
-            call neklab_timer_start(t_axisym_adv_urphi)
+               call helmholtz_matvec_2Dh_axisym(tmp_m1a, vxp(1,jp), h1, h2, h2z_shift, 1)
+               call sub2(resv_jp(1,1,jp), tmp_m1a, ntot1)
+            end do
             if (alpha_eq_zero) then
                do jp = 1, npert
-                  call helmholtz_matvec_2Dh_axisym(w2, vyp(1,jp), h1, h2, diag_shift_r, 1)
-                  call sub2(resv2_jp(1,1,1,1,jp), w2, ntot1)
-                  call helmholtz_matvec_2Dh_axisym(w3, tp(1,1,jp), h1, h2, diag_shift, 1)
-                  call sub2(resv3_jp(1,1,1,1,jp), w3, ntot1)
+                  call helmholtz_matvec_2Dh_axisym(tmp_m1a, vyp(1,jp),  h1, h2, diag_shift_r, 1)
+                  call sub2(resv_jp(1,2,jp), tmp_m1a, ntot1)
+                  call helmholtz_matvec_2Dh_axisym(tmp_m1b, tp(1,1,jp), h1, h2, diag_shift,   1)
+                  call sub2(resv_jp(1,3,jp), tmp_m1b, ntot1)
                end do
             else
                do jp = 1, npert
                   ipert = npert + 1 - jp
                   csign_jp = merge(1.0_dp, -1.0_dp, jp == 1)
-                  call coupled_helmholtz_matvec_2Dh_axisym(w2, w3, vyp(1,jp), tp(1,1,ipert), h1, h2, diag_shift_r, diag_shift, couple_coef, csign_jp)
-                  call sub2(resv2_jp(1,1,1,1,jp),    w2, ntot1)
-                  call sub2(resv3_jp(1,1,1,1,ipert), w3, ntot1)
+                  call coupled_helmholtz_matvec_2Dh_axisym(tmp_m1a, tmp_m1b, vyp(1,jp), tp(1,1,ipert),
+     &                                                     h1, h2, diag_shift_r, diag_shift, couple_coef, csign_jp)
+                  call sub2(resv_jp(1,2,jp),    tmp_m1a, ntot1)
+                  call sub2(resv_jp(1,3,ipert), tmp_m1b, ntot1)
                end do
             end if
-            
-            msg = 'Solve u_R/u_phi momentum equations'
-            call nek_log_debug(msg, this_module, this_procedure)
-            
+         end subroutine ophx_2Dh_axisym
+
+         subroutine ophinv_uz_2Dh_axisym(resv_jp, h1, h2)
+      !! u_Z increments of all slots: assemble, mask, solve, update vxp.
+            real(dp), dimension(lx1*ly1*lz1*lelv,3,lpert), intent(inout) :: resv_jp
+            real(dp), dimension(lx1*ly1*lz1*lelv),         intent(in)    :: h1, h2
+            ! internal
+            character(len=2) :: info_str
+            character(len=7) :: helm_info
+            integer :: ntot1
+            ntot1 = lx1*ly1*lz1*nelv
+            do jp = 1, npert
+               info_str = merge('Re', 'Im', jp == 1)
+               call dssum(resv_jp(1,1,jp), lx1, ly1, lz1)
+               call col2 (resv_jp(1,1,jp), v1mask, ntot1)
+               helm_info = info_str//' V_Z  '
+               if (istep < 10) call chktcg1(tolhv, resv_jp(1,1,jp), h1, h2, v1mask, vmult, imesh, 1)
+               shift_op => h2z_shift
+               call solve_helmholtz_2Dh(tmp_m1a, resv_jp(1,1,jp), h1, h2, v1mask, vmult, imesh,
+     &                                  tolhv, nmxv, 1, binvm1, helm_info, helm_matvec_axisym)
+               call add2(vxp(1,jp), tmp_m1a, ntot1)
+            end do
+         end subroutine ophinv_uz_2Dh_axisym
+
+         subroutine ophinv_urphi_2Dh_axisym(resv_jp, h1, h2)
+      !! u_R/u_phi increments of all slots, decoupled at alpha = 0, coupled across
+      !! the slots otherwise; updates vyp and tp.
+            real(dp), dimension(lx1*ly1*lz1*lelv,3,lpert), intent(inout) :: resv_jp
+            real(dp), dimension(lx1*ly1*lz1*lelv),         intent(in)    :: h1, h2
+            ! internal
+            character(len=2) :: info_str
+            character(len=7) :: helm_info
+            real(dp) :: csign_jp
+            integer :: ipert, ntot1
+            ntot1 = lx1*ly1*lz1*nelv
             if (alpha_eq_zero) then
                do jp = 1, npert
                   info_str = merge('Re', 'Im', jp == 1)
-                  call dssum(resv2_jp(1,1,1,1,jp), lx1, ly1, lz1)
-                  call col2 (resv2_jp(1,1,1,1,jp), v2mask, ntot1)
+                  call dssum(resv_jp(1,2,jp), lx1, ly1, lz1)
+                  call col2 (resv_jp(1,2,jp), v2mask, ntot1)
                   helm_info = info_str//' V_R  '
-                  if (istep < 10) call chktcg1(tolhv, resv2_jp(1,1,1,1,jp), h1, h2, v2mask, vmult, imesh, 1)
+                  if (istep < 10) call chktcg1(tolhv, resv_jp(1,2,jp), h1, h2, v2mask, vmult, imesh, 1)
                   shift_op => diag_shift_r
-                  call solve_helmholtz_2Dh(dv2, resv2_jp(1,1,1,1,jp), h1, h2, v2mask, vmult, imesh,
+                  call solve_helmholtz_2Dh(tmp_m1a, resv_jp(1,2,jp), h1, h2, v2mask, vmult, imesh,
      &                                     tolhv, nmxv, 1, binvm1, helm_info, helm_matvec_axisym)
                   
-                  call dssum(resv3_jp(1,1,1,1,jp), lx1, ly1, lz1)
-                  call col2 (resv3_jp(1,1,1,1,jp), wmask, ntot1)
+                  call dssum(resv_jp(1,3,jp), lx1, ly1, lz1)
+                  call col2 (resv_jp(1,3,jp), wmask, ntot1)
                   helm_info = info_str//' V_PHI'
-                  if (istep < 10) call chktcg1(tolhv, resv3_jp(1,1,1,1,jp), h1, h2, wmask, vmult, imesh, 1)
+                  if (istep < 10) call chktcg1(tolhv, resv_jp(1,3,jp), h1, h2, wmask, vmult, imesh, 1)
                   shift_op => diag_shift
-                  call solve_helmholtz_2Dh(dv3, resv3_jp(1,1,1,1,jp), h1, h2, wmask, vmult, imesh,
+                  call solve_helmholtz_2Dh(tmp_m1b, resv_jp(1,3,jp), h1, h2, wmask, vmult, imesh,
      &                                     tolhv, nmxv, 1, binvm1, helm_info, helm_matvec_axisym)
                   
-                  call add2(vyp(1,jp),  dv2, ntot1)
-                  call add2(tp(1,1,jp), dv3, ntot1)
+                  call add2(vyp(1,jp),  tmp_m1a, ntot1)
+                  call add2(tp(1,1,jp), tmp_m1b, ntot1)
                end do
             else
                do jp = 1, npert
                   ipert = npert + 1 - jp
                   csign_jp = merge(1.0_dp, -1.0_dp, jp == 1)
                   helm_info = merge('BLK A  ', 'BLK B  ', jp == 1)
-                  call solve_coupled_helmholtz_2Dh_axisym(dv2, dv3, resv2_jp(1,1,1,1,jp), resv3_jp(1,1,1,1,ipert),
-     &                                                    h1, h2, v2mask, wmask, vmult, imesh, tolhv, nmxv, binvm1, 
+                  call solve_coupled_helmholtz_2Dh_axisym(tmp_m1a, tmp_m1b, resv_jp(1,2,jp), resv_jp(1,3,ipert),
+     &                                                    h1, h2, v2mask, wmask, vmult, imesh, tolhv, nmxv, binvm1,
      &                                                    helm_info, diag_shift_r, diag_shift, couple_coef, csign_jp)
-                  
-                  call add2(vyp(1,jp),     dv2, ntot1)
-                  call add2(tp(1,1,ipert), dv3, ntot1)
+                  call add2(vyp(1,jp),     tmp_m1a, ntot1)
+                  call add2(tp(1,1,ipert), tmp_m1b, ntot1)
                end do
             end if
-            call neklab_timer_stop(t_axisym_adv_urphi)
-            
-            ! --- pressure correction stage: identical structure to the beta case,
-            !     field routines substituted for the beta_z ones
-            msg = 'Compute pressure correction to enforce mass balance'
-            call nek_log_debug(msg, this_module, this_procedure)
-            
-            call neklab_timer_start(t_axisym_adv_pressure)
-            ifield = 1
-            intype = 1
-            dtbd   = bd(1)/dt
-            if (dtbd /= dtbdlast) then
-               nprev(:) = 0
-               dtbdlast = dtbd
-            end if
-            
-            call rzero  (h1, ntot1)
-            call cmult2 (h2, vtrans(1,1,1,1,ifield), dtbd, ntot1)
-            call invers2(h2inv, h2, ntot1)
-            
-            ebar = 0.0_dp
-            if (.not. alpha_eq_zero .and. ifvcor) then
-               call rone(onep, ntot2)
-               call pressure_matvec_2Dh_axisym(ep, onep, h1, h2, h2inv, alphaR_coef, intype)
-               ebar = glsum(ep, ntot2)
-            end if
-            
-            ifprjp = .false.
-            istart = param(95)
-            if (istep >= istart .and. istart /= 0) ifprjp = .true.
-      ! Pressure projection is a per-slot optimisation and is not applied in the
-      ! coupled (alpha /= 0 & lambda /= 0) path, whose two slots are solved
-      ! jointly. Correctness is unaffected; only the initial guess quality.
-            if (.not. alpha_eq_zero .and. .not. if_torsion_zero) ifprjp = .false.
-            
-            if (.not. alpha_eq_zero .and. .not. if_torsion_zero) then
-      ! ---- coupled path: build both RHS, then one stacked solve ----
-               do jp = 1, npert
-                  call opdiv(dpr(1,jp), vxp(1,jp), vyp(1,jp), vzp(1,jp))
-                  call compute_frc_div_axisym(frc_div, tp, alphaR_coef)
-                  call add2 (dpr(1,jp), frc_div, ntot2)
-                  call chsign(dpr(1,jp), ntot2)
-               end do
-               call solve_pressure_coupled_2Dh_axisym(dpr(1,1), dpr(1,2), h1, h2, h2inv,
-     &                                              alphaR_coef, alpha, ebar, intype, iter)
-            else
-      ! ---- decoupled path: per-slot solve (torus or base-flow) ----
-               do jp = 1, npert
-                  info_str = merge('Re', 'Im', jp == 1)
-                  call opdiv(dpr(1,jp), vxp(1,jp), vyp(1,jp), vzp(1,jp))
-                  call compute_frc_div_axisym(frc_div, tp, alphaR_coef)
-                  call add2 (dpr(1,jp), frc_div, ntot2)
-                  call chsign(dpr(1,jp), ntot2)
-                  
-                  if (alpha_eq_zero) call ortho(dpr(1,jp))
-                  
-                  if (ifprjp) then
-                     call  setrhs_pressure_2Dh(dpr(1,jp), h1, h2, h2inv, pbasis(1,1,jp), nprev(jp),
-     &                                         pres_matvec_axisym, info_str)
-                  end if
-                  call      solve_pressure_2Dh(dpr(1,jp), h1, h2, h2inv, pres_matvec_axisym, intype, iter,
-     &                                         ebar, alpha_eq_zero, maxit_p, 'alpha', alpha, info_str)
-                  if (ifprjp) then
-                     call gensoln_pressure_2Dh(dpr(1,jp), h1, h2, h2inv, pbasis(1,1,jp), nprev(jp),
-     &                                         pres_matvec_axisym)
-                  end if
-               end do
-            end if
-            call neklab_timer_stop(t_axisym_adv_pressure)
-            
-            msg = 'Compute velocity correction based on pressure correction'
-            call nek_log_debug(msg, this_module, this_procedure)
-            
-            call neklab_timer_start(t_axisym_adv_correction)
+         end subroutine ophinv_urphi_2Dh_axisym
+
+         subroutine incomprp_div_2Dh_axisym(dpr_jp)
+      !! Right-hand side of the pressure step of slot jp: -(D u + D_alpha u_phi).
+      !! The alpha part reads the other slot's u_phi.
+            real(dp), dimension(lx2*ly2*lz2*lelv), intent(out) :: dpr_jp
+            ! internal
+            integer :: ntot2
+            ntot2 = lx2*ly2*lz2*nelv
+            call opdiv (dpr_jp, vxp(1,jp), vyp(1,jp), vzp(1,jp))
+            call compute_frc_div_axisym(frc_div, tp, alphaR_coef)
+            call add2  (dpr_jp, frc_div, ntot2)
+            call chsign(dpr_jp, ntot2)
+         end subroutine incomprp_div_2Dh_axisym
+
+         subroutine incomprp_dw_2Dh_axisym(dw, dpr, h2inv)
+      !! u_phi correction of slot jp from the pressure corrections.
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(out) :: dw
+            real(dp), dimension(lx2*ly2*lz2*lelv,lpert), intent(in) :: dpr
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(in) :: h2inv
+            call compute_dw_axisym(dw, dpr, h2inv, alphaR_coef)
+         end subroutine incomprp_dw_2Dh_axisym
+
+         subroutine incomprp_coupled_2Dh_axisym(dpr, h1, h2, h2inv, alpha, ebar)
+      !! alpha /= 0 and lambda /= 0: both slots' pressure corrections in one
+      !! stacked solve. No projection. Deleted in Step 7.
+            real(dp), dimension(lx2*ly2*lz2*lelv,lpert), intent(inout) :: dpr
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(in) :: h1, h2, h2inv
+            real(dp), intent(in) :: alpha, ebar
+            ! internal
+            integer :: iter
             do jp = 1, npert
-               call opgradt(w1, w2, w3, dpr(1,jp))
-               call opbinv (dv1, dv2, dv3, w1, w2, w3, h2inv)
-               call compute_dw_axisym(dw, dpr, h2inv, alphaR_coef)
-               
-               call opadd2(vxp(1,jp), vyp(1,jp), vzp(1,jp), dv1, dv2, dv3)
-               call add2  (tp(1,1,jp), dw, ntot1)
-               
-               call extrapprp(prextr)
-               call lagpresp
-               call add3(prp(1,jp), prextr, dpr(1,jp), ntot2)
+               call incomprp_div_2Dh_axisym(dpr(1,jp))
             end do
-            call neklab_timer_stop(t_axisym_adv_correction)
-            
-            call neklab_clock_toc()
-            call neklab_timer_stop(t_axisym_advance)
-            
-            ! reset jp = 0 in case we switch to the nonlinear solver next
-            jp = 0
-            
-         end subroutine nek_advance_2Dh_axisym
+            call solve_pressure_coupled_2Dh_axisym(dpr(1,1), dpr(1,2), h1, h2, h2inv,
+     &                                             alphaR_coef, alpha, ebar, 1, iter)
+         end subroutine incomprp_coupled_2Dh_axisym
+
+      !-----------------------------------!
+      !                                   !
+      !     PRIVATE HELPER ROUTINES       !
+      !                                   !
+      !-----------------------------------!
          
          subroutine build_torus_coeffs(alpha)
             implicit none
@@ -527,7 +422,7 @@
             call bm2_map12_2Dh(frc_div, wtmp)           
          end subroutine compute_frc_div_axisym
          
-         subroutine makefp_2Dh_axisym(advZ, advR, advPhi)
+         subroutine makefp_2Dh_axisym()
             ! Perturbation RHS assembly for the torus formulation.
             !
             ! Replaces the core `makefp` + `makeqp` pair. Structure is identical
@@ -544,7 +439,7 @@
             include 'INPUT'
             include 'TSTEP'
             include 'ADJOINT'
-            real(dp), dimension(lx1*ly1*lz1*lelv,lpert), intent(in) :: advZ, advR, advPhi
+            ! internal
             character(len=*), parameter :: this_procedure = 'makefp_2Dh_axisym'
             integer :: ifield_bak, ntot1
             

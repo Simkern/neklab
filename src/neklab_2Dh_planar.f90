@@ -5,13 +5,9 @@
      &                               nek_log_warning, nek_stop_error
          use neklab_2Dh_common, only: wmask, is_initialized_2Dh_planar,
      &                                bm2_map12_2Dh, bm2_map12T_2Dh,
-     &                                solve_helmholtz_2Dh, solve_pressure_2Dh,
-     &                                setrhs_pressure_2Dh, gensoln_pressure_2Dh
+     &                                solve_helmholtz_2Dh
          use neklab_timing, only: neklab_timer_start, neklab_timer_stop,
-     &                            neklab_clock_tic, neklab_clock_toc,
-     &                            t_planar_advance, t_planar_adv_setup, t_planar_adv_advection,
-     &                            t_planar_adv_rhs, t_planar_adv_velocity, t_planar_adv_pressure,
-     &                            t_planar_adv_correction, t_planar_makefp, t_planar_makeqp,
+     &                            t_planar_makefp, t_planar_makeqp,
      &                            t_planar_helm_matvec, t_planar_pres_matvec
          implicit none
          include "SIZE"
@@ -20,272 +16,163 @@
          
          private
          character(len=*), parameter, private :: this_module = 'neklab_2Dh_planar'
-         integer, parameter :: maxit_p = 100 ! max iterations for pressure solve
+         integer, parameter, public :: maxit_p_planar = 100 ! max iterations for pressure solve
          
-         real(dp), private :: pbasis(lx2*ly2*lz2*lelv,mxprev,lpert)
-         real(dp), private :: dtbdlast = 0.0_dp
-         real(dp), private :: betaz_op = 0.0_dp ! module variable to pass to the abstract operators
-         integer,  private :: nprev(lpert) = 0
+         real(dp), private :: betaz_op = 0.0_dp    ! betaz of the current step (prepare_step_2Dh_planar)
+         logical,  private :: if_advW_op = .false. ! W-advection switch of the current step
+         logical, public :: betaz_eq_zero = .false.
 
          ! Scratch arrays, at module level to keep them off the stack
          ! m1
-         real(dp), dimension(lx1*ly1*lz1*lelv,lpert), private :: gradz_p               ! spanwise pressure gradient
          real(dp), dimension(lx1*ly1*lz1*lelv,lpert), private :: avdW_x,avdW_y,avdW_z  ! spanwise advection terms
-         real(dp), dimension(lx1*ly1*lz1*lelv),       private :: dw                    ! spanwise velocity correction
          real(dp), dimension(lx1*ly1*lz1*lelv),       private :: advW_coef
+         real(dp), dimension(lx1*ly1*lz1*lelv),       private :: ophx_tmp
          real(dp), dimension(lx1,ly1,lz1,lelv),       private :: hmv_tmp, pmv_tmp1     ! scratch
          ! m2
-         real(dp), dimension(lx2*ly2*lz2*lelv,lpert), private :: dpr                   ! prefactor
          real(dp), dimension(lx2,ly2,lz2,lelv),       private :: frc_div               ! spanwise divergence
-         real(dp), dimension(lx2*ly2*lz2*lelv),       private :: prextr, onep, ep      ! temp flds for p. recovery / extrap.
+         real(dp), dimension(lx2*ly2*lz2*lelv),       private :: prextr                ! temp flds for p. recovery / extrap.
          real(dp), dimension(lx2,ly2,lz2,lelv),       private :: pmv_tmp2              ! scratch
          
-         public :: nek_advance_2Dh_planar
+         public ::  prepare_step_2Dh_planar
+         public :: make_coupling_2Dh_planar
+         public ::        makefp_2Dh_planar
+         public ::          ophx_2Dh_planar
+         public ::        ophinv_2Dh_planar
+         public ::  incomprp_div_2Dh_planar
+         public ::   incomprp_dw_2Dh_planar
+         public ::       pres_matvec_planar
       
       contains
-      
-         subroutine nek_advance_2Dh_planar(betaz, if_advW_in)
-            implicit none
+
+      !-----------------------------------------------------------!
+      !                                                           !
+      !     PUBLIC STAGE WRAPPERS FOR THE PLANAR 2Dh SOLVER       !
+      !                                                           !
+      !-----------------------------------------------------------!
+
+         subroutine prepare_step_2Dh_planar(betaz, if_advW_in)
+      !! Checks and per-step switches. Called first by nek_advance_2Dh_planar.
             real(dp), intent(in) :: betaz
             logical, optional, intent(in) :: if_advW_in
-            ! spanwise wavenumber
-            ! common
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: w1, w2, w3
-            ! temporary velocity fields
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: resv1, resv2, resv3
-            ! velocity residuals for Helmholtz solve
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: dv1, dv2, dv3
-            ! velocity correction
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: h1, h2
-            ! weights for the Helmholtz operator
-            real(dp), dimension(lx1,ly1,lz1,lelv) :: h2inv
-            ! utility array
-            common /SCRNS/  w1, w2, w3, resv1, resv2, resv3, dv1, dv2, dv3
-            common /SCRVH/  h1
-            common /SCRCH/  h2
-            common /scrhi/ h2inv
-            real(dp) :: ebar
-            ! mean pressure
-            logical :: if_advW
-            ! W advection active?
-            ! Miscellaneous
-            character(len=*), parameter :: this_procedure = 'nek_advance_2Dh_planar'
-            character(len=*), parameter :: fmt = '(A,I6)'
+            ! internal
+            character(len=*), parameter :: this_procedure = 'prepare_step_2Dh_planar'
             character(len=256) :: msg
-            character(len=2) :: info_str
-            character(len=7) :: helm_info
-            real(dp) :: dtbd
-            logical :: ifprjp, beta_eq_zero
-            integer :: igeom, iter, intype, kfldfdm
-            integer :: ntot1, ntot2, istart
-            real, external :: glsum
-            
-            ntot1 = lx1*ly1*lz1*nelv
-            ntot2 = lx2*ly2*lz2*nelv
             msg = 'call init_2Dh_planar() in userchk at istep = 0 before using the 2Dh solver.'
             if (.not. is_initialized_2Dh_planar()) call nek_stop_error(msg, this_module, this_procedure)
-            betaz_op = betaz ! set the abstract operator's betaz
-            beta_eq_zero = (betaz == 0.0_dp)
-            
-            if_advW = optval(if_advW_in, .false.)
-            msg = 'Spanwise advection '//merge('active.  ', 'inactive.', if_advW)
+            betaz_op   = betaz
+            if_advW_op = optval(if_advW_in, .false.)
+            msg = 'Spanwise advection '//merge('active.  ', 'inactive.', if_advW_op)
             call nek_log_debug(msg, this_module, this_procedure)
-            
-            write(msg,fmt) 'Step', istep
-            call nek_log_debug(msg,this_module,this_procedure)
-            
-            if (istep == 1) nprev(:) = 0 ! reset pressure projection basis
-            
-            call neklab_timer_start(t_planar_advance)
-            call neklab_clock_tic()
-            
-            call neklab_timer_start(t_planar_adv_setup)
-            call nekgsync
-            call settime
-            call setup_convect(2)
-            call setsolv
-            call comment
-            call setprop
-            
+            write(msg,'(A,I6)') 'Step', istep
+            call nek_log_debug(msg, this_module, this_procedure)
+            ! Re/Im pairing is only meaningful for alpha /= 0; npert must match
+            ! or the caller has set up the wrong number of perturbation slots.
+            betaz_eq_zero = (betaz == 0.0_dp)
+            if (betaz_eq_zero) then
+               if (lpert /= 1) call nek_stop_error('beta = 0 requires npert = 1.', this_module, this_procedure)
+            else
+               if (lpert /= 2) call nek_stop_error('beta /= 0 requires npert = 2.', this_module, this_procedure)
+            end if
+         end subroutine prepare_step_2Dh_planar
+
+         subroutine make_coupling_2Dh_planar(gradw)
+      !! Slot-coupled explicit terms of slot jp (read jp, write ipert): the
+      !! spanwise pressure gradient and, if active, the W-advection. Runs for all
+      !! slots before any slot is advanced.
+            real(dp), dimension(lx1*ly1*lz1*lelv,lpert), intent(inout) :: gradw
+            call extrapprp(prextr)
+            call compute_gradz_p(gradw, prextr, betaz_op)
+            if (if_advW_op) call compute_W_advection(avdW_x, avdW_y, avdW_z, betaz_op)
+         end subroutine make_coupling_2Dh_planar
+
+         subroutine makefp_2Dh_planar()
+      !! Old-geometry part of slot jp (cf. perturbv, igeom = 1): makefp + lagfieldp
+      !! for u, v and makeqp + lagscalp for w, with the W-advection injected.
             ifield = 1
-            imesh = 1
-            call unorm
-            call settolv
-            call neklab_timer_stop(t_planar_adv_setup)
-            
-            ! compute best estimate for d/dz (p)
-            
-            msg = 'Compute explicit pressure gradient term for w'
-            call nek_log_debug(msg,this_module,this_procedure)
-            
-            call neklab_timer_start(t_planar_adv_advection)
-            do jp = 1, npert
-               ! we need to do this outside of the other jp loop for extrapolation of the correct pressure term
-               call extrapprp(prextr)
-               call compute_gradz_p(gradz_p, prextr, betaz)
-               ! spanwise advection by the base flow: active iff betaz /= 0 and W /= 0
-               if (if_advW) call compute_W_advection(avdW_x, avdW_y, avdW_z, betaz)
-            end do
-            call neklab_timer_stop(t_planar_adv_advection)
-            
-            ! Compute intermediate velocities
-            
-            msg = 'Solve momentum equations for u/v/w'
-            call nek_log_debug(msg,this_module,this_procedure)
-            
-            do jp = 1, npert
-               info_str = merge('Re', 'Im', jp == 1)
-               call neklab_timer_start(t_planar_adv_rhs)
-               igeom = 1
-               !
-               !  Old geometry, old velocity
-               !
-               ifield = 1     !  velocity
-               call makefp_2Dh_planar(avdW_x, avdW_y, if_advW) ! W-advection added conditionally
-               call lagfieldp
-               ifield = 2     !  temperature (w)
-               call makeqp_2Dh_planar(avdW_z, if_advW)        ! W-advection added conditionally
-               call lagscalp
-               !
-               igeom = 2
-               !
-               !  New geometry, new velocity
-               !
-               intype = -1
-               ifield = 1     !  velocity
-               call sethlm   (h1,h2,intype)
-               ! cresvipp
-               call bcdirvc(vxp(1,jp), vyp(1,jp), vzp(1,jp),v1mask, v2mask, v3mask)
-               call col2   (tp(1,1,jp), wmask, ntot1)
-               call extrapprp(prextr)
-               call opgradt(resv1,resv2,resv3,prextr)      ! d/dx pr, d/dy pr
-               call opadd2 (resv1,resv2,resv3,bfxp(1,jp), bfyp(1,jp),bfzp(1,jp))
-               call copy   (resv3,gradz_p(1,jp),ntot1)     ! d/dz pr
-               call   add2 (resv3, bqp(1,1,jp), ntot1)
-               ! ophx
-               call helmholtz_matvec_2Dh(w1, vxp(1,jp),h1,h2,betaz)
-               call helmholtz_matvec_2Dh(w2, vyp(1,jp),h1,h2,betaz)
-               call helmholtz_matvec_2Dh(w3,tp(1,1,jp),h1,h2,betaz)
-               call opsub2(resv1,resv2,resv3,w1,w2,w3)
-               call   sub2(            resv3,      w3,ntot1)
-               call neklab_timer_stop(t_planar_adv_rhs)
-               
-               call neklab_timer_start(t_planar_adv_velocity)
-               ! ophinv
-               tolhv = abs(tolhv)
-               ifield = 1 !  velocity
-               
-               call dssum  (resv1,lx1,ly1,lz1)
-               call col2   (resv1,v1mask,ntot1)
-               helm_info = info_str//' VELX'
-               if (istep < 10) call chktcg1 (tolhv,resv1,h1,h2,v1mask,vmult,imesh,1)
-               call solve_helmholtz_2Dh(dv1,resv1,h1,h2,v1mask,vmult,imesh,
-     &                                  tolhv,nmxv,1,binvm1,helm_info,helm_matvec_planar)
-               
-               call dssum  (resv2,lx1,ly1,lz1)
-               call col2   (resv2,v2mask,ntot1)
-               helm_info = info_str//' VELY'
-               if (istep < 10) call chktcg1 (tolhv,resv2,h1,h2,v2mask,vmult,imesh,2)
-               call solve_helmholtz_2Dh(dv2,resv2,h1,h2,v2mask,vmult,imesh,
-     &                                  tolhv,nmxv,2,binvm1,helm_info,helm_matvec_planar)
-               
-               call dssum  (resv3,lx1,ly1,lz1)
-               call col2   (resv3,wmask,ntot1)
-               helm_info = info_str//' VELZ'
-               if (istep < 10) call chktcg1 (tolhv,resv3,h1,h2, wmask,vmult,imesh,3)
-               call solve_helmholtz_2Dh(dv3,resv3,h1,h2,wmask,vmult,imesh,
-     &                                  tolhv,nmxv,3,binvm1,helm_info,helm_matvec_planar)
-               
-               call opadd2 (vxp(1,jp),vyp(1,jp),vzp(1,jp),dv1,dv2,dv3)
-               call add2   (tp(1,1,jp),dv3,ntot1)
-               call neklab_timer_stop(t_planar_adv_velocity)
-            end do ! jp
-            
-            msg = 'Compute pressure correction to enforce mass balance'
-            call nek_log_debug(msg,this_module,this_procedure)
-            
-            call neklab_timer_start(t_planar_adv_pressure)
-            ! prepare incomprp
-            ifield = 1 ! velocity
-            intype = 1
-            dtbd   = bd(1)/dt
-            if (dtbd /= dtbdlast) then
-               nprev(:) = 0          ! operator changed: basis is stale
-               dtbdlast = dtbd
-            end if
-            
-            call rzero   (h1,ntot1)
-            call cmult2  (h2,vtrans(1,1,1,1,ifield),dtbd,ntot1)
-            call invers2 (h2inv,h2,ntot1)
+            call makefp_uv_2Dh_planar(avdW_x, avdW_y, if_advW_op)
+            call lagfieldp
+            ifield = 2
+            call makeqp_w_2Dh_planar(avdW_z, if_advW_op)
+            call lagscalp
+         end subroutine makefp_2Dh_planar
 
-            ! if beta /= 0, the E-operator is non-singular and the mean is NOT in the nullspace.
-            ! But since the preconditioner automatically projects it out, we compute mean pressure
-            ! to add it back after the pressure solve
-            ebar = 0.0_dp
-            if (.not. beta_eq_zero .and. ifvcor) then
-               call rone(onep, ntot2)
-               call pressure_matvec_2Dh(ep,onep,h1,h2,h2inv,betaz,intype)
-               ebar = glsum(ep, ntot2)
-            end if
+         subroutine ophx_2Dh_planar(resv1, resv2, resv3, h1, h2)
+      !! resv -= H u for the three components of slot jp (cf. ophx in cresvipp).
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(inout) :: resv1, resv2, resv3
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(in)    :: h1, h2
+            ! internal
+            integer :: ntot1
+            ntot1 = lx1*ly1*lz1*nelv
+            call helmholtz_matvec_2Dh(ophx_tmp, vxp(1,jp),  h1, h2, betaz_op)
+            call sub2(resv1, ophx_tmp, ntot1)
+            call helmholtz_matvec_2Dh(ophx_tmp, vyp(1,jp),  h1, h2, betaz_op)
+            call sub2(resv2, ophx_tmp, ntot1)
+            call helmholtz_matvec_2Dh(ophx_tmp, tp(1,1,jp), h1, h2, betaz_op)
+            call sub2(resv3, ophx_tmp, ntot1)
+         end subroutine ophx_2Dh_planar
 
-            ! project out previous pressure solutions?
-            ifprjp=.false.
-            istart=param(95)
-            if (istep.ge.istart.and.istart.ne.0) ifprjp=.true.
+         subroutine ophinv_2Dh_planar(dv1, dv2, dv3, resv1, resv2, resv3, h1, h2)
+      !! Velocity increments of slot jp (cf. ophinv): assemble, mask, solve.
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(out)   :: dv1, dv2, dv3
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(inout) :: resv1, resv2, resv3
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(in)    :: h1, h2
+            ! internal
+            character(len=2) :: info_str
+            character(len=7) :: helm_info
+            integer :: ntot1
+            ntot1    = lx1*ly1*lz1*nelv
+            info_str = merge('Re', 'Im', jp == 1)
+            tolhv    = abs(tolhv)
+            ifield   = 1
             
-            do jp = 1, npert
-               info_str = merge('Re', 'Im', jp == 1)
-               
-               call opdiv   (dpr(1,jp),vxp(1,jp),vyp(1,jp),vzp(1,jp))
-               
-               call compute_frc_div(frc_div, tp, betaz)
-               call add2    (dpr(1,jp),frc_div,ntot2)
-               
-               call chsign  (dpr(1,jp),ntot2)
-               if (beta_eq_zero) call ortho (dpr(1,jp))
-               
-               if (ifprjp) then
-                  call  setrhs_pressure_2Dh(dpr(1,jp), h1, h2, h2inv, pbasis(1,1,jp), nprev(jp),
-     &                                      pres_matvec_planar, info_str)
-               end if
-               call      solve_pressure_2Dh(dpr(1,jp), h1, h2, h2inv, pres_matvec_planar, intype, iter,
-     &                                      ebar, beta_eq_zero, maxit_p, 'beta', betaz, info_str)
-               if (ifprjp) then
-                  call gensoln_pressure_2Dh(dpr(1,jp), h1, h2, h2inv, pbasis(1,1,jp), nprev(jp),
-     &                                      pres_matvec_planar)
-               end if
-            end do ! jp
+            call dssum  (resv1,lx1,ly1,lz1)
+            call col2   (resv1,v1mask,ntot1)
+            helm_info = info_str//' VELX'
+            if (istep < 10) call chktcg1 (tolhv,resv1,h1,h2,v1mask,vmult,imesh,1)
+            call solve_helmholtz_2Dh(dv1,resv1,h1,h2,v1mask,vmult,imesh,
+     &                               tolhv,nmxv,1,binvm1,helm_info,helm_matvec_planar)
             
-            call neklab_timer_stop(t_planar_adv_pressure)
+            call dssum  (resv2,lx1,ly1,lz1)
+            call col2   (resv2,v2mask,ntot1)
+            helm_info = info_str//' VELY'
+            if (istep < 10) call chktcg1 (tolhv,resv2,h1,h2,v2mask,vmult,imesh,2)
+            call solve_helmholtz_2Dh(dv2,resv2,h1,h2,v2mask,vmult,imesh,
+     &                               tolhv,nmxv,2,binvm1,helm_info,helm_matvec_planar)
             
-            ! Reconstruct pressure and add pressure correction
-            
-            msg = 'Compute velocity correction based on pressure correction'
-            call nek_log_debug(msg,this_module,this_procedure)
-            
-            call neklab_timer_start(t_planar_adv_correction)
-            do jp = 1, npert
-               call opgradt (w1 ,w2 ,w3 ,dpr(1,jp))
-               call opbinv  (dv1,dv2,dv3,w1 ,w2 ,w3 ,h2inv)
-               call compute_dw(dw, dpr, h2inv, betaz) ! dw
-               
-               call opadd2 (vxp(1,jp),vyp(1,jp),vzp(1,jp), dv1,dv2,dv3)
-               call   add2 (tp(1,1,jp), dw, ntot1)
-               
-               call extrapprp(prextr)
-               call lagpresp
-               call add3(prp(1,jp),prextr,dpr(1,jp), ntot2)
-            end do ! jp
-            
-            call neklab_timer_stop(t_planar_adv_correction)
-            
-            call neklab_clock_toc()
-            call neklab_timer_stop(t_planar_advance)
-            
-            ! reset jp = 0 in case we run the nonlinear step next
-            jp = 0
-         
-         end subroutine nek_advance_2Dh_planar
+            call dssum  (resv3,lx1,ly1,lz1)
+            call col2   (resv3,wmask,ntot1)
+            helm_info = info_str//' VELZ'
+            if (istep < 10) call chktcg1 (tolhv,resv3,h1,h2,wmask,vmult,imesh,3)
+            call solve_helmholtz_2Dh(dv3,resv3,h1,h2,wmask,vmult,imesh,
+     &                               tolhv,nmxv,3,binvm1,helm_info,helm_matvec_planar)
+         end subroutine ophinv_2Dh_planar
+
+         subroutine incomprp_div_2Dh_planar(dpr_jp)
+      !! Right-hand side of the pressure step of slot jp: -(D u + D_beta w). The
+      !! beta part reads the other slot's w.
+            real(dp), dimension(lx2*ly2*lz2*lelv), intent(out) :: dpr_jp
+            ! internal
+            integer :: ntot2
+            ntot2 = lx2*ly2*lz2*nelv
+            call opdiv  (dpr_jp, vxp(1,jp), vyp(1,jp), vzp(1,jp))
+            call compute_frc_div(frc_div, tp, betaz_op)
+            call add2   (dpr_jp, frc_div, ntot2)
+            call chsign (dpr_jp, ntot2)
+         end subroutine incomprp_div_2Dh_planar
+
+         subroutine incomprp_dw_2Dh_planar(dw, dpr, h2inv)
+      !! w correction of slot jp from the other slot's pressure correction.
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(out) :: dw
+            real(dp), dimension(lx2*ly2*lz2*lelv,lpert), intent(in) :: dpr
+            real(dp), dimension(lx1*ly1*lz1*lelv), intent(in) :: h2inv
+            call compute_dw(dw, dpr, h2inv, betaz_op)
+         end subroutine incomprp_dw_2Dh_planar
+
+      !-----------------------------------!
+      !                                   !
+      !     PRIVATE HELPER ROUTINES       !
+      !                                   !
+      !-----------------------------------!
       
          subroutine compute_dw(dw, dpr, h2inv, betaz)
             implicit none
@@ -374,7 +261,7 @@
          end subroutine compute_W_advection
       
       
-         subroutine makefp_2Dh_planar(avdW_x, avdW_y, if_advW)
+         subroutine makefp_uv_2Dh_planar(avdW_x, avdW_y, if_advW)
             ! Copy of the core makefp (perturb.f)
             ! Spanwise advection of vxp and vyp injected before makextp if W /= 0.
             implicit none
@@ -405,9 +292,9 @@
             ! add bd contribution
                                                                call makebdfp
             call neklab_timer_stop(t_planar_makefp)
-         end subroutine makefp_2Dh_planar
+         end subroutine makefp_uv_2Dh_planar
          
-         subroutine makeqp_2Dh_planar(avdW_z, if_advW)
+         subroutine makeqp_w_2Dh_planar(avdW_z, if_advW)
             ! Copy of the core makeqp (perturb.f)
             ! Spanwise advection of vzp injected before makeabqp if W /= 0.
             ! Note: Expects ifield = 2.
@@ -436,7 +323,7 @@
             if ((iftran .and. .not.ifchar) .or.
      &          (iftran .and. .not.ifadvc(ifield) .and. ifchar))  call makebdqp
             call neklab_timer_stop(t_planar_makeqp)
-         end subroutine makeqp_2Dh_planar
+         end subroutine makeqp_w_2Dh_planar
          
          subroutine pressure_matvec_2Dh(ap,wp,h1,h2,h2inv,betaz,intype)
             implicit none

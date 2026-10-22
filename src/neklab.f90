@@ -93,7 +93,7 @@
          public :: compute_nonlinear_period_torus
       
       ! 2Dh
-         public :: init_2Dh_planar
+         public :: init_2Dh_planar, init_2Dh_axisym
          public :: nek_advance_2Dh_planar
          public :: nek_advance_2Dh_axisym
          public :: enable_axisym_curvature_terms

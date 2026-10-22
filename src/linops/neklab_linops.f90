@@ -10,7 +10,8 @@
          use neklab_nek_setup, only: setup_nonlinear_solver, setup_linear_solver
          use neklab_nek_setup, only: nek_stop_error, nek_log_message, nek_log_warning, nek_log_debug
          use neklab_helix
-         use neklab_2Dh_common, only: is_initialized_2Dh_planar
+         use neklab_2Dh_planar, only: init_2Dh_planar
+         use neklab_2Dh_axisym, only: init_2Dh_axisym
          use neklab_2Dh, only: nek_advance_2Dh_planar, nek_advance_2Dh_axisym
          implicit none
          include "SIZE"

@@ -3,7 +3,8 @@
          use LightKrylov, only: dp
          use neklab_nek_setup, only: nek_log_debug, nek_log_message, nek_log_information,
      &                               nek_log_warning, nek_stop_error
-         use neklab_2Dh_common, only: wmask, is_initialized_2Dh_planar,
+         use neklab_2Dh_common, only: wmask, build_wmask, 
+     &                                check_2Dh_properties, check_2Dh_masks,
      &                                bm2_map12_2Dh, bm2_map12T_2Dh,
      &                                solve_helmholtz_2Dh
          use neklab_timing, only: neklab_timer_start, neklab_timer_stop,
@@ -18,9 +19,10 @@
          character(len=*), parameter, private :: this_module = 'neklab_2Dh_planar'
          integer, parameter, public :: maxit_p_planar = 100 ! max iterations for pressure solve
          
-         real(dp), private :: betaz_op = 0.0_dp    ! betaz of the current step (prepare_step_2Dh_planar)
-         logical,  private :: if_advW_op = .false. ! W-advection switch of the current step
-         logical, public :: betaz_eq_zero = .false.
+         real(dp), private :: betaz_op = 0.0_dp                ! betaz of the current step (prepare_step_2Dh_planar)
+         logical,  private :: if_advW_op = .false.             ! W-advection switch of the current step
+         logical,  private :: init_2Dh_planar_done = .false.   ! initialization flag
+         logical,  public  :: betaz_eq_zero = .false.          ! flag for beta = 0 (no Re/Im pairing)
 
          ! Scratch arrays, at module level to keep them off the stack
          ! m1
@@ -33,14 +35,16 @@
          real(dp), dimension(lx2*ly2*lz2*lelv),       private :: prextr                ! temp flds for p. recovery / extrap.
          real(dp), dimension(lx2,ly2,lz2,lelv),       private :: pmv_tmp2              ! scratch
          
-         public ::  prepare_step_2Dh_planar
-         public :: make_coupling_2Dh_planar
-         public ::        makefp_2Dh_planar
-         public ::          ophx_2Dh_planar
-         public ::        ophinv_2Dh_planar
-         public ::  incomprp_div_2Dh_planar
-         public ::   incomprp_dw_2Dh_planar
-         public ::       pres_matvec_planar
+         public ::           init_2Dh_planar
+         public :: is_initialized_2Dh_planar
+         public ::   prepare_step_2Dh_planar
+         public ::  make_coupling_2Dh_planar
+         public ::         makefp_2Dh_planar
+         public ::           ophx_2Dh_planar
+         public ::         ophinv_2Dh_planar
+         public ::   incomprp_div_2Dh_planar
+         public ::    incomprp_dw_2Dh_planar
+         public ::        pres_matvec_planar
       
       contains
 
@@ -50,6 +54,32 @@
       !                                                           !
       !-----------------------------------------------------------!
 
+         subroutine init_2Dh_planar(verbose)
+      !! Set up the cartesian 2Dh solver. Idempotent. Called by
+      !! init_exptA_2Dh_planar and, as a fallback, by prepare_step_2Dh_planar;
+      !! may also be called by hand from userchk (istep = 0, after usrdat2).
+            logical, optional, intent(in) :: verbose
+            ! internal
+            character(len=*), parameter :: this_procedure = 'init_2Dh_planar'
+
+            if (init_2Dh_planar_done) return
+
+            if (ifaxis) call nek_stop_error(
+     &         'init_2Dh_planar is for the cartesian 2Dh solver, incompatible with ifaxis.',
+     &         this_module, this_procedure)
+            call check_2Dh_properties(this_procedure)
+
+            call build_wmask(verbose)
+            call check_2Dh_masks(this_procedure)
+
+            init_2Dh_planar_done = .true.
+            call nek_log_message('cartesian 2Dh solver initialised.', this_module, this_procedure)
+         end subroutine init_2Dh_planar
+
+         logical function is_initialized_2Dh_planar()
+            is_initialized_2Dh_planar = init_2Dh_planar_done
+         end function is_initialized_2Dh_planar 
+
          subroutine prepare_step_2Dh_planar(betaz, if_advW_in)
       !! Checks and per-step switches. Called first by nek_advance_2Dh_planar.
             real(dp), intent(in) :: betaz
@@ -57,21 +87,20 @@
             ! internal
             character(len=*), parameter :: this_procedure = 'prepare_step_2Dh_planar'
             character(len=256) :: msg
-            msg = 'call init_2Dh_planar() in userchk at istep = 0 before using the 2Dh solver.'
-            if (.not. is_initialized_2Dh_planar()) call nek_stop_error(msg, this_module, this_procedure)
+            call init_2Dh_planar() ! for safety; normally done already
             betaz_op   = betaz
             if_advW_op = optval(if_advW_in, .false.)
             msg = 'Spanwise advection '//merge('active.  ', 'inactive.', if_advW_op)
             call nek_log_debug(msg, this_module, this_procedure)
             write(msg,'(A,I6)') 'Step', istep
             call nek_log_debug(msg, this_module, this_procedure)
-            ! Re/Im pairing is only meaningful for alpha /= 0; npert must match
+            ! Re/Im pairing is only meaningful for betaz /= 0; npert must match
             ! or the caller has set up the wrong number of perturbation slots.
             betaz_eq_zero = (betaz == 0.0_dp)
             if (betaz_eq_zero) then
-               if (lpert /= 1) call nek_stop_error('beta = 0 requires npert = 1.', this_module, this_procedure)
+               if (lpert /= 1) call nek_stop_error('betaz = 0 requires npert = 1.', this_module, this_procedure)
             else
-               if (lpert /= 2) call nek_stop_error('beta /= 0 requires npert = 2.', this_module, this_procedure)
+               if (lpert /= 2) call nek_stop_error('betaz /= 0 requires npert = 2.', this_module, this_procedure)
             end if
          end subroutine prepare_step_2Dh_planar
 

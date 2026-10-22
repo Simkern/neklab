@@ -1,9 +1,10 @@
       module neklab_2Dh_axisym
          use LightKrylov, only: dp
-         use neklab_2Dh_common, only: wmask, wmask_defined, build_wmask,
+         use neklab_2Dh_common, only: wmask, build_wmask,
+     &                                check_2Dh_properties, check_2Dh_masks,
      &                                bm2_map12_2Dh, bm2_map12T_2Dh,
      &                                solve_helmholtz_2Dh
-         use neklab_2Dh_torsion, only: if_torsion_zero,
+         use neklab_2Dh_torsion, only: if_torsion_zero, check_torsion_cache,
      &                                 build_torsion_coeffs, torsion_shift_add,
      &                                 dphi_apply, dphi_apply_t,
      &                                 dphi_alpha_apply, dphi_alpha_apply_t,
@@ -33,10 +34,11 @@
       ! two coincide and one field sufficed; diag_shift_r carries the R value
       ! whenever lambda /= 0, and is byte-identical to diag_shift otherwise.
          real(dp), dimension(lx1,ly1,lz1,lelv), public, target :: diag_shift_r
-         real(dp), dimension(lx1,ly1,lz1,lelv), public :: alphaR_coef   ! alpha/R, continuity/pressure coupling
-         logical, public :: torus_coeffs_defined = .false.
-         logical, public :: alpha_eq_zero = .false.
-         real(dp), private :: alpha_cached = huge(1.0_dp)
+         real(dp), dimension(lx1,ly1,lz1,lelv), public  :: alphaR_coef   ! alpha/R, continuity/pressure coupling
+         logical,                               public  :: torus_coeffs_defined = .false.
+         logical,                               public  :: alpha_eq_zero = .false.
+         real(dp),                              private :: alpha_cached = huge(1.0_dp)
+         logical,                               private :: init_2Dh_axisym_done = .false.
 
       ! Fields produced and consumed inside the model
       ! m1
@@ -46,6 +48,8 @@
          real(dp), dimension(lx2*ly2*lz2*lelv),       private :: frc_div              ! divergence
          real(dp), dimension(lx2*ly2*lz2*lelv),       private :: prextr               ! extrapolated p
          
+         public ::             init_2Dh_axisym
+         public ::   is_initialized_2Dh_axisym
          public ::     prepare_step_2Dh_axisym
          public ::    make_coupling_2Dh_axisym
          public ::           makefp_2Dh_axisym
@@ -70,13 +74,61 @@
       !                                                                 !
       !-----------------------------------------------------------------!
 
+         subroutine init_2Dh_axisym(verbose)
+      !! Set up the axisymmetric 2Dh solver. Idempotent. Called by
+      !! init_exptA_2Dh_axisym and, as a fallback, by prepare_step_2Dh_axisym;
+      !! may also be called by hand from userchk (istep = 0, after usrdat2).
+      !! For a torus/helix, t2Dh%init_geom must come first: lambda is read and
+      !! cached here (check_torsion_cache stops on the wrong order).
+            logical, optional, intent(in) :: verbose
+            ! internal
+            character(len=*), parameter :: this_procedure = 'init_2Dh_axisym'
+            character(len=256) :: msg
+            real(dp) :: rmin
+            real(dp), external :: glmin
+
+            if (init_2Dh_axisym_done) return
+
+            if (.not. ifaxis) call nek_stop_error('init_2Dh_axisym requires ifaxis = .true.',
+     &                                            this_module, this_procedure)
+            if (.not. ifaziv) call nek_stop_error('init_2Dh_axisym requires ifaziv = .true.',
+     &                                            this_module, this_procedure)
+            call check_2Dh_properties(this_procedure)
+
+      ! alpha/R, 1/R^2 and (alpha^2+1)/R^2 are built pointwise and are singular
+      ! at R = 0. Meshes touching the axis are not supported yet.
+            rmin = glmin(ym1, lx1*ly1*lz1*nelv)
+            if (rmin <= 0.0_dp) then
+               write(msg,'(A,1pE12.4,A)') 'min(R) = ', rmin,
+     &            ': meshes touching the axis are not supported.'
+               call nek_stop_error(msg, this_module, this_procedure)
+            end if
+
+            call build_wmask(verbose)
+            call check_2Dh_masks(this_procedure)
+
+      ! lambda is fixed for the run: build the torsion coefficients once, here.
+      ! Without t2Dh%init_geom (pure axisymmetric case) torsion is off.
+            call build_torsion_coeffs()
+            msg = 'torsion terms '//merge('inactive.', 'active.  ', if_torsion_zero)
+            call nek_log_message(msg, this_module, this_procedure)
+
+            init_2Dh_axisym_done = .true.
+            call nek_log_message('axisymmetric 2Dh solver initialised.', this_module, this_procedure)
+         end subroutine init_2Dh_axisym
+
+         logical function is_initialized_2Dh_axisym()
+            is_initialized_2Dh_axisym = init_2Dh_axisym_done
+         end function is_initialized_2Dh_axisym
+
          subroutine prepare_step_2Dh_axisym(alpha)
       !! Coefficients and checks for the current wavenumber. Called first by
       !! nek_advance_2Dh_axisym.
             real(dp), intent(in) :: alpha
             ! internal
             character(len=*), parameter :: this_procedure = 'prepare_step_2Dh_axisym'
-            if (.not. wmask_defined) call build_wmask(.true.)
+            call init_2Dh_axisym() ! for safety; normally done already
+            call check_torsion_cache(this_procedure)
             if (.not. torus_coeffs_defined .or. alpha /= alpha_cached) call build_torus_coeffs(alpha)
             ! Re/Im pairing is only meaningful for alpha /= 0; npert must match
             ! or the caller has set up the wrong number of perturbation slots.

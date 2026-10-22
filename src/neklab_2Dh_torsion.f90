@@ -70,7 +70,6 @@
       !! alpha /= 0 extension, which only adds a slot-aware wrapper around it.
          use LightKrylov, only: dp
          use neklab_t2Dh, only: t2Dh
-         use neklab_2Dh_common, only: wmask, wmask_defined, build_wmask
          use neklab_nek_setup, only: nek_log_debug, nek_log_message,
      &                               nek_log_warning, nek_stop_error
          use neklab_nek_forcing, only: set_neklab_forcing, set_neklab_source
@@ -98,8 +97,10 @@
          real(dp), dimension(lv), private :: lamzR3_f   ! lambda*zhat/R^3
          real(dp), dimension(lv), private :: invR_f     ! 1/R
          logical, private :: torsion_coeffs_defined = .false.
+         real(dp), private :: lambda_built = 0.0_dp   ! lambda the coefficients were built with
 
          public :: build_torsion_coeffs
+         public :: check_torsion_cache
          public :: torsion_shift_add
          public :: apply_dtheta
          public :: apply_dtheta_t
@@ -138,6 +139,7 @@
             lam = t2Dh%get_lambda()
             zc  = t2Dh%get_axial_centre()
             Rc  = t2Dh%get_curv_radius()
+            lambda_built = lam
 
       ! xm1/ym1 are rank-4 (lx1,ly1,lz1,lelt); flatten once via copy (the
       ! same sequence-association idiom used throughout this codebase, e.g.
@@ -159,6 +161,18 @@
 
             torsion_coeffs_defined = .true.
          end subroutine build_torsion_coeffs
+
+         subroutine check_torsion_cache(caller)
+      !! Stop if lambda has changed since build_torsion_coeffs ran, i.e. if
+      !! t2Dh%init_geom was called after init_2Dh_axisym.
+            character(len=*), intent(in) :: caller
+            real(dp) :: lam_now
+            if (.not. torsion_coeffs_defined) return
+            lam_now = merge(0.0_dp, t2Dh%get_lambda(), t2Dh%is_torsion_zero())
+            if (lam_now /= lambda_built) call nek_stop_error(
+     &         'lambda changed after the torsion coefficients were built: '//
+     &         'call t2Dh%init_geom before init_2Dh_axisym.', this_module, caller)
+         end subroutine check_torsion_cache
 
          subroutine torsion_shift_add(shift_r, shift_z)
       !! Adds the torsion part of diag(Omega^2)/R^2 to the R and Z Helmholtz

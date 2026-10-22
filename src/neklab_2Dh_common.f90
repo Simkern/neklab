@@ -3,9 +3,9 @@
       !! axisymmetric: neklab_2Dh_axisym):
       !!   - wmask: Dirichlet mask of the third velocity component, which is
       !!     carried in the temperature slot (w, or u_phi);
-      !!   - the run checks common to both formulations;
-      !!   - init_2Dh_planar(), called once from userchk at istep = 0, after the case's
-      !!     own geometry setup.
+      !!   - the run checks common to both formulations, called by the model
+      !!     inits (init_2Dh_planar, init_2Dh_axisym);
+      !!   - the shared stage wrappers and generic solvers of the steppers.
       !! The solvers stop if init has not been called, instead of building
       !! their data lazily on the first time step.
          use stdlib_optval, only: optval
@@ -27,7 +27,6 @@
          public :: setup_incomprp_2Dh, ebar_2Dh
          public :: incomprp_solve_2Dh, incomprp_update_2Dh
 
-         logical,  private :: init_2Dh_planar_done = .false.
          real(dp), private :: pbasis(lx2*ly2*lz2*lelv,mxprev,lpert)
          integer,  private :: nprev(lpert) = 0
          real(dp), private :: dtbdlast = 0.0_dp
@@ -36,11 +35,8 @@
          ! abstract interfactes for the helmholtz and pressure matvecs passed to the solvers
          public :: abstract_helmholtz_matvec, abstract_pressure_matvec
 
-         ! BC masks for the w component
+         ! BC masks for the w component and checks used by the model inits
          public :: build_wmask
-         ! init and check routines
-         public :: init_2Dh_planar
-         public :: is_initialized_2Dh_planar
          public :: check_2Dh_properties
          public :: check_2Dh_masks
 
@@ -80,32 +76,6 @@
          end interface
 
       contains
-
-         subroutine init_2Dh_planar(verbose)
-      !! Set up the cartesian 2Dh solver. Call from userchk at istep = 0, after
-      !! usrdat2 (final mesh and mass matrices) and before any 2Dh linop is
-      !! initialised. Idempotent.
-            logical, optional, intent(in) :: verbose
-            character(len=*), parameter :: this_procedure = 'init_2Dh_planar'
-
-            if (init_2Dh_planar_done) return
-
-            if (ifaxis) call nek_stop_error(
-     &         'init_2Dh_planar is for the cartesian 2Dh solver, incompatible with ifaxis.',
-     &         this_module, this_procedure)
-            
-            call build_wmask(verbose)
-            
-            call check_2Dh_masks(this_procedure)
-            call check_2Dh_properties(this_procedure)
-
-            init_2Dh_planar_done = .true.
-            call nek_log_message('cartesian 2Dh solver initialised.', this_module, this_procedure)
-         end subroutine init_2Dh_planar
-
-         logical function is_initialized_2Dh_planar()
-            is_initialized_2Dh_planar = init_2Dh_planar_done
-         end function is_initialized_2Dh_planar
 
          subroutine build_wmask(verbose)
       !! Dirichlet mask of the third velocity component: zero wherever the full
@@ -188,28 +158,36 @@
 
          subroutine check_2Dh_masks(caller)
       !! The solver masks the third component with wmask (from the velocity
-      !! BCs), while the deck sets the temperature BCs separately. Warn if the
-      !! two disagree: the scalar BCs in the deck are then not the ones solved.
+      !! BCs); the deck sets the temperature BCs separately. Warn if the two
+      !! disagree. Counts are node instances summed over all ranks.
             character(len=*), intent(in) :: caller
-            integer :: ix, iy, iz, ie, nbad(1)
-            integer, external :: iglsum
+            integer :: ix, iy, iz, ie, nbad(2), nsum(2)
             character(len=256) :: msg
 
-            nbad(1) = 0
+            nbad = 0
             do ie = 1, nelv
                do iz = 1, lz1
                do iy = 1, ly1
                do ix = 1, lx1
-                  if (tmask(ix,iy,iz,ie,1) /= wmask(ix,iy,iz,ie)) nbad(1) = nbad(1) + 1
+                  if (wmask(ix,iy,iz,ie) == 0.0_dp .and. tmask(ix,iy,iz,ie,1) /= 0.0_dp)
+     &               nbad(1) = nbad(1) + 1
+                  if (wmask(ix,iy,iz,ie) /= 0.0_dp .and. tmask(ix,iy,iz,ie,1) == 0.0_dp)
+     &               nbad(2) = nbad(2) + 1
                end do
                end do
                end do
             end do
-            nbad(1) = iglsum(nbad, 1)
+            call igop(nbad, nsum, '+  ', 2)
             if (nbad(1) > 0) then
-               write(msg,'(A,I10,A)') 'temperature mask differs from wmask at ', nbad(1),
-     &            ' nodes: check the temperature BCs of the third velocity component.'
+               write(msg,'(A,I10,A)') 'u3 Dirichlet (wmask) but temperature free at ', nbad(1), ' nodes.'
                call nek_log_warning(msg, this_module, caller)
+            end if
+            if (nbad(2) > 0) then
+               write(msg,'(A,I10,A)') 'temperature Dirichlet but u3 free (wmask) at ', nbad(2), ' nodes.'
+               call nek_log_warning(msg, this_module, caller)
+            end if
+            if (nbad(1) > 0 .or. nbad(2) > 0) then
+               call nek_log_message('Ignore this warning when running the linear solver for antisymmetric modes.', this_module, caller)
             end if
          end subroutine check_2Dh_masks
 

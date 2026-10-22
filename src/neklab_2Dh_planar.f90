@@ -75,7 +75,7 @@
             character(len=2) :: info_str
             character(len=7) :: helm_info
             real(dp) :: dtbd
-            logical :: ifprjp, if_ortho
+            logical :: ifprjp, beta_eq_zero
             integer :: igeom, iter, intype, kfldfdm
             integer :: ntot1, ntot2, istart
             real, external :: glsum
@@ -85,7 +85,7 @@
             msg = 'call init_2Dh_planar() in userchk at istep = 0 before using the 2Dh solver.'
             if (.not. is_initialized_2Dh_planar()) call nek_stop_error(msg, this_module, this_procedure)
             betaz_op = betaz ! set the abstract operator's betaz
-            if_ortho = (betaz == 0.0_dp)
+            beta_eq_zero = (betaz == 0.0_dp)
             
             if_advW = optval(if_advW_in, .false.)
             msg = 'Spanwise advection '//merge('active.  ', 'inactive.', if_advW)
@@ -222,7 +222,7 @@
             ! But since the preconditioner automatically projects it out, we compute mean pressure
             ! to add it back after the pressure solve
             ebar = 0.0_dp
-            if (.not. if_ortho .and. ifvcor) then
+            if (.not. beta_eq_zero .and. ifvcor) then
                call rone(onep, ntot2)
                call pressure_matvec_2Dh(ep,onep,h1,h2,h2inv,betaz,intype)
                ebar = glsum(ep, ntot2)
@@ -242,14 +242,14 @@
                call add2    (dpr(1,jp),frc_div,ntot2)
                
                call chsign  (dpr(1,jp),ntot2)
-               if (if_ortho) call ortho (dpr(1,jp))
+               if (beta_eq_zero) call ortho (dpr(1,jp))
                
                if (ifprjp) then
                   call  setrhs_pressure_2Dh(dpr(1,jp), h1, h2, h2inv, pbasis(1,1,jp), nprev(jp),
      &                                      pres_matvec_planar, info_str)
                end if
                call      solve_pressure_2Dh(dpr(1,jp), h1, h2, h2inv, pres_matvec_planar, intype, iter,
-     &                                      ebar, if_ortho, maxit_p, 'beta', betaz, info_str)
+     &                                      ebar, beta_eq_zero, maxit_p, 'beta', betaz, info_str)
                if (ifprjp) then
                   call gensoln_pressure_2Dh(dpr(1,jp), h1, h2, h2inv, pbasis(1,1,jp), nprev(jp),
      &                                      pres_matvec_planar)

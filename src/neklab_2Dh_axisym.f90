@@ -41,7 +41,7 @@
          real(dp), dimension(lx1,ly1,lz1,lelv), public, target :: diag_shift_r
          real(dp), dimension(lx1,ly1,lz1,lelv), public :: alphaR_coef   ! alpha/R, continuity/pressure coupling
          logical, public :: torus_coeffs_defined = .false.
-         logical, public :: if_alpha_zero = .false.
+         logical, public :: alpha_eq_zero = .false.
          real(dp), private :: alpha_cached = huge(1.0_dp)
          
          public :: build_torus_coeffs
@@ -90,8 +90,8 @@
             
             ! Re/Im pairing is only meaningful for alpha /= 0; npert must match
             ! or the caller has set up the wrong number of perturbation slots.
-            if_alpha_zero = (alpha == 0.0_dp)
-            if (if_alpha_zero) then
+            alpha_eq_zero = (alpha == 0.0_dp)
+            if (alpha_eq_zero) then
                if (lpert /= 1) call nek_stop_error('alpha = 0 requires npert = 1.', this_module, this_procedure)
             else
                if (lpert /= 2) call nek_stop_error('alpha /= 0 requires npert = 2.', this_module, this_procedure)
@@ -132,7 +132,7 @@
             ! augmenting (not overwriting) the advZ/advR/advPhi swap-slot buffers,
             ! which makefp_2Dh_axisym then adds into bfxp/bfyp/bqp per jp. Guarded
             ! internally on alpha /= 0 and lambda /= 0.
-            if (.not. if_alpha_zero .and. .not. if_torsion_zero) then
+            if (.not. alpha_eq_zero .and. .not. if_torsion_zero) then
                do jp = 1, npert
                   call add_torsion_coupling(advZ, advR, advPhi, alpha, jp)
                end do
@@ -197,7 +197,7 @@
             end do ! jp
             
             call neklab_timer_start(t_axisym_adv_urphi)
-            if (if_alpha_zero) then
+            if (alpha_eq_zero) then
                do jp = 1, npert
                   call helmholtz_matvec_2Dh_axisym(w2, vyp(1,jp), h1, h2, diag_shift_r, 1)
                   call sub2(resv2_jp(1,1,1,1,jp), w2, ntot1)
@@ -217,7 +217,7 @@
             msg = 'Solve u_R/u_phi momentum equations'
             call nek_log_debug(msg, this_module, this_procedure)
             
-            if (if_alpha_zero) then
+            if (alpha_eq_zero) then
                do jp = 1, npert
                   info_str = merge('Re', 'Im', jp == 1)
                   call dssum(resv2_jp(1,1,1,1,jp), lx1, ly1, lz1)
@@ -273,7 +273,7 @@
             call invers2(h2inv, h2, ntot1)
             
             ebar = 0.0_dp
-            if (.not. if_alpha_zero .and. ifvcor) then
+            if (.not. alpha_eq_zero .and. ifvcor) then
                call rone(onep, ntot2)
                call pressure_matvec_2Dh_axisym(ep, onep, h1, h2, h2inv, alphaR_coef, intype)
                ebar = glsum(ep, ntot2)
@@ -285,9 +285,9 @@
       ! Pressure projection is a per-slot optimisation and is not applied in the
       ! coupled (alpha /= 0 & lambda /= 0) path, whose two slots are solved
       ! jointly. Correctness is unaffected; only the initial guess quality.
-            if (.not. if_alpha_zero .and. .not. if_torsion_zero) ifprjp = .false.
+            if (.not. alpha_eq_zero .and. .not. if_torsion_zero) ifprjp = .false.
             
-            if (.not. if_alpha_zero .and. .not. if_torsion_zero) then
+            if (.not. alpha_eq_zero .and. .not. if_torsion_zero) then
       ! ---- coupled path: build both RHS, then one stacked solve ----
                do jp = 1, npert
                   call opdiv(dpr(1,jp), vxp(1,jp), vyp(1,jp), vzp(1,jp))
@@ -306,14 +306,14 @@
                   call add2 (dpr(1,jp), frc_div, ntot2)
                   call chsign(dpr(1,jp), ntot2)
                   
-                  if (if_alpha_zero) call ortho(dpr(1,jp))
+                  if (alpha_eq_zero) call ortho(dpr(1,jp))
                   
                   if (ifprjp) then
                      call  setrhs_pressure_2Dh(dpr(1,jp), h1, h2, h2inv, pbasis(1,1,jp), nprev(jp),
      &                                         pres_matvec_axisym, info_str)
                   end if
                   call      solve_pressure_2Dh(dpr(1,jp), h1, h2, h2inv, pres_matvec_axisym, intype, iter,
-     &                                         ebar, if_alpha_zero, maxit_p, 'alpha', alpha, info_str)
+     &                                         ebar, alpha_eq_zero, maxit_p, 'alpha', alpha, info_str)
                   if (ifprjp) then
                      call gensoln_pressure_2Dh(dpr(1,jp), h1, h2, h2inv, pbasis(1,1,jp), nprev(jp),
      &                                         pres_matvec_axisym)
@@ -414,18 +414,17 @@
             
             ntot1 = lx1*ly1*lz1*nelv
             ipert = npert + 1 - jp
-            call rzero(gradp(1,ipert), ntot1)
             
-            if (if_alpha_zero .and. if_torsion_zero) return
+            if (alpha_eq_zero .and. if_torsion_zero) return
             
       ! --- alpha part: skew in slot space (swaps jp <-> ipert). Torus term,
       !     unchanged, absent entirely at alpha = 0.
-            if (.not. if_alpha_zero) then
+            if (.not. alpha_eq_zero) then
                spert = merge(1, -1, jp == 1)
-               call mappr(gradp(1,ipert), prextr, wrk1, wrk2)
-               call col2 (gradp(1,ipert), bm1, ntot1)
+               call bm2_map12T_2Dh(gradp(1,ipert), prextr)           ! I12^T (bm2 p)
                call col2 (gradp(1,ipert), alphaR, ntot1)
                if (spert == -1) call chsign(gradp(1,ipert), ntot1)
+               ! dssum will be called on the vel residual later
             end if
             
       ! --- lambda part: real, so it stays in slot jp (never ipert). This is
@@ -439,6 +438,7 @@
                call col2 (wl1, bm1, ntot1)
                call dphi_apply_t(wl2, wl1)
                call add2 (gradp(1,jp), wl2, ntot1)
+               ! dssum will be called on the vel residual later
             end if
          end subroutine compute_gradp_axisym
          
@@ -457,13 +457,12 @@
             ntot1 = lx1*ly1*lz1*nelv
             call rzero(dw, ntot1)
             
-            if (if_alpha_zero .and. if_torsion_zero) return
+            if (alpha_eq_zero .and. if_torsion_zero) return
             
-            if (.not. if_alpha_zero) then
+            if (.not. alpha_eq_zero) then
                ipert = npert + 1 - jp
                spert = merge(1, -1, jp == 1)
-               call mappr(dw, dpr(1,ipert), wrk1, wrk2)
-               call col2 (dw, bm1, ntot1)
+               call bm2_map12T_2Dh(dw, dpr(1,ipert))      ! I12^T (bm2 dp)
                call col2 (dw, alphaR, ntot1)
                if (spert == 1) call chsign(dw, ntot1)     ! matches -spert*beta_z sign convention
             end if
@@ -498,20 +497,16 @@
             
             ntot1 = lx1*ly1*lz1*nelv
             ntot2 = lx2*ly2*lz2*nelv
-            call rzero(frc_div, ntot2)
             
-            if (if_alpha_zero .and. if_torsion_zero) return
-            
-            nxyz1 = lx1*ly1*lz1
-            call rzero(wtmp, ntot1)
+            if (alpha_eq_zero .and. if_torsion_zero) return
             
             ! --- alpha part, from the opposite slot
-            if (.not. if_alpha_zero) then
+            if (.not. alpha_eq_zero) then
                ipert = npert + 1 - jp
                spert = merge(1, -1, jp == 1)
-               call copy(wtmp, w(1,1,ipert), nxyz1*nelv)
-               call col2(wtmp, alphaR, nxyz1*nelv)       ! scale on M1 BEFORE mapping to M2 -- see caveat below
-               if (spert == -1) call chsign(wtmp, nxyz1*nelv)
+               call copy(wtmp, w(1,1,ipert), ntot1)
+               call col2(wtmp, alphaR, ntot1)       ! scale on M1 BEFORE mapping to M2
+               if (spert == -1) call chsign(wtmp, ntot1)
             end if
             
             ! --- lambda part, from THIS slot: -(lambda/R)*dtheta(u_phi). Accumulated
@@ -521,11 +516,7 @@
                call add2(wtmp, wl1, ntot1)
             end if
             
-            do ie = 1, nelv
-               ie1 = (ie-1)*nxyz1 + 1
-               call map12(frc_div(1,1,1,ie), wtmp(ie1,1,1,1), ie)
-            end do
-            call col2(frc_div, bm2, ntot2)
+            call bm2_map12_2Dh(frc_div, wtmp)           
          end subroutine compute_frc_div_axisym
          
          subroutine makefp_2Dh_axisym(advZ, advR, advPhi)
@@ -659,7 +650,7 @@
             call rzero(advR(1,ipert),   ntot1)
             call rzero(advPhi(1,ipert), ntot1)
             
-            if (if_alpha_zero) return
+            if (alpha_eq_zero) return
             
             call col3(coef, alphaR_coef, t(1,1,1,1,1), ntot1)   ! (alpha/R) * U_phi
             if (ipert == 1) call chsign(coef, ntot1)             ! sign keyed to the READING jp, not the caller
@@ -692,7 +683,7 @@
             call neklab_timer_start(t_axisym_pres_matvec)
             call cdabdtp(Ap, wp, h1, h2, h2inv, intype)   ! core Nek, already ifaxis-correct globally
             
-            if (if_alpha_zero .and. if_torsion_zero) then
+            if (alpha_eq_zero .and. if_torsion_zero) then
                call neklab_timer_stop(t_axisym_pres_matvec)
                return
             end if
@@ -703,9 +694,8 @@
             ! --- alpha block: (alpha/R) H^-1 (alpha/R). The two slot swaps of
             !     D_phi and D_phi^T cancel, so this block is diagonal in slot space
             !     and each perturbation's pressure can be solved on its own.
-            if (.not. if_alpha_zero) then
-               call mappr(wdivm1, wp, wrk1, wrk2)
-               call col2 (wdivm1, bm1, ntot1)
+            if (.not. alpha_eq_zero) then
+               call bm2_map12T_2Dh(wdivm1, wp)            ! I12^T (bm2 p), local
                call col2 (wdivm1, alphaR, ntot1)          ! alpha/R
                call col2 (wdivm1, wmask, ntot1)
                call dssum(wdivm1, lx1, ly1, lz1)
@@ -713,10 +703,7 @@
                call col2 (wdivm1, h2inv, ntot1)
                call col2 (wdivm1, alphaR, ntot1)          ! alpha/R
                call chsign(wdivm1, ntot1)
-               do ie = 1, nelv
-                  call map12(wdivm2(1,1,1,ie), wdivm1(1,1,1,ie), ie)
-               end do
-               call col2(wdivm2, bm2, ntot2)
+               call bm2_map12_2Dh(wdivm2, wdivm1)         ! bm2 * I12 (.)
                call sub2(ap, wdivm2, ntot2)
             end if
             

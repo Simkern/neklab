@@ -245,8 +245,8 @@
                   csign_jp = merge(1.0_dp, -1.0_dp, jp == 1)
                   helm_info = merge('BLK A  ', 'BLK B  ', jp == 1)
                   call solve_coupled_helmholtz_2Dh_axisym(dv2, dv3, resv2_jp(1,1,1,1,jp), resv3_jp(1,1,1,1,ipert),
-     &                                                     h1, h2, wmask, vmult, imesh, tolhv, nmxv, binvm1, helm_info,
-     &                                                     diag_shift_r, diag_shift, couple_coef, csign_jp)
+     &                                                    h1, h2, v2mask, wmask, vmult, imesh, tolhv, nmxv, binvm1, 
+     &                                                    helm_info, diag_shift_r, diag_shift, couple_coef, csign_jp)
                   
                   call add2(vyp(1,jp),     dv2, ntot1)
                   call add2(tp(1,1,ipert), dv3, ntot1)
@@ -903,17 +903,21 @@
             call pressure_matvec_2Dh_axisym(Ap, p, h1, h2, h2inv, alphaR_coef, intype)
          end subroutine pres_matvec_axisym
          
-         subroutine solve_coupled_helmholtz_2Dh_axisym(x1,x2,f1,f2,h1,h2,mask,mult,imsh,tin,maxit,binv,name,shift1,shift2,couple_coef,csign)
+         subroutine solve_coupled_helmholtz_2Dh_axisym(x1,x2,f1,f2,h1,h2,mask1,mask2,mult,imsh,tin,maxit,
+     &                                                 binv,name,shift1,shift2,couple_coef,csign)
             implicit none
             ! Same CG loop as solve_helmholtz_2Dh_axisym, but operating on the
             ! stacked 2-field vector (x1;x2). dssum/mask applied to x1 and x2
             ! SEPARATELY (mirrors the planar-case pattern), never combined
             ! before dssum -- this is the ordering question from before, tested
             ! directly by construction.
+            ! There are two separate BC masks:
+            ! mask1: field 1 (u_R,  v2mask)
+            ! mask2: field 2 (u_phi, wmask)
             include 'FDMH1'
             real, intent(out) :: x1(1), x2(1)
             real, intent(inout)  :: f1(1), f2(1)
-            real, intent(in)  :: h1(1), h2(1), mask(1), mult(1), binv(1)
+            real, intent(in)  :: h1(1), h2(1), mask1(1), mask2(1), mult(1), binv(1)
             integer, intent(in) :: imsh, maxit
             real, intent(in) :: tin
             character(len=7), intent(in) :: name
@@ -962,8 +966,8 @@
             
             call dssum(f1, lx1, ly1, lz1)
             call dssum(f2, lx1, ly1, lz1)
-            call copy(r(1),   f1, n);  call col2(r(1),   mask, n)
-            call copy(r(n+1), f2, n);  call col2(r(n+1), mask, n)
+            call copy(r(1),   f1, n);  call col2(r(1),   mask1, n)
+            call copy(r(n+1), f2, n);  call col2(r(n+1), mask2, n)
             
             call rzero(x1,n); call rzero(x2,n)
             call rzero(p,2*n)
@@ -1016,8 +1020,8 @@
                call copy(p1a, p(1),   n)
                call copy(p2a, p(n+1), n)
                call coupled_helmholtz_matvec_2Dh_axisym(w1a, w2a, p1a, p2a, h1, h2, shift1, shift2, couple_coef, csign)
-               call dssum(w1a, lx1, ly1, lz1); call col2(w1a, mask, n)
-               call dssum(w2a, lx1, ly1, lz1); call col2(w2a, mask, n)
+               call dssum(w1a, lx1, ly1, lz1); call col2(w1a, mask1, n)
+               call dssum(w2a, lx1, ly1, lz1); call col2(w2a, mask2, n)
                call copy(w(1),   w1a, n)
                call copy(w(n+1), w2a, n)
                

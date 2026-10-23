@@ -61,13 +61,14 @@
       ! internal
             character(len=*), parameter :: nekfmt = '(5X,A)'
             real(dp) :: dt_old
-            integer :: idt 
+            integer :: idt, n
             integer, parameter :: max_idt = 100
             character(len=128) :: msg
             logical :: full_summary
             logical :: iffxdt
             common /FIXDT/ iffxdt
             integer, parameter :: pad = 30
+            real, external :: glamax
       
       ! Only print summary if we switch from linear to nonlinear solvers or vice versa
             full_summary = .false.
@@ -81,7 +82,8 @@
             cfl_limit_ = optval(cfl_limit, param(26))
             silent_ = optval(silent, .false.)
       
-            if (maxval(abs(vx)) == 0.0_dp .and. maxval(abs(vy)) == 0.0_dp .and. maxval(abs(vz)) == 0.0_dp) then
+            n = lx1-ly1*lz1*lelv
+            if (glamax(vx, n) == 0.0_dp .and. glamax(vy, n) == 0.0_dp .and. glamax(vz, n) == 0.0_dp) then
                recompute_dt_ = .false.
             else
                recompute_dt_ = optval(recompute_dt, .false.)
@@ -143,8 +145,7 @@
       ! Set integration time
             if (endtime_ <= 0.0_dp) then
                write (msg, *) 'Invalid endtime specified. Endtime =', endtime_
-               call nek_log_message(msg, this_module, 'setup_nek')
-               call nek_end()
+               call nek_stop_error(msg, this_module, 'setup_nek')
             end if
             param(10) = endtime_
             write (msg, '(A,F15.8)') padl('Set integration time: ', 30), param(10)
@@ -372,28 +373,30 @@
 
          subroutine nek_log_message(msg, module, procedure, fmt)
             character(len=*), intent(in) :: msg
-            character(len=*), optional, intent(in) :: module
-            character(len=*), optional, intent(in) :: procedure
-            character(len=*), optional, intent(in) :: fmt
+            character(len=*), optional, intent(in) :: module, procedure, fmt
             ! internal
-            character(len=128) :: fmt_
-            fmt_ = optval(fmt,default_fmt('', module, procedure))
-            call logger%log_message(msg, module=module, procedure=procedure)
+            character(len=256) :: fmt_
+            if (present(fmt)) then
+               fmt_ = fmt
+            else
+               fmt_ = default_fmt('', module, procedure)
+            end if
+            call log_message(msg, module, procedure)          ! LK: I/O rank only
             if (nid == 0) print fmt_, trim(msg)
          end subroutine nek_log_message
 
          subroutine nek_log_warning(msg, module, procedure, fmt)
             character(len=*), intent(in) :: msg
-            character(len=*), optional, intent(in) :: module
-            character(len=*), optional, intent(in) :: procedure
-            character(len=*), optional, intent(in) :: fmt
+            character(len=*), optional, intent(in) :: module, procedure, fmt
             ! internal
-            integer :: level
-            character(len=128) :: fmt_
-            fmt_ = optval(fmt,default_fmt("WARNING:", module, procedure))
-            call logger%configuration(level=level)
-            call logger%log_warning(msg, module=module, procedure=procedure)
-            if (nid == 0 .and. level <= warning_level) print fmt_, trim(msg)
+            character(len=256) :: fmt_
+            if (present(fmt)) then
+               fmt_ = fmt
+            else
+               fmt_ = default_fmt('WARNING:', module, procedure)
+            end if
+            call log_warning(msg, module, procedure)
+            if (nid == 0 .and. get_log_level() <= warning_level) print fmt_, trim(msg)
          end subroutine nek_log_warning
 
          subroutine nek_log_debug(msg, module, procedure, fmt)
@@ -402,12 +405,14 @@
             character(len=*), optional, intent(in) :: procedure
             character(len=*), optional, intent(in) :: fmt
             ! internal
-            integer :: level
             character(len=128) :: fmt_
-            fmt_ = optval(fmt,default_fmt("DEBUG:", module, procedure))
-            call logger%configuration(level=level)
-            call logger%log_debug(msg, module=module, procedure=procedure)
-            if (nid == 0 .and. level <= debug_level) print fmt_, trim(msg)
+            if (present(fmt)) then
+               fmt_ = fmt
+            else
+               fmt_ = default_fmt('DEBUG:', module, procedure)
+            end if
+            call log_debug(msg, module, procedure)
+            if (nid == 0 .and. get_log_level() <= debug_level) print fmt_, trim(msg)
          end subroutine nek_log_debug
 
          subroutine nek_log_information(msg, module, procedure, fmt)
@@ -416,12 +421,14 @@
             character(len=*), optional, intent(in) :: procedure
             character(len=*), optional, intent(in) :: fmt
             ! internal
-            integer :: level
             character(len=128) :: fmt_
-            fmt_ = optval(fmt,default_fmt("INFO:", module, procedure))
-            call logger%configuration(level=level)
-            call logger%log_information(msg, module=module, procedure=procedure)
-            if (nid == 0 .and. level <= information_level) print fmt_, trim(msg)
+            if (present(fmt)) then
+               fmt_ = fmt
+            else
+               fmt_ = default_fmt('INFO:', module, procedure)
+            end if
+            call log_debug(msg, module, procedure)
+            if (nid == 0 .and. get_log_level() <= information_level) print fmt_, trim(msg)
          end subroutine nek_log_information
 
          subroutine nek_stop_error(msg, module, procedure, fmt)
@@ -429,30 +436,21 @@
             character(len=*), optional, intent(in) :: module
             character(len=*), optional, intent(in) :: procedure
             character(len=*), optional, intent(in) :: fmt
-            ! internal
-            character(len=128) :: fmt_
-            fmt_ = optval(fmt,default_fmt("ERROR:", module, procedure))
-            call nekgsync()
-            if (nid == 0) print fmt_, trim(msg)
             call stop_error(msg, module=module, procedure=procedure)
          end subroutine nek_stop_error
 
          function default_fmt(prefix, module, procedure) result(fmt)
-            character(len=*), optional, intent(in) :: prefix
-            character(len=*), optional, intent(in) :: module
-            character(len=*), optional, intent(in) :: procedure
-            character(len=128) :: fmt, fmt_string
-            ! internal
-            character(len=128) :: mod, pfx, prc
-            pfx = optval(trim(prefix), '')
-            prc = optval(trim(procedure)//' :', '')
-            if (present(procedure)) then
-               mod = optval(trim(module)//' %', '')
-            else
-               mod = optval(trim(module), '')
+            character(len=*), optional, intent(in) :: prefix, module, procedure
+            character(len=256) :: fmt
+            character(len=200) :: s
+            s = ''
+            if (present(prefix)) s = trim(prefix)
+            if (present(module)) then
+               s = trim(s)//' '//trim(module)
+               if (present(procedure)) s = trim(s)//' %'
             end if
-            fmt_string = trim(pfx)//' '//trim(mod)//' '//trim(prc)
-            write(fmt,'("(",A,",1X,A)")') '"'//adjustl(trim(fmt_string))//'"'
+            if (present(procedure)) s = trim(s)//' '//trim(procedure)//' :'
+            write (fmt, '("(",A,",1X,A)")') '"'//trim(adjustl(s))//'"'
          end function default_fmt
          
          subroutine set_fldindex(file_prefix, fldindex) !file numbering suffix counter

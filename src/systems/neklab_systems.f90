@@ -334,11 +334,11 @@
             if (target_tol < mintol) then
                tol = mintol
                write(msg,'(A,E11.4)') 'Input tolerance below minimum tolerance! Resetting solver tolerance to mintol= ', tol
-               call logger%log_warning(msg, module=this_module, procedure='nek_constant_tol')
+               call log_warning(msg, module=this_module, procedure='nek_constant_tol')
             else
                tol = target_tol
                write(msg,'(A,E11.4)') 'Nek velocity and pressure tolerances set to tol= ', tol
-               call logger%log_information(msg, module=this_module, procedure='nek_constant_tol')
+               call log_information(msg, module=this_module, procedure='nek_constant_tol')
             end if
             param(21) = tol; TOLPDF = param(21); call bcast(TOLPDF,wdsize)
             param(22) = tol; TOLHDF = param(22); call bcast(TOLHDF,wdsize)

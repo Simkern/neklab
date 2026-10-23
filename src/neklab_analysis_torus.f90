@@ -93,7 +93,7 @@
       ! Export eigenfunctions to disk.
             call outpost_dnek(eigvecs(:nev), file_prefix)
 
-		      call logger%log_message('Exiting eigenvalue computation.', this_module, this_procedure)
+		      call log_message('Exiting eigenvalue computation.', this_module, this_procedure)
 
       ! Finalize exptA timings
             call floquet_operator%finalize_timer()

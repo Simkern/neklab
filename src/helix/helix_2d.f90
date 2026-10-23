@@ -169,7 +169,7 @@
                print '(A,I3,A,*(1x,I0))', 'DEBUG 2dmap: ', nid, ', nelv2iseg: ', self%lsegment(:nelv)
                write(fid,'(I3.3)') nid
                fileid = 2000+nid
-               open (fileid, file='torus_map'//fid//'.txt', status='replace', action='write')
+               open (newunit=fileid, file='torus_map'//fid//'.txt', status='replace', action='write')
                write(fileid, '(A20,A10,I8,A)') padr('3D ELEMENTS:',20), padr('nelv:',10), nelv, CHAR(10)
                write(fileid, '(9(1X,A11))') 'ie','ieg','islice','s%gsegment','gllel','gllnid',
      &                        's%lowner','s%gowner','s%n2iseg'
@@ -197,13 +197,12 @@
             real(dp) :: xavg, yavg, vxavg, vyavg, vzavg
             character(len=128) :: msg
             nxy = lx1*ly1
-            call logger%configuration(level=level)
             if (self%save_2d_base) then
                call lk_timer%start('neklab_helix_'//this_procedure)
                self%nsave = self%nsave + 1
                ! save data to buffer
                write(msg,'(A,I5,A,I5,A,E12.5,A,F12.8)') 'Save 2D field ', self%nsave, '/', lbuf, ', time=', time, ', dt=', dt
-               call logger%log_debug(msg, this_module, this_procedure)
+               call nek_log_debug(msg, this_module, this_procedure)
                if (nid == 0) print '(A,A)', 'neklab_helix: ', trim(msg)
                do iseg = 1, self%n2d_gown
                   ie  = self%id2d(iseg, 1)
@@ -219,7 +218,6 @@
                      vzavg = sum(self%vz2d(:,:,iseg,self%nsave))/nxy
                      print '(A,I8,I8,A,5(3X,F16.8))', 'DEBUG: save el', ie, iseg, ': ', xavg, yavg, vxavg, vyavg, vzavg
                   end if
-                  call lk_timer%stop('neklab_helix_'//this_procedure)
                end do
                ! save timestep information and record minimum dt
                self%dt2d(self%nsave) = dt
@@ -229,6 +227,7 @@
                end if
                ! save data to file when buffer is full
                if (self%nsave == lbuf .or. lastep == 1) call self%outpost_2d_fields()
+               call lk_timer%stop('neklab_helix_'//this_procedure)
             else
                call nek_log_debug('Baseflow saving turned off', this_module, this_procedure)
             end if
@@ -296,7 +295,7 @@
             ! set dt
             param(12) = -abs(self%dt2d(ifld_)) ! negative to force the stepsize in settime
             write(msg,'(A,I5,"/",I5,A,I5,A,F10.6)') 'Set field ', ifld_, lbuf, ' (', ifld, '), dt= ', -param(12)
-            call logger%log_debug(msg, this_module, this_procedure)
+            call nek_log_debug(msg, this_module, this_procedure)
             if (nid == 0) print '(A,A)', 'neklab_helix: ', trim(msg)
             do ie = 1, nelv
             iseg = self%lsegment(ie) ! local segment
@@ -328,11 +327,11 @@
             nchar = min(len(fname), 132)
             filename(1:nchar) = fname(1:nchar)
             call self%read_2d(filename)
-            if (ifld > self%nload) then
-               write(msg,'(A,I0,A,I0,A)') 'Inconsistent ifld: ', ifld, ' != ', self%nload, ' self%nlaod.'
+            if (ifld_ > self%nload) then
+               write(msg,'(A,I0,A,I0,A)') 'Inconsistent ifld: ', ifld_, ' > ', self%nload, ' (self%nload).'
                call nek_stop_error(msg, this_module, this_procedure)
             end if
-            call self%set_baseflow(basex, basey, basez, ifld)
+            call self%set_baseflow(basex, basey, basez, ifld_)
          end procedure load_baseflow
 
          module procedure compute_2d_usrt

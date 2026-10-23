@@ -91,8 +91,7 @@
             if_advW_op = optval(if_advW_in, .false.)
             msg = 'Spanwise advection '//merge('active.  ', 'inactive.', if_advW_op)
             call nek_log_debug(msg, this_module, this_procedure)
-            write(msg,'(A,I6)') 'Step', istep
-            call nek_log_debug(msg, this_module, this_procedure)
+            if (ifadj) call gradm1(dTdx, dTdy, dTdz, t)
             ! Re/Im pairing is only meaningful for betaz /= 0; npert must match
             ! or the caller has set up the wrong number of perturbation slots.
             betaz_eq_zero = (betaz == 0.0_dp)

@@ -38,6 +38,8 @@
       ! whenever lambda /= 0, and is byte-identical to diag_shift otherwise.
          real(dp), dimension(lx1,ly1,lz1,lelv), public, target :: diag_shift_r
          real(dp), dimension(lx1,ly1,lz1,lelv), public  :: alphaR_coef   ! alpha/R, continuity/pressure coupling
+         ! Adjoint: base-flow gradients for (grad U)^T v (prepare_step, ifadj only)
+         real(dp), dimension(lv),               private :: gUZ_Z, gUZ_R, gUR_Z, gUR_R
          logical,                               public  :: axisym_coeffs_defined = .false.
          logical,                               public  :: alpha_eq_zero = .false.
          real(dp),                              private :: alpha_cached = huge(1.0_dp)
@@ -135,7 +137,9 @@
                if (.not. if_torsion_zero) call nek_stop_error(
      &            'adjoint mode is not implemented with torsion (lambda /= 0).',
      &            this_module, this_procedure)
-               call gradm1(dTdx, dTdy, dTdz, t)   ! grad(U_phi) for advabp_adjoint
+               call gradm1(dTdx, dTdy, dTdz, t)          ! grad(U_phi)
+               call gradm1(gUZ_Z, gUZ_R, tmp_m1c, vx)    ! grad(U_Z)
+               call gradm1(gUR_Z, gUR_R, tmp_m1c, vy)    ! grad(U_R)
             end if
             ! Re/Im pairing is only meaningful for alpha /= 0; npert must match
             ! or the caller has set up the wrong number of perturbation slots.
@@ -513,7 +517,8 @@
             call makeufp
             if (ifnav .and. .not. ifchar) then
                if (ifadj) then
-                  call advabp_adjoint                  ! +(U.grad)u - (grad U)^T u - u_phi grad(U_phi)
+                  call advabp_adjoint_axisym           ! +(U.grad)u - (grad U)^T u - u_phi grad(U_phi)
+                  ! we don't use the nek core advabp_adjoint because it ignores the R weight of bm1 under ifaxis
                else
                   call advabp
                end if
@@ -569,6 +574,34 @@
             call add2   (rhs, tmp_m1a, ntot1)
             
          end subroutine add_axisym_curv_R
+
+         subroutine advabp_adjoint_axisym()
+            !! Adjoint transport of the u_Z, u_R equations, slot jp:
+            !!   + (U.grad) v  -  (grad U)^T v  -  v_phi grad(U_phi)
+            !! Pointwise replacement for Nek's advabp_adjoint, whose convop_adj ignores
+            !! the R weight of bm1 under ifaxis and whose grad(T) term reads slot 1 only.
+            !! Curvature parts are handled separately (add_axisym_curv_R/_phi).
+            integer :: ntot1
+            ntot1 = lx1*ly1*lz1*nelv
+
+      ! --- Z equation
+            call convop  (tmp_m1a, vxp(1,jp))                  ! U.grad v_Z
+            call subcol3 (tmp_m1a, vxp(1,jp),  gUZ_Z, ntot1)   ! - v_Z dU_Z/dZ
+            call subcol3 (tmp_m1a, vyp(1,jp),  gUR_Z, ntot1)   ! - v_R dU_R/dZ
+            call subcol3 (tmp_m1a, tp(1,1,jp), dTdx,  ntot1)   ! - v_phi dU_phi/dZ
+            call col2    (tmp_m1a, vtrans(1,1,1,1,1), ntot1)   ! rho (= rho*cp, checked at init)
+            call col2    (tmp_m1a, bm1, ntot1)
+            call add2    (bfxp(1,jp), tmp_m1a, ntot1)
+
+      ! --- R equation
+            call convop  (tmp_m1b, vyp(1,jp))                  ! U.grad v_R
+            call subcol3 (tmp_m1b, vxp(1,jp),  gUZ_R, ntot1)   ! - v_Z dU_Z/dR
+            call subcol3 (tmp_m1b, vyp(1,jp),  gUR_R, ntot1)   ! - v_R dU_R/dR
+            call subcol3 (tmp_m1b, tp(1,1,jp), dTdy,  ntot1)   ! - v_phi dU_phi/dR
+            call col2    (tmp_m1b, vtrans(1,1,1,1,1), ntot1)
+            call col2    (tmp_m1b, bm1, ntot1)
+            call add2    (bfyp(1,jp), tmp_m1b, ntot1)
+         end subroutine advabp_adjoint_axisym
          
          subroutine add_axisym_curv_phi(rhs, jp_)
             implicit none

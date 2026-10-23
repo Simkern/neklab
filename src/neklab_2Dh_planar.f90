@@ -386,7 +386,7 @@
             call bm2_map12t_2Dh(tmp_m1a, wp)                     ! I12^T (bm2 p)
             call col2          (tmp_m1a, wmask, ntot1)           ! mask Dirichlet conditions
             call dssum         (tmp_m1a, lx1, ly1, lz1)          ! make continuous
-            call col2          (tmp_m1a, binvm1, ntot1)          ! collate inverse mass matrix
+            call col2          (tmp_m1a, binvm1, ntot1)          ! collate (bm1)^-1
             call col2          (tmp_m1a, h2inv, ntot1)           ! collate (h2)^-1
             call cmult         (tmp_m1a, -betaz**2, ntot1)       ! collate -betaz^2
             call bm2_map12_2Dh (tmp_m2, tmp_m1a)               ! bm2 * I12 (.)

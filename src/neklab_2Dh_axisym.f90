@@ -319,11 +319,11 @@
                do iy = 1, ly1
                do ix = 1, lx1
                   r = ym1(ix,iy,iz,ie)
-                  alphaR_coef(ix,iy,iz,ie) = alpha / r
-                  h2z_shift  (ix,iy,iz,ie) = alpha**2 / r**2
-                  diag_shift (ix,iy,iz,ie) = h2z_shift(ix,iy,iz,ie) + 1.0_dp / r**2
+                  alphaR_coef (ix,iy,iz,ie) = alpha / r
+                  h2z_shift   (ix,iy,iz,ie) = alpha**2 / r**2
+                  diag_shift  (ix,iy,iz,ie) = h2z_shift(ix,iy,iz,ie) + 1.0_dp / r**2
                   diag_shift_r(ix,iy,iz,ie) = diag_shift(ix,iy,iz,ie)
-                  couple_coef(ix,iy,iz,ie) = 2.0_dp * alpha / r**2
+                  couple_coef (ix,iy,iz,ie) = 2.0_dp * alpha / r**2
                end do
                end do
                end do
@@ -353,7 +353,7 @@
             ntot1 = lx1*ly1*lz1*nelv
             call axhelm(Au, u, h1, h2, imesh, isd)
             call col3 (tmp_m1c, u, vdiff(1,1,1,1,1), ntot1)
-            call col2 (tmp_m1c, shift, ntot1)              ! field multiply, replaces beta_z**2 scalar
+            call col2 (tmp_m1c, shift, ntot1)
             call col2 (tmp_m1c, bm1, ntot1)
             call add2 (Au, tmp_m1c, ntot1)
             call neklab_timer_stop(t_axisym_helm_matvec)
@@ -566,11 +566,11 @@
             
             ! --- R-momentum: + 2*U_phi*u'_phi/R * rho * bm1
             !     linearization of the missing -U_phi^2/R term in (U.grad U)_R
-            call col3   (tmp_m1a, t(1,1,1,1,1), tp(1,1,jp_), ntot1)   ! U_phi * u'_phi
-            call invcol2(tmp_m1a, ym1, ntot1)                          ! / R
-            call cmult  (tmp_m1a, merge(-1.0_dp, 2.0_dp, ifadj), ntot1)   ! adjoint: transposed block
-            call col2   (tmp_m1a, vtrans(1,1,1,1,1), ntot1)            ! rho  (density = 1.0 in your .par)
-            call col2   (tmp_m1a, bm1, ntot1)
+            call col3   (tmp_m1a, t(1,1,1,1,1), tp(1,1,jp_), ntot1)     ! U_phi * u'_phi
+            call invcol2(tmp_m1a, ym1, ntot1)                           ! / R
+            call cmult  (tmp_m1a, merge(-1.0_dp, 2.0_dp, ifadj), ntot1) ! adjoint: transposed block
+            call col2   (tmp_m1a, vtrans(1,1,1,1,1), ntot1)             ! rho
+            call col2   (tmp_m1a, bm1, ntot1)                           ! bm1
             call add2   (rhs, tmp_m1a, ntot1)
             
          end subroutine add_axisym_curv_R
@@ -589,8 +589,8 @@
             call subcol3 (tmp_m1a, vxp(1,jp),  gUZ_Z, ntot1)   ! - v_Z dU_Z/dZ
             call subcol3 (tmp_m1a, vyp(1,jp),  gUR_Z, ntot1)   ! - v_R dU_R/dZ
             call subcol3 (tmp_m1a, tp(1,1,jp), dTdx,  ntot1)   ! - v_phi dU_phi/dZ
-            call col2    (tmp_m1a, vtrans(1,1,1,1,1), ntot1)   ! rho (= rho*cp, checked at init)
-            call col2    (tmp_m1a, bm1, ntot1)
+            call col2    (tmp_m1a, vtrans(1,1,1,1,1), ntot1)   ! rho
+            call col2    (tmp_m1a, bm1, ntot1)                 ! bm1
             call add2    (bfxp(1,jp), tmp_m1a, ntot1)
 
       ! --- R equation
@@ -598,8 +598,8 @@
             call subcol3 (tmp_m1b, vxp(1,jp),  gUZ_R, ntot1)   ! - v_Z dU_Z/dR
             call subcol3 (tmp_m1b, vyp(1,jp),  gUR_R, ntot1)   ! - v_R dU_R/dR
             call subcol3 (tmp_m1b, tp(1,1,jp), dTdy,  ntot1)   ! - v_phi dU_phi/dR
-            call col2    (tmp_m1b, vtrans(1,1,1,1,1), ntot1)
-            call col2    (tmp_m1b, bm1, ntot1)
+            call col2    (tmp_m1b, vtrans(1,1,1,1,1), ntot1)   ! rho
+            call col2    (tmp_m1b, bm1, ntot1)                 ! bm1
             call add2    (bfyp(1,jp), tmp_m1b, ntot1)
          end subroutine advabp_adjoint_axisym
          
@@ -623,8 +623,8 @@
             call add2   (tmp_m1a, tmp_m1b, ntot1)
             call invcol2(tmp_m1a, ym1, ntot1)                          ! / R
             call chsign (tmp_m1a, ntot1)
-            call col2   (tmp_m1a, vtrans(1,1,1,1,2), ntot1)            ! rhocp (= 1.0 in your .par)
-            call col2   (tmp_m1a, bm1, ntot1)
+            call col2   (tmp_m1a, vtrans(1,1,1,1,2), ntot1)            ! rhocp
+            call col2   (tmp_m1a, bm1, ntot1)                          ! bm1
             call add2   (rhs, tmp_m1a, ntot1)
             
          end subroutine add_axisym_curv_phi
@@ -655,15 +655,15 @@
             if (ipert == 1) call chsign(tmp_m1a, ntot1)            ! sign keyed to the READING jp, not the caller
             
             call col3 (advZ(1,ipert), tmp_m1a, vxp(1,jp_), ntot1)
-            call col2 (advZ(1,ipert), vtrans(1,1,1,1,1), ntot1)
+            call col2 (advZ(1,ipert), vtrans(1,1,1,1,1), ntot1)      ! rho
             call col2 (advZ(1,ipert), bm1, ntot1)
             
             call col3 (advR(1,ipert), tmp_m1a, vyp(1,jp_), ntot1)
-            call col2 (advR(1,ipert), vtrans(1,1,1,1,1), ntot1)
+            call col2 (advR(1,ipert), vtrans(1,1,1,1,1), ntot1)      ! rho
             call col2 (advR(1,ipert), bm1, ntot1)
             
             call col3 (advPhi(1,ipert), tmp_m1a, tp(1,1,jp_), ntot1)
-            call col2 (advPhi(1,ipert), vtrans(1,1,1,1,2), ntot1)
+            call col2 (advPhi(1,ipert), vtrans(1,1,1,1,2), ntot1)    ! rho*cp
             call col2 (advPhi(1,ipert), bm1, ntot1)
          end subroutine compute_swirl_advection_axisym
 
@@ -717,15 +717,15 @@
             !     D_phi and D_phi^T cancel, so this block is diagonal in slot space
             !     and each perturbation's pressure can be solved on its own.
             if (.not. alpha_eq_zero) then
-               call bm2_map12T_2Dh(tmp_m1a, wp)            ! I12^T (bm2 p), local
-               call col2 (tmp_m1a, alphaR, ntot1)          ! alpha/R
-               call col2 (tmp_m1a, wmask, ntot1)
-               call dssum(tmp_m1a, lx1, ly1, lz1)
-               call col2 (tmp_m1a, binvm1, ntot1)
-               call col2 (tmp_m1a, h2inv, ntot1)
-               call col2 (tmp_m1a, alphaR, ntot1)          ! alpha/R
-               call chsign(tmp_m1a, ntot1)
-               call bm2_map12_2Dh(tmp_m2, tmp_m1a)         ! bm2 * I12 (.)
+               call bm2_map12T_2Dh(tmp_m1a, wp)                    ! I12^T (bm2 p)
+               call col2          (tmp_m1a, alphaR, ntot1)         ! alpha/R
+               call col2          (tmp_m1a, wmask,  ntot1)
+               call dssum         (tmp_m1a, lx1, ly1, lz1)
+               call col2          (tmp_m1a, binvm1, ntot1)
+               call col2          (tmp_m1a, h2inv,  ntot1)
+               call col2          (tmp_m1a, alphaR, ntot1)         ! alpha/R
+               call chsign        (tmp_m1a, ntot1)
+               call bm2_map12_2Dh (tmp_m2, tmp_m1a)                ! bm2 * I12 (.)
                call sub2(ap, tmp_m2, ntot2)
             end if
             
@@ -734,15 +734,14 @@
       !     implemented so far) this is simply a second, additive, symmetric
       !     positive semi-definite contribution to the same pressure operator.
             if (.not. if_torsion_zero) then
-               call bm2_map12T_2Dh(tmp_m1b, wp)              ! I12^T (bm2 p), local
-               call dphi_apply_t(tmp_m1a, tmp_m1b)           ! lambda block of D^T
-               call col2 (tmp_m1a, wmask, ntot1)
-               call dssum(tmp_m1a, lx1, ly1, lz1)
-               call col2 (tmp_m1a, binvm1, ntot1)
-               call col2 (tmp_m1a, h2inv, ntot1)
-               call dphi_apply(tmp_m1b, tmp_m1a)             ! lambda block of D
-               call chsign(tmp_m1b, ntot1)
-               call bm2_map12_2Dh(tmp_m2, tmp_m1b)           ! bm2 * I12 (.)
+               call bm2_map12T_2Dh(tmp_m1b, wp)                    ! I12^T (bm2 p)
+               call dphi_apply_t  (tmp_m1a, tmp_m1b)               ! lambda block of D^T
+               call col2          (tmp_m1a, wmask, ntot1)
+               call dssum         (tmp_m1a, lx1, ly1, lz1)
+               call col3          (tmp_m1a, binvm1, h2inv, ntot1)  ! collate bm1^-1*h2^-1
+               call dphi_apply    (tmp_m1b, tmp_m1a)               ! lambda block of D
+               call chsign        (tmp_m1b, ntot1)
+               call bm2_map12_2Dh (tmp_m2, tmp_m1b)                ! bm2 * I12 (.)
                call sub2(ap, tmp_m2, ntot2)
             end if
             call neklab_timer_stop(t_axisym_pres_matvec)
@@ -772,11 +771,11 @@
 
             ntot1 = lx1*ly1*lz1*nelv
 
-            call bm2_map12T_2Dh(tmp_m1a, in2)                     ! I12^T (bm2 p)
+            call bm2_map12T_2Dh       (tmp_m1a, in2)              ! I12^T (bm2 p)
 
             ! right operator half (applied first): L^T if left is alpha, else A
             if (left_is_alpha) then
-               call dphi_apply_t(tmp_m1b, tmp_m1a)                ! L^T
+               call dphi_apply_t      (tmp_m1b, tmp_m1a)          ! L^T
             else
                call dphi_alpha_apply_t(tmp_m1b, tmp_m1a, alphaR)  ! A^T = A
             end if
@@ -788,13 +787,12 @@
 
             ! left operator half (applied last): A if left is alpha, else L
             if (left_is_alpha) then
-               call dphi_alpha_apply(tmp_m1a, tmp_m1b, alphaR)    ! A
+               call dphi_alpha_apply  (tmp_m1a, tmp_m1b, alphaR)    ! A
             else
-               call dphi_apply(tmp_m1a, tmp_m1b)                  ! L
+               call dphi_apply        (tmp_m1a, tmp_m1b)            ! L
             end if
-            call chsign(tmp_m1a, ntot1)
-
-            call bm2_map12_2Dh(out2, tmp_m1a)                     ! bm2 * I12 (.)
+            call chsign               (tmp_m1a, ntot1)
+            call bm2_map12_2Dh        (out2, tmp_m1a)               ! bm2 * I12 (.)
          end subroutine pmatvec_cross_block
 
          subroutine pressure_matvec_coupled_2Dh_axisym(apR, apI, wpR, wpI, h1, h2, h2inv, alphaR, intype)

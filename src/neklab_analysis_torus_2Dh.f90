@@ -49,7 +49,7 @@
      &                            t_fd_jac, t_shift_phase, t_save_orbit, t_axisym_nl_step
          use LightKrylov_AbstractSystems, only: abstract_system_rdp
          use LightKrylov_AbstractVectors, only: abstract_vector_rdp
-         use neklab_2Dh, only: nek_advance_2Dh_axisym
+         use neklab_2Dh, only: nek_advance_2Dh_axisym, nek_advance_2Dh_axisym_nl
          use neklab_vectors
          use neklab_linops
          use neklab_utils

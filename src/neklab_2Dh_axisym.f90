@@ -5,7 +5,7 @@
      &                                bm2_map12_2Dh, bm2_map12T_2Dh,
      &                                solve_helmholtz_2Dh
          use neklab_2Dh_torsion, only: if_torsion_zero, check_torsion_cache,
-     &                                 build_torsion_coeffs, torsion_shift_add,
+     &                                 build_torsion_coeffs,
      &                                 dphi_apply, dphi_apply_t,
      &                                 dphi_alpha_apply, dphi_alpha_apply_t,
      &                                 add_torsion_forcing_RZ, add_torsion_forcing_phi,
@@ -32,10 +32,10 @@
          real(dp), dimension(lx1,ly1,lz1,lelv), public, target :: h2z_shift
          real(dp), dimension(lx1,ly1,lz1,lelv), public, target :: diag_shift
          real(dp), dimension(lx1,ly1,lz1,lelv), public :: couple_coef
-      ! diag_shift is S_PHI = (alpha^2+1)/R^2. Torsion splits the R equation's
-      ! shift away from it: S_R = (alpha^2+1+lambda^2)/R^2. Without torsion the
-      ! two coincide and one field suffices; diag_shift_r carries the R value
-      ! whenever lambda /= 0, and is byte-identical to diag_shift otherwise.
+      ! diag_shift is S_PHI = (alpha^2+1)/R^2 and diag_shift_r the u_R shift.
+      ! They are equal: the torsion shifts lambda^2/R^2 (Z, R) are explicit
+      ! (route A, neklab_2Dh_torsion). diag_shift_r is kept so that the
+      ! call sites need not change.
          real(dp), dimension(lx1,ly1,lz1,lelv), public, target :: diag_shift_r
          real(dp), dimension(lx1,ly1,lz1,lelv), public  :: alphaR_coef   ! alpha/R, continuity/pressure coupling
          ! Adjoint: base-flow gradients for (grad U)^T v (prepare_step, ifadj only)
@@ -113,6 +113,7 @@
       ! lambda is fixed for the run: build the torsion coefficients once, here.
       ! Without t2Dh%init_geom (pure axisymmetric case) torsion is off.
             call build_torsion_coeffs()
+            if (.not. if_torsion_zero) call check_full_section_axisym(this_procedure)
             msg = 'torsion terms '//merge('inactive.', 'active.  ', if_torsion_zero)
             call nek_log_message(msg, this_module, this_procedure)
 
@@ -144,6 +145,9 @@
             ! Re/Im pairing is only meaningful for alpha /= 0; npert must match
             ! or the caller has set up the wrong number of perturbation slots.
             alpha_eq_zero = (alpha == 0.0_dp)
+            if (.not. alpha_eq_zero .and. .not. if_torsion_zero) call nek_stop_error(
+     &         'alpha /= 0 with lambda /= 0 is not supported yet (Step 7 of the 2Dh plan).',
+     &         this_module, this_procedure)
             if (alpha_eq_zero) then
                if (lpert /= 1) call nek_stop_error('alpha = 0 requires npert = 1.', this_module, this_procedure)
             else
@@ -329,13 +333,6 @@
                end do
             end do
             
-            ! Torsion: adds lambda^2/R^2 to the R and Z shifts, leaves the phi shift
-            ! (diag_shift) alone. Idempotent and cheap after the first call, so it is
-            ! safe to call unconditionally here rather than threading a second cache
-            ! flag through this routine.
-            call build_torsion_coeffs()
-            call torsion_shift_add(diag_shift_r, h2z_shift)
-            
             alpha_cached          = alpha
             axisym_coeffs_defined  = .true.
          end subroutine build_axisym_coeffs
@@ -361,10 +358,10 @@
          
          subroutine compute_gradp_axisym(gradp, prextr, alphaR)
       !! Third-component pressure gradient, accumulated over the make_coupling
-      !! loop jp = 1, npert (zeroed at jp = 1):
-      !!   alpha part: from slot jp into slot ipert (skew, slot swap);
-      !!   lambda part: from slot jp into slot jp.
-      !! Exact transpose of the divergence blocks in compute_frc_div_axisym.
+      !! loop jp = 1, npert (zeroed at jp = 1): the alpha part, from slot jp
+      !! into slot ipert (skew, slot swap), exact transpose of the alpha block
+      !! of compute_frc_div_axisym. The lambda part is explicit, in
+      !! add_torsion_forcing_phi (route A).
             implicit none
             include 'SIZE'
             include 'SOLN'
@@ -384,7 +381,7 @@
                end do
             end if
 
-            if (alpha_eq_zero .and. if_torsion_zero) return
+            if (alpha_eq_zero) return
 
       ! --- alpha part: skew in slot space (swaps jp <-> ipert). Absent at
       !     alpha = 0.
@@ -396,12 +393,6 @@
                call add2          (gradp(1,ipert), tmp_m1a, ntot1)
             end if
 
-      ! --- lambda part: real, stays in slot jp. dphi^T ( I12^T (bm2 p) ).
-            if (.not. if_torsion_zero) then
-               call bm2_map12T_2Dh(tmp_m1a, prextr)          ! I12^T (bm2 p)
-               call dphi_apply_t  (tmp_m1b, tmp_m1a)
-               call add2          (gradp(1,jp), tmp_m1b, ntot1)
-            end if
       ! dssum is applied to the velocity residual later
          end subroutine compute_gradp_axisym
          
@@ -419,23 +410,14 @@
             ntot1 = lx1*ly1*lz1*nelv
             call rzero(dw, ntot1)
             
-            if (alpha_eq_zero .and. if_torsion_zero) return
+            if (alpha_eq_zero) return
             
             if (.not. alpha_eq_zero) then
                ipert = npert + 1 - jp
                spert = merge(1, -1, jp == 1)
                call bm2_map12T_2Dh(dw, dpr(1,ipert))      ! I12^T (bm2 dp)
-               call col2 (dw, alphaR, ntot1)
+               call col2          (dw, alphaR, ntot1)
                if (spert == 1) call chsign(dw, ntot1)     ! matches -spert*beta_z sign convention
-            end if
-            
-      ! Lambda part, from THIS slot's own pressure correction. Same operator
-      ! as compute_gradp_axisym's lambda block; the overall correction here
-      ! must UNDO the gradient contribution, hence sub2 rather than add2.
-            if (.not. if_torsion_zero) then
-               call bm2_map12T_2Dh(tmp_m1a, dpr(1,jp))       ! I12^T (bm2 dp)
-               call dphi_apply_t  (tmp_m1b, tmp_m1a)
-               call sub2          (dw, tmp_m1b, ntot1)
             end if
             
             call col2 (dw, wmask, ntot1)
@@ -476,7 +458,7 @@
             !     on M1 alongside the alpha part so a single map12 below carries both.
             if (.not. if_torsion_zero) then
                call dphi_apply(tmp_m1b, w(1,1,jp))
-               call add2(tmp_m1a, tmp_m1b, ntot1)
+               call add2      (tmp_m1a, tmp_m1b, ntot1)
             end if
             
             call bm2_map12_2Dh(frc_div, tmp_m1a)           
@@ -526,7 +508,7 @@
             call add2(bfxp(1,jp), advZ(1,jp), ntot1)   ! -+i*alpha*(U_phi/R)*u_Z  (direct/adjoint)
             call add2(bfyp(1,jp), advR(1,jp), ntot1)   ! -+i*alpha*(U_phi/R)*u_R
             call add_axisym_curv_R(bfyp(1,jp), jp)     ! direct: +2 U_phi u_phi/R, adjoint: -U_phi u_phi/R
-            if (.not. if_torsion_zero) call add_torsion_forcing_RZ(bfxp(1,jp), bfyp(1,jp), jp)
+            if (.not. if_torsion_zero) call add_torsion_forcing_RZ(bfxp(1,jp), bfyp(1,jp), jp) ! viscous advection
             if (iftran) call makextp                   ! <-- EXT3
             call makebdfp
             call lagfieldp
@@ -542,7 +524,7 @@
             call add2(bqp(1,ifield-1,jp), advPhi(1,jp), ntot1)   ! -+i*alpha*(U_phi/R)*u_phi
             call add_axisym_curv_phi(bqp(1,ifield-1,jp), jp)     ! direct: -(U_phi u_R + U_R u_phi)/R
                                                                  ! adjoint: (2 U_phi u_R - U_R u_phi)/R
-            if (.not. if_torsion_zero) call add_torsion_forcing_phi(bqp(1,ifield-1,jp), jp)
+            if (.not. if_torsion_zero) call add_torsion_forcing_phi(bqp(1,ifield-1,jp), jp) ! viscous advection D_lam^T p
             if (iftran) call makeabqp                            ! <-- EXT3
             if ((iftran .and. .not. ifchar) .or.
      &          (iftran .and. .not. ifadvc(ifield) .and. ifchar)) call makebdqp
@@ -705,7 +687,7 @@
             call neklab_timer_start(t_axisym_pres_matvec)
             call cdabdtp(Ap, wp, h1, h2, h2inv, intype)   ! core Nek, already ifaxis-correct globally
             
-            if (alpha_eq_zero .and. if_torsion_zero) then
+            if (alpha_eq_zero) then
                call neklab_timer_stop(t_axisym_pres_matvec)
                return
             end if
@@ -729,21 +711,6 @@
                call sub2(ap, tmp_m2, ntot2)
             end if
             
-      ! --- lambda block: [-(lambda/R)*dtheta] H^-1 [-(lambda/R)*dtheta]^T.
-      !     Carries no slot swap either, so at alpha = 0 (the only case
-      !     implemented so far) this is simply a second, additive, symmetric
-      !     positive semi-definite contribution to the same pressure operator.
-            if (.not. if_torsion_zero) then
-               call bm2_map12T_2Dh(tmp_m1b, wp)                    ! I12^T (bm2 p)
-               call dphi_apply_t  (tmp_m1a, tmp_m1b)               ! lambda block of D^T
-               call col2          (tmp_m1a, wmask, ntot1)
-               call dssum         (tmp_m1a, lx1, ly1, lz1)
-               call col3          (tmp_m1a, binvm1, h2inv, ntot1)  ! collate bm1^-1*h2^-1
-               call dphi_apply    (tmp_m1b, tmp_m1a)               ! lambda block of D
-               call chsign        (tmp_m1b, ntot1)
-               call bm2_map12_2Dh (tmp_m2, tmp_m1b)                ! bm2 * I12 (.)
-               call sub2(ap, tmp_m2, ntot2)
-            end if
             call neklab_timer_stop(t_axisym_pres_matvec)
          end subroutine pressure_matvec_2Dh_axisym
          
@@ -1187,5 +1154,25 @@
  9998       format(i11,a,F5.1,1X,I6,1p4e13.4)
             call neklab_timer_stop(t_axisym_solve_pres_cpl)
          end subroutine solve_pressure_coupled_2Dh_axisym
+
+         subroutine check_full_section_axisym(caller)
+      !! Torsion breaks the Z -> -Z symmetry (it maps a helix to its mirror
+      !! image), and dtheta is wall-normal on a plane Z = z_c. A helix therefore
+      !! needs the full cross-section: no SYM or ON face.
+            character(len=*), intent(in) :: caller
+            character(len=3) :: cb
+            integer :: ie, ifc, nbad
+            integer, external :: iglsum
+            nbad = 0
+            do ie = 1, nelv
+               do ifc = 1, 2*ndim
+                  cb = cbc(ifc, ie, 1)
+                  if (cb == 'SYM' .or. cb == 'ON ' .or. cb == 'on ') nbad = nbad + 1
+               end do
+            end do
+            nbad = iglsum(nbad, 1)
+            if (nbad > 0) call nek_stop_error('lambda /= 0 (helix) requires the full '//
+     &         'cross-section: SYM/ON faces found.', this_module, caller)
+         end subroutine check_full_section_axisym
          
       end module neklab_2Dh_axisym

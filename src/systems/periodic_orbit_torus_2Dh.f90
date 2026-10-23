@@ -79,6 +79,7 @@
       !====================================================================
 
          module procedure nonlinear_map_torus_upo_2Dh
+         use neklab_2Dh, only: nek_advance_2Dh_axisym_nl
       ! internal
          character(len=*), parameter :: this_procedure = 'nonlinear_map_torus_upo_2Dh'
          character(len=256) :: msg
@@ -130,7 +131,7 @@
                   end if
                   call bf_begin_step()
                   call neklab_timer_start(t_axisym_nl_step)
-                  call nek_advance()
+                  call nek_advance_2Dh_axisym_nl()   ! nek_advance + torsion
                   call neklab_timer_stop(t_axisym_nl_step)
       ! The landing steps are sized by the period constraint, not by the CFL
       ! condition, so they must not pollute the dt statistics the driver uses

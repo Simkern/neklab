@@ -19,13 +19,16 @@
      &                                makefp_2Dh_planar, ophx_2Dh_planar, ophinv_2Dh_planar,
      &                                incomprp_div_2Dh_planar, incomprp_dw_2Dh_planar,
      &                                pres_matvec_planar, maxit_p_planar
-         use neklab_2Dh_axisym, only: prepare_step_2Dh_axisym, make_coupling_2Dh_axisym,
+         use neklab_2Dh_axisym, only: init_2Dh_axisym,
+     &                                prepare_step_2Dh_axisym, make_coupling_2Dh_axisym,
      &                                makefp_2Dh_axisym, ophx_2Dh_axisym,
      &                                ophinv_uz_2Dh_axisym, ophinv_urphi_2Dh_axisym,
      &                                incomprp_div_2Dh_axisym, incomprp_dw_2Dh_axisym,
      &                                incomprp_coupled_2Dh_axisym,
      &                                pres_matvec_axisym, maxit_p_axisym, alpha_eq_zero
-         use neklab_2Dh_torsion, only: if_torsion_zero
+         use neklab_2Dh_torsion, only: if_torsion_zero, refresh_torsion_forcing_nl,
+     &                                set_torsion_usrdiv
+         use neklab_nek_setup, only: nek_stop_error
          use neklab_timing, only: neklab_timer_start, neklab_timer_stop,
      &                            neklab_clock_tic, neklab_clock_toc,
      &                            t_planar_advance, t_planar_adv_setup, t_planar_adv_advection,
@@ -54,6 +57,7 @@
 
          public :: nek_advance_2Dh_planar
          public :: nek_advance_2Dh_axisym
+         public :: nek_advance_2Dh_axisym_nl
 
       contains
 
@@ -207,6 +211,41 @@
             call neklab_timer_stop(t_axisym_advance)
             jp = 0   ! back to the nonlinear solver's slot
          end subroutine nek_advance_2Dh_axisym
+
+         subroutine nek_advance_2Dh_axisym_nl()
+            !! One NONLINEAR step of the axisymmetric 2Dh problem (torus, helix).
+            !! A copy of the P_N-P_{N-2} branch of Nek's nek_advance (drive1.f,
+            !! v19) with the two route-A hooks:
+            !!   - the torsion forcing, refreshed from U^n, P^n before the step;
+            !!   - usrdiv, set from U_phi^{n+1} between heat(2) and fluid(2).
+            !! At lambda = 0 both hooks return at once: this is nek_advance.
+            character(len=*), parameter :: this_procedure = 'nek_advance_2Dh_axisym_nl'
+            integer :: igeom
+            common /cgeom/ igeom
+      
+            call init_2Dh_axisym()          ! idempotent; builds and registers the torsion terms
+            if (ifsplit .or. ifmhd .or. ifpert .or. ifmvbd) call nek_stop_error(
+     &         'only the standard P_N-P_{N-2} nonlinear step is supported.',
+     &         this_module, this_procedure)
+            if (param(103) > 0.0_dp) call nek_stop_error('filtering is not supported.',
+     &         this_module, this_procedure)
+      
+            call nekgsync
+            if (iftran) call settime
+            call setsolv
+            call comment
+            call setprop
+            call refresh_torsion_forcing_nl()            ! from U^n, P^n
+            do igeom = 1, ngeom
+               if (ifgeom) then
+                  call gengeom(igeom)
+                  call geneig (igeom)
+               end if
+               if (ifheat) call heat(igeom)
+               if (igeom == 2) call set_torsion_usrdiv() ! from U_phi^{n+1}
+               if (ifflow) call fluid(igeom)
+            end do
+         end subroutine nek_advance_2Dh_axisym_nl
 
          subroutine seth2bc(h2)
       ! THIS SHOULD BE IN THE NEK CORE LATER BUT IS CURRENTLY NOT

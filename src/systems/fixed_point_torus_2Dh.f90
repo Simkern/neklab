@@ -2,7 +2,7 @@
          implicit none
       contains
          module procedure nonlinear_map_torus_2Dh
-         use neklab_2Dh_torsion, only: build_torsion_forcing_nl
+         use neklab_2Dh, only: nek_advance_2Dh_axisym_nl
       ! internal
          character(len=*), parameter :: this_procedure = "nonlinear_map_torus_2Dh"
          select type (vec_in)
@@ -21,8 +21,7 @@
                time = 0.0_dp
                do istep = 1, nsteps
                   call neklab_timer_start(t_axisym_nl_step)
-                  call build_torsion_forcing_nl()   ! fills ipert=0 vector from current vx,vy,t
-                  call nek_advance()
+                  call nek_advance_2Dh_axisym_nl() ! nek advance + torsion
                   call neklab_timer_stop(t_axisym_nl_step)
                end do
       ! Copy the final solution to vector.

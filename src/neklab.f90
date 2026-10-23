@@ -97,6 +97,7 @@
          public :: init_2Dh_planar, init_2Dh_axisym
          public :: nek_advance_2Dh_planar
          public :: nek_advance_2Dh_axisym
+         public :: nek_advance_2Dh_axisym_nl
          public :: enable_axisym_curvature_terms
          public :: steady_flowrate_newton
          public :: unsteady_flowrate_newton

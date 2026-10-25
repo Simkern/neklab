@@ -513,50 +513,16 @@
       ! internal
             character(len=*), parameter :: this_procedure = 'tfft_truncate'
             character(len=256) :: msg
-            real(dp), dimension(:, :), allocatable :: cre, cim
-            real(dp), dimension(-mfft_max:mfft_max) :: e
-            real(dp), external :: glsc3
-            real(dp) :: E_spec, E_time, rest, tailp, dropped
-            integer :: m, i, k
+            real(dp) :: E_spec, E_time, tailp, dropped
 
             call check_closed(this_procedure)
-            allocate (cre(nbf, 3), cim(nbf, 3))
-            e = 0.0_dp
-            efrac = 0.0_dp
-            do m = -mharm, mharm
-               call tfft_coef(m, cre, cim)
-               do i = 1, 3
-                  e(m) = e(m) + glsc3(cre(1, i), bm1, cre(1, i), nbf)
-     &                        + glsc3(cim(1, i), bm1, cim(1, i), nbf)
-               end do
-            end do
-            deallocate (cre, cim)
-
-            E_spec = sum(e(-mharm:mharm))
+            call truncation_order(tol, mkeep, efrac, E_spec, dropped)
             if (E_spec <= atol_dp) then
                call nek_log_warning('Spectrum has zero energy: keeping the mean only.',
      &            this_module, this_procedure)
-               mkeep = 0
                if (present(tail_parseval)) tail_parseval = 0.0_dp
                return
             end if
-            efrac(-mharm:mharm) = e(-mharm:mharm)/E_spec
-
-      ! Smallest M whose discarded pair energy is below tol. At M = mharm
-      ! nothing is discarded, so the loop always terminates.
-            mkeep = mharm
-            dropped = 0.0_dp
-            do k = 0, mharm
-               rest = 0.0_dp
-               do m = k + 1, mharm
-                  rest = rest + efrac(m) + efrac(-m)
-               end do
-               if (rest < tol) then
-                  mkeep = k
-                  dropped = rest
-                  exit
-               end if
-            end do
 
             E_time = tsq/max(period, atol_dp)
             tailp = 1.0_dp - E_spec/max(E_time, atol_dp)
@@ -606,7 +572,7 @@
       !     DIAGNOSTICS AND OUTPUT
       !====================================================================
 
-         subroutine tfft_spectrum(amp, filename)
+         subroutine tfft_spectrum(amp, filename, tol)
       !! For every harmonic m and every field column i, computes the spatial
       !! L2 amplitude
       !!
@@ -632,8 +598,16 @@
       !! If filename is present, a two-block text file is written by rank 0:
       !! one block of absolute amplitudes, one block normalised by the bulk
       !! mean velocity U0 = <u_phi>_A(m=0) (first phi block).
+      !!
+      !! If tol is present, the retained order M is computed with the same
+      !! rule as tfft_truncate, and a horizontal line is drawn after row M in
+      !! the log and in both blocks of the file (as a '#' comment, so readers
+      !! that skip comments are unaffected): everything above the line is what
+      !! the coefficient files and the outposts contain.
             real(dp), dimension(0:, :), intent(out), optional :: amp
             character(len=*), intent(in), optional :: filename
+            real(dp), intent(in), optional :: tol
+      !! Truncation tolerance of the coefficient files. Default: no line.
       ! internal
             character(len=*), parameter :: this_procedure = 'tfft_spectrum'
             character(len=256) :: msg
@@ -641,11 +615,22 @@
             real(dp), dimension(0:mharm) :: E_frac
             real(dp), dimension(0:mharm, max(nfld/3, 1)) :: mean_c, mean_s
             real(dp), external :: glsc3
-            real(dp) :: E_spec, E_time, tail, U0
-            integer :: m, i, ib, nblk, iphi
+            real(dp), dimension(-mfft_max:mfft_max) :: efrac2
+            real(dp) :: E_spec, E_time, tail, U0, E2, dropped
+            integer :: m, i, ib, nblk, iphi, mcut
+            character(len=256) :: cutline
 
             call check_closed(this_procedure)
             nblk = nfld/3
+
+      ! --- retained order for the cut line (-1: no line)
+            mcut = -1
+            cutline = ' '
+            if (present(tol)) then
+               call truncation_order(tol, mcut, efrac2, E2, dropped)
+               write (cutline, '(A,E10.3,A,I0,A,E10.3)') repeat('-', 24)//' tol= ', tol,
+     &            ', written |m| <= ', mcut, ', dropped= ', dropped
+            end if
 
       ! --- per-column L2 amplitudes
             do i = 1, nfld
@@ -720,6 +705,8 @@
      &               atan2(-mean_s(m, 1), mean_c(m, 1)),
      &               E_frac(m)
                   call nek_log_message(msg, this_module, this_procedure)
+                  if (m == mcut) call nek_log_message('   '//trim(cutline),
+     &               this_module, this_procedure)
                end do
             else
                call nek_log_message(
@@ -733,6 +720,8 @@
      &               atan2(-mean_s(m, 2), mean_c(m, 2)),
      &               E_frac(m)
                   call nek_log_message(msg, this_module, this_procedure)
+                  if (m == mcut) call nek_log_message('   '//trim(cutline),
+     &               this_module, this_procedure)
                end do
             end if
             if (tail > 1.0e-03_dp) then
@@ -751,7 +740,7 @@
             end if
 
             if (present(filename)) then
-               call write_spectrum_file(filename, amp_, U0, E_frac)
+               call write_spectrum_file(filename, amp_, U0, E_frac, mcut, cutline)
             end if
          end subroutine tfft_spectrum
 
@@ -867,6 +856,56 @@
       !     PRIVATE HELPERS
       !====================================================================
 
+         subroutine truncation_order(tol, mkeep, efrac, E_spec, dropped)
+      !! The truncation rule, shared by tfft_truncate and tfft_spectrum:
+      !! energies e(m) of the two-sided coefficients, efrac = e/E_spec, and
+      !! the smallest M whose discarded pair energy is below tol. No logging.
+      !! E_spec <= atol_dp means an empty spectrum; M is then 0.
+            real(dp), intent(in) :: tol
+            integer, intent(out) :: mkeep
+            real(dp), dimension(-mfft_max:mfft_max), intent(out) :: efrac
+            real(dp), intent(out) :: E_spec
+            real(dp), intent(out) :: dropped
+      ! internal
+            real(dp), dimension(:, :), allocatable :: cre, cim
+            real(dp), dimension(-mfft_max:mfft_max) :: e
+            real(dp), external :: glsc3
+            real(dp) :: rest
+            integer :: m, i, k
+
+            allocate (cre(nbf, 3), cim(nbf, 3))
+            e = 0.0_dp
+            efrac = 0.0_dp
+            do m = -mharm, mharm
+               call tfft_coef(m, cre, cim)
+               do i = 1, 3
+                  e(m) = e(m) + glsc3(cre(1, i), bm1, cre(1, i), nbf)
+     &                        + glsc3(cim(1, i), bm1, cim(1, i), nbf)
+               end do
+            end do
+            deallocate (cre, cim)
+
+            E_spec = sum(e(-mharm:mharm))
+            mkeep = 0
+            dropped = 0.0_dp
+            if (E_spec <= atol_dp) return
+            efrac(-mharm:mharm) = e(-mharm:mharm)/E_spec
+
+      ! At M = mharm nothing is discarded, so the loop always terminates.
+            mkeep = mharm
+            do k = 0, mharm
+               rest = 0.0_dp
+               do m = k + 1, mharm
+                  rest = rest + efrac(m) + efrac(-m)
+               end do
+               if (rest < tol) then
+                  mkeep = k
+                  dropped = rest
+                  exit
+               end if
+            end do
+         end subroutine truncation_order
+
          subroutine check_closed(caller)
             character(len=*), intent(in) :: caller
             if (.not. closed) then
@@ -875,7 +914,7 @@
             end if
          end subroutine check_closed
 
-         subroutine write_spectrum_file(filename, amp_, U0, E_frac)
+         subroutine write_spectrum_file(filename, amp_, U0, E_frac, mcut, cutline)
       !! Two-block text file: one block absolute, one block normalised by U0.
       !! Header carries T, omega, M, nfld, label and U0 so plots need no
       !! external context. Rank 0 only.
@@ -883,6 +922,9 @@
             real(dp), intent(in) :: amp_(0:, :)
             real(dp), intent(in) :: U0
             real(dp), intent(in) :: E_frac(0:)
+            integer, intent(in) :: mcut
+      !! Draw cutline after this row; -1 for none.
+            character(len=*), intent(in) :: cutline
       ! internal
             character(len=*), parameter :: this_procedure = 'write_spectrum_file'
             character(len=256) :: msg
@@ -913,6 +955,7 @@
             do m = 0, mharm
                write (iunit, '(I5,1X,10(E16.8,1X))') m,
      &            (amp_(m, i), i=1, nfld), E_frac(m)
+               if (m == mcut) write (iunit, '(A,A)') '#', trim(cutline)
             end do
 
             write (iunit, '(A)') ''
@@ -922,6 +965,7 @@
             do m = 0, mharm
                write (iunit, '(I5,1X,10(E16.8,1X))') m,
      &            (amp_(m, i)/denom, i=1, nfld), E_frac(m)
+               if (m == mcut) write (iunit, '(A,A)') '#', trim(cutline)
             end do
 
             close (iunit)

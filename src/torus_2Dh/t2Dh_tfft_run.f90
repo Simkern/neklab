@@ -185,7 +185,7 @@
             end do
             call write_coef_files('f', 1, mlist, tags, this_procedure)
 
-            call tfft_spectrum(filename=optval(spec_file, 'spec_baseflow.dat'))
+            call tfft_spectrum(filename=optval(spec_file, 'spec_baseflow.dat'), tol=tol)
             if (optval(if_outpost, .true.)) call tfft_outpost(mlist=mlist)
             call tfft_free()
             deallocate (mlist, tags)
@@ -281,7 +281,7 @@
                call write_coef_files('p', j, mlist, tags, this_procedure)
 
                write (sfile, '(A,A,I3.3,A)') trim(optval(spec_file, 'spec_mode')), '_', j, '.dat'
-               call tfft_spectrum(filename=trim(sfile))
+               call tfft_spectrum(filename=trim(sfile), tol=tol)
 
                if (optval(if_outpost, .true.)) then
                   if (j <= 99) then

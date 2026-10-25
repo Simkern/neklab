@@ -9,7 +9,8 @@
      &                                 dphi_apply, dphi_apply_t,
      &                                 dphi_alpha_apply, dphi_alpha_apply_t,
      &                                 add_torsion_forcing_RZ, add_torsion_forcing_phi,
-     &                                 add_torsion_coupling
+     &                                 add_torsion_coupling,
+     &                                 dlam_grad_t, add_lambda_block_E
          use neklab_nek_setup, only: nek_log_debug, nek_log_message, nek_stop_error
          use neklab_timing, only: neklab_timer_start, neklab_timer_stop,
      &                            t_axisym_makefp, t_axisym_solve_cpl, t_axisym_solve_pres_cpl,
@@ -34,7 +35,7 @@
          real(dp), dimension(lx1,ly1,lz1,lelv), public :: couple_coef
       ! diag_shift is S_PHI = (alpha^2+1)/R^2 and diag_shift_r the u_R shift.
       ! They are equal: the torsion shifts lambda^2/R^2 (Z, R) are explicit
-      ! (route A, neklab_2Dh_torsion). diag_shift_r is kept so that the
+      ! (neklab_2Dh_torsion). diag_shift_r is kept so that the
       ! call sites need not change.
          real(dp), dimension(lx1,ly1,lz1,lelv), public, target :: diag_shift_r
          real(dp), dimension(lx1,ly1,lz1,lelv), public  :: alphaR_coef   ! alpha/R, continuity/pressure coupling
@@ -360,8 +361,9 @@
       !! Third-component pressure gradient, accumulated over the make_coupling
       !! loop jp = 1, npert (zeroed at jp = 1): the alpha part, from slot jp
       !! into slot ipert (skew, slot swap), exact transpose of the alpha block
-      !! of compute_frc_div_axisym. The lambda part is explicit, in
-      !! add_torsion_forcing_phi (route A).
+      !! of compute_frc_div_axisym. The lambda part is +D_lam^T p_ext into this
+      !! slot, with the same extrapolated pressure as the in-plane gradient
+      !! (cresvipp_2Dh).
             implicit none
             include 'SIZE'
             include 'SOLN'
@@ -381,10 +383,15 @@
                end do
             end if
 
+            ! --- lambda part: no slot swap
+            if (.not. if_torsion_zero) then
+               call dlam_grad_t(tmp_m1a, prextr)             ! D_lam^T p_ext
+               call add2       (gradp(1,jp), tmp_m1a, ntot1)
+            end if
+
             if (alpha_eq_zero) return
 
-      ! --- alpha part: skew in slot space (swaps jp <-> ipert). Absent at
-      !     alpha = 0.
+      ! --- alpha part: skew in slot space (swaps jp <-> ipert). Absent at alpha = 0.
             if (.not. alpha_eq_zero) then
                spert = merge(1, -1, jp == 1)
                call bm2_map12T_2Dh(tmp_m1a, prextr)          ! I12^T (bm2 p)
@@ -410,7 +417,7 @@
             ntot1 = lx1*ly1*lz1*nelv
             call rzero(dw, ntot1)
             
-            if (alpha_eq_zero) return
+            if (alpha_eq_zero .and. if_torsion_zero) return
             
             if (.not. alpha_eq_zero) then
                ipert = npert + 1 - jp
@@ -418,6 +425,12 @@
                call bm2_map12T_2Dh(dw, dpr(1,ipert))      ! I12^T (bm2 dp)
                call col2          (dw, alphaR, ntot1)
                if (spert == 1) call chsign(dw, ntot1)     ! matches -spert*beta_z sign convention
+            end if
+
+      ! --- lambda part: +D_lam^T dp of this slot, same sign as the in-plane correction (opgradt -> opbinv)
+            if (.not. if_torsion_zero) then
+               call dlam_grad_t(tmp_m1a, dpr(1,jp))
+               call add2       (dw, tmp_m1a, ntot1)
             end if
             
             call col2 (dw, wmask, ntot1)
@@ -686,6 +699,11 @@
             
             call neklab_timer_start(t_axisym_pres_matvec)
             call cdabdtp(Ap, wp, h1, h2, h2inv, intype)   ! core Nek, already ifaxis-correct globally
+
+      ! --- lambda block: D_lam (h2inv B^-1) D_lam^T, positive
+            if (.not. if_torsion_zero) then
+               call add_lambda_block_E(ap, wp, h2inv, wmask)
+            end if
             
             if (alpha_eq_zero) then
                call neklab_timer_stop(t_axisym_pres_matvec)

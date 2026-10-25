@@ -18,29 +18,33 @@
       !! FULL cross-section (torsion breaks the Z -> -Z symmetry).
       !!
       !!--------------------------------------------------------------------
-      !! ROUTE A  (claude/neklab_2Dh_plan.md, section 3.1)
+      !! TREATMENT  (claude/H/deploy_H7_lambda_in_E.md)
       !!--------------------------------------------------------------------
       !!
-      !! Every torsion term is explicit, in the nonlinear AND in the linear
-      !! solver, built from the same kernels below, at the same time level:
+      !! Explicit, in both solvers, from the same kernels below and at the same
+      !! time level (before EXT3):
       !!
       !!   advection + frame rotation   RHS +(lambda U_phi/R) S(U)
       !!                                (linear: + c(U) S(u) + c(u) S(U))
       !!   viscous                      nu * [torsion part of the vector
       !!                                Laplacian], INCLUDING -lambda^2/R^2 on
       !!                                the Z and R components
-      !!   pressure (u_phi equation)    +D_lam^T p   (weak, exact transpose of D_lam)
-      !!   continuity                   D u + D_lam u_phi = 0,
-      !!                                D_lam u = bm2 * I12( -(lambda/R) dtheta u )
       !!
-      !! Nonlinear: refresh_torsion_forcing_nl (before every step, from U^n,
-      !! P^n) feeds registered pointwise terms; set_torsion_usrdiv (after heat(2),
-      !! with U_phi^{n+1}) sets Nek's usrdiv. Both are called by
-      !! nek_advance_2Dh_axisym_nl.
+      !! In the pressure step: incremental pressure correction on the full
+      !! divergence D = [D_in, D_lam],
       !!
-      !! Linear (alpha = 0): add_torsion_forcing_RZ/_phi inject the same terms
-      !! before EXT3; the continuity term stays in compute_frc_div_axisym; the
-      !! pressure operator E and the u_phi correction carry NO lambda block.
+      !!   D_lam u   = bm2 * I12( -(lambda/R) dtheta u )      (continuity)
+      !!   D_lam^T p = dphi_apply_t( I12^T(bm2 p) )            (u_phi pressure term)
+      !!
+      !!   - u_phi predictor: +D_lam^T p_ext, the SAME extrapolated pressure as
+      !!     the in-plane predictor (linear: compute_gradp_axisym; nonlinear:
+      !!     add_torsion_pressure_phi_nl, after heat(1));
+      !!   - E = D_in B^-1 D_in^T + D_lam B^-1 D_lam^T  (add_lambda_block_E);
+      !!   - correction u_phi += h2inv B^-1 D_lam^T dp  (lambda_correction,
+      !!     compute_dw_axisym).
+      !!
+      !! An explicit D_lam^T P with an in-plane-only projection is unstable for
+      !! |D_lam|^2/|D_in|^2 > 1/7 (EXT3), whatever dt: see the deploy note.
       !!
       !! alpha /= 0 with lambda /= 0 is refused by prepare_step_2Dh_axisym until
       !! Step 7 (add_torsion_coupling and dphi_alpha_apply* are kept for it).
@@ -49,7 +53,7 @@
          use neklab_nek_setup, only: nek_log_debug, nek_log_message,
      &                               nek_log_warning, nek_stop_error
          use neklab_nek_forcing, only: add_neklab_forcing_term, add_neklab_source_term
-         use neklab_2Dh_common, only: map12_2Dh, bm2_map12T_2Dh
+         use neklab_2Dh_common, only: bm2_map12_2Dh, bm2_map12T_2Dh
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -62,6 +66,7 @@
 
          integer, parameter, private :: lv = lx1*ly1*lz1*lelv
          integer, parameter, private :: lxyz = lx1*ly1*lz1
+         integer, parameter, private :: lp = lx2*ly2*lz2*lelv
 
       ! --- coefficient fields, built once (lambda does not change at runtime)
          real(dp), dimension(lv), private :: zhat_f, rhat_f
@@ -86,6 +91,8 @@
          real(dp), dimension(lv), private :: m_t                 ! dlam_grad_t
          real(dp), dimension(lv), private :: k_dZ, k_dR, k_dP, k_L ! kernels
          real(dp), dimension(lv), private :: acc_a, acc_b, acc_c, cf_1 ! drivers
+         real(dp), dimension(lv), private :: e_a, e_b             ! add_lambda_block_E
+         real(dp), dimension(lp), private :: e_m2, pe_m2, pl_m2   ! add_lambda_block_E, add_torsion_pressure_phi_nl
 
          public :: build_torsion_coeffs
          public :: check_torsion_cache
@@ -95,11 +102,15 @@
          public :: dphi_apply_t
          public :: dphi_alpha_apply
          public :: dphi_alpha_apply_t
+         public :: dlam_grad_t
+         public :: add_lambda_block_E
+         public :: lambda_correction
+         public :: torsion_lambda
          public :: add_torsion_forcing_RZ
          public :: add_torsion_forcing_phi
          public :: add_torsion_coupling
          public :: refresh_torsion_forcing_nl
-         public :: set_torsion_usrdiv
+         public :: add_torsion_pressure_phi_nl
 
       contains
 
@@ -386,7 +397,7 @@
          subroutine add_torsion_forcing_phi(rhs_phi, jp_)
       !! u_phi RHS of slot jp_, injected before EXT3:
       !!    rhoCp*bm1*[ c(U) S(u) + c(u) S(U) ]_phi + vdiff*bm1*[viscous(u)]_phi
-      !!    + D_lam^T p'   (p' = prp(:,jp_), the current perturbation pressure)
+      !! The pressure term D_lam^T p_ext is in gradw (compute_gradp_axisym).
             real(dp), dimension(lv), intent(inout) :: rhs_phi
             integer, intent(in) :: jp_
             integer :: ntot1
@@ -404,9 +415,6 @@
             call rzero (acc_c, ntot1)
             call visc_P(acc_c, vxp(1,jp_), vyp(1,jp_), tp(1,1,jp_))
             call weight_forcing(acc_c, vdiff(1,1,1,1,1))
-            call add2(rhs_phi, acc_c, ntot1)
-      ! ---- pressure (weak, already weighted)
-            call dlam_grad_t(acc_c, prp(1,jp_))
             call add2(rhs_phi, acc_c, ntot1)
          end subroutine add_torsion_forcing_phi
 
@@ -464,9 +472,8 @@
          subroutine refresh_torsion_forcing_nl()
       !! Torsion forcing of the nonlinear step, as ACCELERATIONS (Nek multiplies
       !! userf by rho*bm1; neklab_source multiplies by rhoCp, Nek by bm1), from
-      !! the current U^n and P^n. Same kernels as the linear solver:
-      !!    Z, R : c(U) S(U) + nu*viscous(U)
-      !!    phi  : c(U) S(U) + nu*viscous(U) + D_lam^T P/(bm1*rhoCp)
+      !! the current U^n. Same kernels as the linear solver:
+      !!    Z, R, phi : c(U) S(U) + nu*viscous(U)
       !! with nu = vdiff/vtrans, so that Nek rebuilds exactly the weights of the
       !! linear solver.
             integer :: ntot1
@@ -494,37 +501,66 @@
             call col2   (acc_c, vdiff(1,1,1,1,1),  ntot1)        ! vdiff/rhoCp
             call invcol2(acc_c, vtrans(1,1,1,1,2), ntot1)
             call add2   (fP_nl, acc_c, ntot1)
-      ! ---- pressure (weak -> divide by bm1 node by node, Nek multiplies back)
-            call dlam_grad_t(cf_1, pr)
-            call invcol2(cf_1, bm1, ntot1)
-            call invcol2(cf_1, vtrans(1,1,1,1,2), ntot1)
-            call add2   (fP_nl, cf_1, ntot1)
          end subroutine refresh_torsion_forcing_nl
 
-         subroutine set_torsion_usrdiv()
-      !! Continuity of the nonlinear step. Nek's incomprn enforces
-      !! D u^{n+1} = (dt/bd(1)) bm2 usrdiv; requiring D u + D_lam U_phi^{n+1} = 0
-      !! with D_lam U = bm2 I12(dphi_apply U) gives
-      !!    usrdiv = -(bd(1)/dt) I12( dphi_apply(U_phi^{n+1}) ).
-      !! Call after heat(2) (U_phi^{n+1} in t) and before fluid(2).
-            character(len=*), parameter :: this_procedure = 'set_torsion_usrdiv'
-            character(len=128) :: msg
-            real(dp), external :: glsc2
-            real(dp) :: dmean
-            integer :: e, ntot2
+         subroutine add_torsion_pressure_phi_nl()
+      !! Nonlinear u_phi predictor pressure term +D_lam^T p_ext, with
+      !! p_ext the pressure Nek's cresvif will use for the in-plane predictor
+      !! (extrapp, run here on copies so that pr and prlag are untouched).
+      !! Call right after heat(1): bq of field 2 is then complete (source,
+      !! advection, EXT, BDF) and the term is NOT stored in the EXT history,
+      !! exactly like opgradt(p_ext) in cresvif. bq is element-local weak form,
+      !! as dlam_grad_t returns it; the pressure term is not multiplied by rho.
+            integer :: ntot1, ntot2
             if (if_torsion_zero) return
+            ntot1 = lx1*ly1*lz1*nelv
             ntot2 = lx2*ly2*lz2*nelv
-            call dphi_apply(acc_a, t(1,1,1,1,1))
-            do e = 1, nelv
-               call map12_2Dh(usrdiv(1,1,1,e), acc_a((e - 1)*lxyz + 1), e)
-            end do
-            call cmult(usrdiv, -bd(1)/dt, ntot2)
-      ! ortho removes the mean of the pressure RHS; with U_phi = 0 on the wall the
-      ! continuous mean is zero, so this must sit at discretisation level.
-            dmean = glsc2(usrdiv, bm2, ntot2)/volvm2
-            write (msg, '(A,1pE12.4)') 'mean(usrdiv) = ', dmean
-            call nek_log_debug(msg, this_module, this_procedure)
-         end subroutine set_torsion_usrdiv
+            call copy(pe_m2, pr, ntot2)
+            call copy(pl_m2, prlag, ntot2)
+            call extrapp(pe_m2, pl_m2)                 ! Nek's own extrapolation, on copies
+            call dlam_grad_t(cf_1, pe_m2)
+            call add2(bq(1,1,1,1,1), cf_1, ntot1)
+         end subroutine add_torsion_pressure_phi_nl
+
+         subroutine add_lambda_block_E(ap, wp, h2inv, mask)
+      !! ap += D_lam (h2inv B^-1) D_lam^T wp, the lambda block of the pressure
+      !! Schur complement E = D B^-1 D^T, D = [D_in, D_lam]. B^-1 is assembled
+      !! and masked with the Dirichlet mask of u_phi (linear: wmask, nonlinear:
+      !! tmask), exactly as opbinv does for the in-plane block in cdabdtp.
+      !! Symmetric positive semi-definite.
+            real(dp), dimension(lp), intent(inout) :: ap
+            real(dp), dimension(lp), intent(in)    :: wp
+            real(dp), dimension(lv), intent(in)    :: h2inv, mask
+            integer :: ntot1, ntot2
+            if (if_torsion_zero) return
+            ntot1 = lx1*ly1*lz1*nelv
+            ntot2 = lx2*ly2*lz2*nelv
+            call lambda_correction(e_a, wp, h2inv, mask)
+            call dphi_apply   (e_b, e_a)
+            call bm2_map12_2Dh(e_m2, e_b)
+            call add2(ap, e_m2, ntot2)
+         end subroutine add_lambda_block_E
+
+         subroutine lambda_correction(dw, dp_, h2inv, mask)
+      !! dw = h2inv B^-1 D_lam^T dp_ (assembled, masked): the u_phi part of the
+      !! velocity correction u += h2inv B^-1 D^T dp. Same sign as the in-plane
+      !! part (opgradt, opbinv).
+            real(dp), dimension(lv), intent(out) :: dw
+            real(dp), dimension(lp), intent(in)  :: dp_
+            real(dp), dimension(lv), intent(in)  :: h2inv, mask
+            integer :: ntot1
+            ntot1 = lx1*ly1*lz1*nelv
+            call dlam_grad_t(dw, dp_)
+            call col2 (dw, mask, ntot1)
+            call dssum(dw, lx1, ly1, lz1)
+            call col2 (dw, binvm1, ntot1)
+            call col2 (dw, h2inv, ntot1)
+         end subroutine lambda_correction
+
+         real(dp) function torsion_lambda()
+      !! lambda the coefficients were built with (0 for the torus).
+            torsion_lambda = merge(0.0_dp, lambda_built, if_torsion_zero)
+         end function torsion_lambda
 
          subroutine torsion_forcing_pw(fx, fy, fz, ix, iy, iz, e)
       !! Registered pointwise forcing (ipert = 0): Z and R torsion accelerations.

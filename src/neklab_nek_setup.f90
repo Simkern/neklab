@@ -68,6 +68,7 @@
             logical :: iffxdt
             common /FIXDT/ iffxdt
             integer, parameter :: pad = 30
+            logical :: if_vel_zero
             real, external :: glamax
       
       ! Only print summary if we switch from linear to nonlinear solvers or vice versa
@@ -82,8 +83,11 @@
             cfl_limit_ = optval(cfl_limit, param(26))
             silent_ = optval(silent, .false.)
       
-            n = lx1-ly1*lz1*lelv
-            if (glamax(vx, n) == 0.0_dp .and. glamax(vy, n) == 0.0_dp .and. glamax(vz, n) == 0.0_dp) then
+      ! Global test (glamax): every rank must take the same branch below, since
+      ! compute_cfl is collective.
+            n = lx1*ly1*lz1*nelv
+            if_vel_zero = (glamax(vx, n) == 0.0_dp .and. glamax(vy, n) == 0.0_dp .and. glamax(vz, n) == 0.0_dp)
+            if (if_vel_zero) then
                recompute_dt_ = .false.
             else
                recompute_dt_ = optval(recompute_dt, .false.)
@@ -167,9 +171,14 @@
             if (variable_dt_) then
                iffxdt = .false.
                ! always recompute dt and flush the internal dtold variable
-               call compute_cfl(ctarg, vx, vy, vz, 1.0_dp)
-               dt = param(26)/ctarg
-               call compute_cfl(ctarg, vx, vy, vz, dt)
+               if (.not. if_vel_zero) then
+                  call compute_cfl(ctarg, vx, vy, vz, 1.0_dp)
+                  dt = param(26)/ctarg
+                  call compute_cfl(ctarg, vx, vy, vz, dt)
+               else if (dt <= 0.0_dp) then
+                  call nek_stop_error('dt = 0 and a zero velocity field: no CFL to take dt from. '//
+     &               'Set dt > 0 in the .par or start from a non-zero field.', this_module, 'setup_nek')
+               end if
                param(12) = abs(dt)
                dtinit = param(12)
                ! flush dtold in subs1.f
@@ -206,6 +215,12 @@
                end if
             else
                iffxdt = .true.
+               if (dt <= 0.0_dp) then
+                  if (if_vel_zero) call nek_stop_error('dt = 0 and a zero velocity field: '//
+     &               'no CFL to take dt from. Set dt > 0 in the .par or start from a non-zero field.',
+     &               this_module, 'setup_nek')
+                  recompute_dt_ = .true.
+               end if
                ! Recompute dt
                if (recompute_dt_) then
                   dt_old = dt
@@ -227,6 +242,10 @@
                else
                   nsteps = ceiling(param(10)/dt)
                   param(12) = dt
+               end if
+               if (nsteps < 1) then
+                  write (msg, '(A,E15.8,A,E15.8)') 'invalid step count: dt = ', dt, ', endtime = ', param(10)
+                  call nek_stop_error(msg, this_module, 'setup_nek')
                end if
                fintim = nsteps*dt
                param(12) = -abs(param(12))

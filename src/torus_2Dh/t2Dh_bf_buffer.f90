@@ -49,6 +49,10 @@
       !! NOT stored: the linearised operator does not consume it, and pressure
       !! for the Newton iterates is written separately with standard outposting.
       !!
+      !! The same format is reused by bf_write_fields for the temporal Fourier
+      !! coefficients (f2r/f2i, p2r/p2i, see t2Dh_tfft_run): there a "snapshot"
+      !! is a harmonic, and the dt slot carries its relative energy.
+      !!
       !! Writing is serial (gather to nid 0). The element map written to file is
       !! the GLOBAL element numbering, so files are portable across a change in
       !! the number of MPI ranks.
@@ -56,6 +60,12 @@
       !! The text sidecar (<prefix><base>.t2Dh, see bf_write_t2Dh) carries the
       !! forcing in the native one-sided Fourier convention and a convention tag;
       !! sidecars without the tag are refused.
+      !!
+      !! TIME-STEP HISTORY. Every recording that spills its chunks also writes
+      !! <prefix><base>.dt (e.g. n2dtorus2Dh.dt) when it closes: one line per step
+      !! with k, t_{k-1} (the time of snapshot k) and dt_k, for the whole
+      !! trajectory. It is overwritten with the chunk files, so it always
+      !! describes the n2d files on disk.
       !!
       !! NOTE ON NAMING: the parameter lbuf below shadows the lbuf of
       !! neklab_helix. Any scoping unit that uses both modules must import at
@@ -99,6 +109,10 @@
       !! (nbf, lbuf) snapshot storage for u_Z, u_R, u_phi.
          real(dp), allocatable, private :: bufdt(:)
       !! (lbuf) timestep consumed by each buffered step.
+         real(dp), allocatable, private :: dthist(:)
+      !! Timestep of EVERY step of the current recording, across chunks. bufdt
+      !! only holds the resident chunk, so the .dt file needs its own copy.
+      !! Grown by doubling; a few kB even for 1e5 steps.
 
          real(dp), allocatable, private :: x2d(:), y2d(:)
       !! (nbf) reference coordinates, written to every file for verification.
@@ -141,7 +155,9 @@
          logical, private :: if_sym = .false.
       !! Half (symmetric) cross-section mesh? Auto-detected from the SYM bcs.
 
-         character(len=32), private :: fbase = '2dtorus'
+         character(len=132), private :: fbase = ' '
+      !! Filename stem. Default '2d'//session, i.e. 2dtorus2Dh for the case
+      !! torus2Dh -- the same default the Floquet operator assumes.
          character(len=1), private :: fprefix = 'n'
 
          public :: bf_init, bf_finalize_module
@@ -149,9 +165,10 @@
          public :: bf_replay_start, bf_replay_end, bf_set, bf_set_window
          public :: bf_get_nsteps, bf_get_dt, bf_get_dt_minmax, bf_get_nchunk
          public :: bf_get_time, bf_is_recording, bf_is_initialised, bf_get_nsteps_min
-         public :: bf_set_prefix, bf_get_prefix, bf_fname
+         public :: bf_set_prefix, bf_get_prefix, bf_get_base, bf_fname
          public :: bf_write_mesh, bf_summary
          public :: bf_write_t2Dh, bf_read_t2Dh
+         public :: bf_write_fields
 
       !--------------------------------------------------------------------
       !-----     IO INTERFACES (implemented in submodule bf_buffer_io) -----
@@ -168,6 +185,18 @@
                logical, optional, intent(in) :: only_mesh
             !! Write coordinates only, with no field data (default .false.).
             end subroutine bf_write_chunk
+
+            module subroutine bf_write_fields(fname, nrec, tval, tags, fx, fy, fs)
+            !! Write an arbitrary set of nrec (u_Z, u_R, u_phi) records in the
+            !! chunk format. tags(1:nrec) go into the dt slot and tval into the
+            !! header time. Used for the temporal Fourier coefficients.
+               character(len=132), intent(in) :: fname
+               integer, intent(in) :: nrec
+               real(dp), intent(in) :: tval
+               real(dp), dimension(:), intent(in) :: tags
+               real(dp), dimension(:, :), intent(in) :: fx, fy, fs
+            !! (>= nbf, >= nrec) each.
+            end subroutine bf_write_fields
 
             module subroutine bf_read_chunk(fname, nread)
             !! Read a binary chunk file into the memory buffer. nid 0 reads and
@@ -201,7 +230,9 @@
       !! consumes the buffer, and fails loudly through check_init if the driver
       !! forgot.
             character(len=*), optional, intent(in) :: base
-      !! Filename stem, appended to the one-character prefix. Default '2dtorus'.
+      !! Filename stem, appended to the one-character prefix. Absent or blank:
+      !! '2d'//session (case torus2Dh -> n2dtorus2Dh001.fld), which is also
+      !! the default of floquet_2Dh_axisym_linop%base.
             logical, optional, intent(in) :: write_chunks
       !! Spill chunks to disk even when the trajectory fits in memory.
       !! Default .true. (needed for restarts and for the stability runs).
@@ -220,7 +251,10 @@
                return
             end if
 
-            if (present(base)) fbase = base
+            fbase = '2d'//trim(session)
+            if (present(base)) then
+               if (len_trim(base) > 0) fbase = base
+            end if
             if_write = optval(write_chunks, .true.)
             nsteps_min = optval(min_steps, 50)
 
@@ -249,6 +283,7 @@
             allocate (bufy(nbf, lbuf)); call rzero(bufy, nbf*lbuf)
             allocate (bufs(nbf, lbuf)); call rzero(bufs, nbf*lbuf)
             allocate (bufdt(lbuf)); call rzero(bufdt, lbuf)
+            allocate (dthist(lbuf)); call rzero(dthist, lbuf)
             allocate (x2d(nbf)); call copy(x2d, xm1, nbf)
             allocate (y2d(nbf)); call copy(y2d, ym1, nbf)
 
@@ -258,6 +293,8 @@
             call nek_log_message('', this_module, this_procedure)
             call nek_log_message('Baseflow buffer initialized:', this_module, this_procedure)
             write (msg, '(3X,A,2X,3(1X,I4))') padl('lx1, ly1, nelv:', pad), lx1, ly1, nelv
+            call nek_log_message(msg, this_module, this_procedure)
+            write (msg, '(3X,A,1X,A)') padl('file stem:', pad), trim(fbase)
             call nek_log_message(msg, this_module, this_procedure)
             write (msg, '(3X,A,1X,I16)') padl('snapshots per chunk:', pad), lbuf
             call nek_log_message(msg, this_module, this_procedure)
@@ -279,6 +316,7 @@
             if (allocated(bufy)) deallocate (bufy)
             if (allocated(bufs)) deallocate (bufs)
             if (allocated(bufdt)) deallocate (bufdt)
+            if (allocated(dthist)) deallocate (dthist)
             if (allocated(x2d)) deallocate (x2d)
             if (allocated(y2d)) deallocate (y2d)
             is_initialized = .false.
@@ -300,8 +338,14 @@
             prefix = fprefix
          end function bf_get_prefix
 
+         pure function bf_get_base() result(base)
+      !! Filename stem set at bf_init, e.g. '2dtorus2Dh'.
+            character(len=132) :: base
+            base = fbase
+         end function bf_get_base
+
          pure function bf_fname(iout, prefix) result(fname)
-      !! Standard chunk filename, e.g. 'n2dtorus001.fld'.
+      !! Standard chunk filename, e.g. 'n2dtorus2Dh001.fld'.
             integer, intent(in) :: iout
             character(len=1), optional, intent(in) :: prefix
             character(len=132) :: fname
@@ -372,6 +416,7 @@
       !! unconditionally for the same reason.
       ! internal
             character(len=*), parameter :: this_procedure = 'bf_end_step'
+            real(dp), allocatable :: tmp(:)
             if (.not. is_initialized) return
             if (nsave == 0) then
                call nek_stop_error('bf_end_step without a matching bf_begin_step.', this_module, this_procedure)
@@ -379,6 +424,15 @@
             bufdt(nsave) = dt
             nsteps_rec = nsteps_rec + 1
             trec = trec + dt
+      ! Whole-trajectory dt history for the .dt file. Doubling keeps the
+      ! reallocation count logarithmic in the step count.
+            if (nsteps_rec > size(dthist)) then
+               allocate (tmp(2*size(dthist)))
+               tmp = 0.0_dp
+               tmp(1:size(dthist)) = dthist
+               call move_alloc(tmp, dthist)
+            end if
+            dthist(nsteps_rec) = dt
             if (optval(count_stats, .true.) .and. lastep == 0) then
                dt_min = min(dt_min, dt)
                dt_max = max(dt_max, dt)
@@ -390,6 +444,9 @@
       !! supplied, the recorded timesteps are checked against it: a mismatch
       !! means the replay would run on a different time grid than the
       !! trajectory it is meant to linearise.
+      !!
+      !! When the chunks are spilled to disk, the time-step history of the
+      !! whole recording is written next to them as <prefix><base>.dt.
             real(dp), optional, intent(in) :: period
       ! internal
             character(len=*), parameter :: this_procedure = 'bf_close_record'
@@ -403,6 +460,7 @@
 
             if (nsave > 0) call flush_chunk(keep_resident=.true.)
             is_recording = .false.
+            if (if_write) call write_dt_file()
 
             write (msg, '(A,I0,A,I0,A,E16.8)') 'Recorded ', nsteps_rec, ' steps in ', nchunk,
      &         ' chunk(s), sum(dt)= ', trec
@@ -785,6 +843,46 @@
      &            'before the first residual evaluation.', this_module, caller)
             end if
          end subroutine check_init
+
+         subroutine write_dt_file()
+      !! <prefix><base>.dt, e.g. n2dtorus2Dh.dt: the time grid of the recording
+      !! that just closed, matching the chunk files written with it.
+      !!
+      !!   k        step index, 1 .. nsteps
+      !!   t_{k-1}  time of snapshot k (the state ENTERING step k), t_0 = 0
+      !!   dt_k     timestep consumed by step k
+      !!
+      !! so snapshot k of the n2d files sits at the second column, and
+      !! t_{k-1} + dt_k is the time of snapshot k+1 (or T for k = nsteps).
+      !! Full precision: an orbit reconstruction should land on the same grid
+      !! the Newton solve converged on. Rank 0 only.
+            character(len=*), parameter :: this_procedure = 'write_dt_file'
+            character(len=132) :: fname
+            real(dp) :: tk
+            integer :: iunit, k, ierr
+            if (nid /= 0) return
+            fname = ' '
+            write (fname, '(A,A,A)') fprefix, trim(fbase), '.dt'
+            open (newunit=iunit, file=trim(fname), status='replace', action='write', iostat=ierr)
+            if (ierr /= 0) then
+               call nek_log_warning('Could not open '//trim(fname)//' for writing; skipping.',
+     &            this_module, this_procedure)
+               return
+            end if
+            write (iunit, '(A)') '# neklab baseflow buffer time-step history'
+            write (iunit, '(A,I0,A,I0,A,I0,A,E24.16)') '# nsteps = ', nsteps_rec,
+     &         '   nchunk = ', nchunk, '   lbuf = ', lbuf, '   T = ', trec
+            write (iunit, '(A)') '# snapshot k of the chunk files is the state at t_{k-1}'
+            write (iunit, '(A)') '#      k                  t_{k-1}                     dt_k'
+            tk = 0.0_dp
+            do k = 1, nsteps_rec
+               write (iunit, '(I8,2(1X,E24.16))') k, tk, dthist(k)
+               tk = tk + dthist(k)
+            end do
+            close (iunit)
+            call nek_log_information('Time-step history written to '//trim(fname),
+     &         this_module, this_procedure)
+         end subroutine write_dt_file
 
          subroutine flush_chunk(keep_resident)
       !! Writes the resident chunk. keep_resident = .true. leaves the snapshots

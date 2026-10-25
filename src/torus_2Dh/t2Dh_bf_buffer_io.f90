@@ -25,12 +25,18 @@
       !! precision: the Jacobian consumes this baseflow, and truncating to
       !! real*4 would put an O(1e-7) inconsistency between F and dF.
       !!
+      !! bf_write_chunk writes the resident buffer chunk; bf_write_fields writes
+      !! any caller-supplied set of records (the Fourier coefficients). Both go
+      !! through write_2d_file, so the two can never drift apart. For the
+      !! coefficient files, 'time' carries the period T, 'dt' the relative
+      !! energy of each harmonic, and 'lbuf' the record count.
+      !!
       !! Simplification versus helix_io: there are no streamwise segments here,
       !! so every local element is a 2D element and every rank contributes
       !! nelv of them. No ownership bookkeeping is needed.
       !!
       !! LOGGING: everything in here is debug. The one line per file worth
-      !! seeing by default is emitted by flush_chunk in the parent module.
+      !! seeing by default is emitted by the callers.
          implicit none
 
       contains
@@ -41,23 +47,12 @@
 
          module procedure bf_write_chunk
             character(len=*), parameter :: this_procedure = 'bf_write_chunk'
-            integer, allocatable :: ngown(:), elmap(:)
-            integer :: ierr, itmp, i, ip, iseg, i_own, nsave_
-            integer :: wdsl, isl
-            integer :: isend(lelv)
             character(len=256) :: msg
-            character(len=1024) :: head, ftm
-            character(len=2) :: id
-            character(len=1), parameter :: fileversion = '1'
             logical :: only_mesh_
-            real*4 :: test
-            parameter(test=6.54321)
+            integer :: nsave_
 
             call neklab_timer_start(t_bf_write)
-            wdsl = wdsize/4
-            isl = isize/4
             only_mesh_ = optval(only_mesh, .false.)
-
             if (only_mesh_) then
                nsave_ = 0
                write (msg, '(A,A)') 'Write 2D mesh: ', trim(fname)
@@ -66,6 +61,63 @@
                write (msg, '(A,I0,A,A)') 'Write 2D data: ', nsave_, ' snapshots -> ', trim(fname)
             end if
             call nek_log_debug(msg, this_module, this_procedure)
+            call write_2d_file(fname, nsave_, lbuf, time, bufdt, bufx, bufy, bufs)
+            call neklab_timer_stop(t_bf_write)
+         end procedure bf_write_chunk
+
+         module procedure bf_write_fields
+            character(len=*), parameter :: this_procedure = 'bf_write_fields'
+            character(len=256) :: msg
+            if (.not. is_initialized) then
+               call nek_stop_error('Buffer not initialized: bf_init caches the mesh '//
+     &            'this writer needs.', this_module, this_procedure)
+            end if
+            if (nrec < 1) then
+               call nek_stop_error('Nothing to write (nrec < 1).', this_module, this_procedure)
+            end if
+            if (size(tags) < nrec .or. size(fx, 2) < nrec .or. size(fy, 2) < nrec
+     &          .or. size(fs, 2) < nrec) then
+               call nek_stop_error('Record arrays shorter than nrec.', this_module, this_procedure)
+            end if
+            if (size(fx, 1) < nbf .or. size(fy, 1) < nbf .or. size(fs, 1) < nbf) then
+               call nek_stop_error('Record arrays shorter than the local field.',
+     &            this_module, this_procedure)
+            end if
+            call neklab_timer_start(t_bf_write)
+            write (msg, '(A,I0,A,A)') 'Write 2D fields: ', nrec, ' records -> ', trim(fname)
+            call nek_log_debug(msg, this_module, this_procedure)
+            call write_2d_file(fname, nrec, nrec, tval, tags, fx, fy, fs)
+            call neklab_timer_stop(t_bf_write)
+         end procedure bf_write_fields
+
+         subroutine write_2d_file(fname, nrec, nbuf_hdr, tval, dtv, fx, fy, fs)
+      !! The one writer. nrec = 0 writes the mesh only.
+            character(len=132), intent(in) :: fname
+            integer, intent(in) :: nrec
+            integer, intent(in) :: nbuf_hdr
+      !! Value written in the header's 'lbuf' slot.
+            real(dp), intent(in) :: tval
+            real(dp), dimension(:), intent(in) :: dtv
+            real(dp), dimension(:, :), intent(in) :: fx, fy, fs
+      ! internal
+            character(len=*), parameter :: this_procedure = 'write_2d_file'
+            integer, allocatable :: ngown(:), elmap(:)
+            integer :: ierr, itmp, i, ip, iseg, i_own, nrec_, nbuf_
+            integer :: wdsl, isl
+            integer :: isend(lelv)
+            real(dp) :: tval_
+            character(len=256) :: msg
+            character(len=1024) :: head, ftm
+            character(len=2) :: id
+            character(len=1), parameter :: fileversion = '1'
+            real*4 :: test
+            parameter(test=6.54321)
+
+            wdsl = wdsize/4
+            isl = isize/4
+            nrec_ = nrec
+            nbuf_ = nbuf_hdr
+            tval_ = tval
 
             ierr = 0
             if (nid == 0) call byte_open(fname, ierr)
@@ -77,7 +129,7 @@
                ftm = "('#',A1,A2,1x,i1,1x,'(lx1, ly1 =',2i9,') (nelf =',i9,"//
      &               "') (time =',e17.9,') (nsave, lbuf =', 2i9,')')"
                id = merge('th', 'tf', if_sym)
-               write (head, ftm) fileversion, id, wdsize, lx1, ly1, nelf, time, nsave_, lbuf
+               write (head, ftm) fileversion, id, wdsize, lx1, ly1, nelf, tval_, nrec_, nbuf_
                call byte_write(head, 116/4, ierr)
             end if
             call bcast(ierr, isize)
@@ -89,9 +141,9 @@
                call byte_write(lx1, isl, ierr)
                call byte_write(ly1, isl, ierr)
                call byte_write(nelf, isl, ierr)
-               call byte_write(time, wdsl, ierr)
-               call byte_write(nsave_, isl, ierr)
-               call byte_write(lbuf, isl, ierr)
+               call byte_write(tval_, wdsl, ierr)
+               call byte_write(nrec_, isl, ierr)
+               call byte_write(nbuf_, isl, ierr)
             end if
             call bcast(ierr, isize)
             if (ierr /= 0) call nek_stop_error('Error writing metadata in '//trim(fname), this_module, this_procedure)
@@ -116,7 +168,7 @@
                   iseg = iseg + i_own
                end do
                call byte_write(elmap, nelf*isl, ierr)
-               if (nsave_ > 0) call byte_write(bufdt(:nsave_), nsave_*wdsl, ierr)
+               if (nrec_ > 0) call byte_write(dtv(:nrec_), nrec_*wdsl, ierr)
             else
                call crecv(nid, itmp, isize)                     ! hand shake
                call csend(nid, nelv, isize, 0, 0)               ! element count
@@ -137,14 +189,14 @@
             call gather_and_write(x2d, ngown)
             call gather_and_write(y2d, ngown)
 
-      ! --- fields, one snapshot at a time
-            if (.not. only_mesh_) then
-               write (msg, '(3X,A,A,I0)') trim(fname), ': write u_Z, u_R, u_phi for snapshots: ', nsave_
+      ! --- fields, one record at a time
+            if (nrec_ > 0) then
+               write (msg, '(3X,A,A,I0)') trim(fname), ': write u_Z, u_R, u_phi for records: ', nrec_
                call nek_log_debug(msg, this_module, this_procedure)
-               do i = 1, nsave_
-                  call gather_and_write(bufx(:, i), ngown)
-                  call gather_and_write(bufy(:, i), ngown)
-                  call gather_and_write(bufs(:, i), ngown)
+               do i = 1, nrec_
+                  call gather_and_write(fx(:, i), ngown)
+                  call gather_and_write(fy(:, i), ngown)
+                  call gather_and_write(fs(:, i), ngown)
                end do
             end if
 
@@ -153,8 +205,7 @@
             if (ierr /= 0) call nek_stop_error('Error closing '//trim(fname), this_module, this_procedure)
 
             deallocate (ngown, elmap)
-            call neklab_timer_stop(t_bf_write)
-         end procedure bf_write_chunk
+         end subroutine write_2d_file
 
       !====================================================================
       !     READ

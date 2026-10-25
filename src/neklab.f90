@@ -25,34 +25,36 @@
          use neklab_2Dh_axisym
          use neklab_analysis_torus_2Dh
       !! --> 2.5D solver
-      
+         use t2Dh_tfft_run, only: tfft_f2d, tfft_p2d, tfft_baseflow, tfft_perturbation
+      !! --> Temporal Fourier series of the 2Dh orbit and Floquet modes
+
          private
-      
+
       !------------------------------------------
       !-----     LIGHTKRYLOV RE-EXPORTS     -----
       !------------------------------------------
-      
+
       ! Global variables.
          public :: dp, rtol_dp, atol_dp
-      
+
       ! Krylov factorizations.
          public :: initialize_krylov_subspace
          public :: arnoldi_factorization, krylov_schur_restart
          public :: lanczos_bidiagonalization, lanczos_tridiagonalization
-      
+
       ! Matrix factorizations.
          public :: eigs, eighs, svds
          public :: save_eigenspectrum
-      
+
       ! Linear solvers.
          public :: cg
       ! Auxiliary exports
          public :: cg_dp_opts, cg_dp_metadata
-      
+
       !----------------------------------
       !-----     NEKLAB EXPORTS     -----
       !----------------------------------
-      
+
       ! Definition of the abstract vectors in the Nek framework.
          public :: nek_dvector
          public :: nek_zvector
@@ -60,7 +62,7 @@
          public :: nek_ext_dvector
          public :: nek_ext_dvector_forcing
          public :: nek_zvector
-      
+
       ! Implementation of the standard linear operators.
          public :: exptA_linop
          public :: exptA_2Dh_planar_linop
@@ -68,7 +70,7 @@
          public :: floquet_linop
          public :: floquet_2Dh_axisym_linop
          public :: resolvent_linop
-      
+
       ! Implementation of the abstract systems and Jacobians
          public :: nek_system, nek_jacobian
          public :: nek_system_upo, nek_jacobian_upo
@@ -76,48 +78,51 @@
          public :: nek_system_torus_upo, nek_jacobian_torus_upo
          public :: nek_system_torus_2Dh, nek_jacobian_torus_2Dh
          public :: nek_system_torus_upo_2Dh, nek_jacobian_torus_upo_2Dh
-      
+
       ! Data for nek5000 user-defined forcing function
          public :: get_neklab_forcing, set_neklab_forcing, neklab_forcing
-      
+
       ! Baseflow computation
          public :: newton_fixed_point_iteration
-      
+
       ! Stability analysis exports.
          public :: linear_stability_analysis_fixed_point
          public :: transient_growth_analysis_fixed_point
-      
+
       ! Torus
          public :: linear_stability_analysis_periodic_orbit
          public :: mflow_newton
          public :: shift_mflow_phase_torus
          public :: compute_nonlinear_period_torus
-      
+
       ! 2Dh
          public :: init_2Dh_planar, init_2Dh_axisym
          public :: nek_advance_2Dh_planar
          public :: nek_advance_2Dh_axisym
-         public :: nek_advance_2Dh_axisym_nl
          public :: enable_axisym_curvature_terms
          public :: steady_flowrate_newton
          public :: unsteady_flowrate_newton
-      
+
+      ! 2Dh temporal Fourier series (postprocessing)
+         public :: tfft_f2d, tfft_p2d
+         public :: tfft_baseflow, tfft_perturbation
+
       ! OTD exports.
          public :: nek_otd, otd_opts
          public :: otd_analysis
-      
+
       ! LNS utilities.
          public :: compute_LNS_conv
          public :: compute_LNS_gradp
          public :: compute_LNS_laplacian
          public :: apply_Lv, apply_L
-      
+
       ! Forcing function export
          public :: neklab_forcing
          public :: get_neklab_forcing, set_neklab_forcing, neklab_forcing
          public :: get_neklab_source, set_neklab_source, neklab_source
          public :: add_neklab_forcing_term, add_neklab_source_term, remove_neklab_term
-      
+
       ! Various utilities.
          public :: nek2vec, vec2nek
          public :: nek2ext_vec, ext_vec2nek

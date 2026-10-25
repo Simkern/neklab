@@ -1,4 +1,4 @@
-      module neklab_analysis_torus_2Dh
+module neklab_analysis_torus_2Dh
       !! Flowrate constrained solves on the 2Dh (axisymmetric torus) mesh.
       !!
       !! ONE outer Newton, two wrappers. The steady and pulsatile problems are
@@ -14,6 +14,10 @@
       !! The regime-specific setup -- buffer lifetime, jacobian type, phase
       !! gauge, converged-orbit recording, unit conversion -- stays visible in
       !! the two wrappers rather than being buried in if (unsteady) branches.
+      !!
+      !! The temporal Fourier series of the converged orbit is NOT computed
+      !! here any more: call tfft_f2d (t2Dh_tfft_run) after the solve, with the
+      !! tolerance you want.
       !!
       !!--------------------------------------------------------------------
       !! THE NORM
@@ -49,7 +53,7 @@
      &                            t_fd_jac, t_shift_phase, t_save_orbit, t_axisym_nl_step
          use LightKrylov_AbstractSystems, only: abstract_system_rdp
          use LightKrylov_AbstractVectors, only: abstract_vector_rdp
-         use neklab_2Dh, only: nek_advance_2Dh_axisym, nek_advance_2Dh_axisym_nl
+         use neklab_2Dh, only: nek_advance_2Dh_axisym
          use neklab_vectors
          use neklab_linops
          use neklab_utils
@@ -62,9 +66,8 @@
      &                             bf_set_prefix, bf_get_dt_minmax,
      &                             bf_get_nsteps, bf_get_time, bf_summary,
      &                             bf_write_t2Dh
+
          use t2Dh_newton_io, only: t2Dh_nwt_record, nwt_open, nwt_close
-         use t2Dh_tfft, only: tfft_free, mfft_max
-         use t2Dh_tfft_run, only: tfft_baseflow
 
          implicit none
          include "SIZE"
@@ -717,6 +720,14 @@
       !! written for convention 1 (2*Q(k)/Q(0), peak over mean) must be halved.
       !!
       !! As with the steady wrapper, t2Dh%init_geom must have been called first.
+      !!
+      !! OUTPUT ON DISK. With if_save_orbit (default) the converged, gauged
+      !! orbit is integrated once more and recorded under prefix 'n', so the
+      !! LAST n<base>NNN.fld chunk files, n<base>.dt (time-step history) and
+      !! n<base>.t2Dh (sidecar) all describe the returned orbit. Its Fourier
+      !! series is a separate, user-called step:
+      !!
+      !!   call tfft_f2d(tol)      ! writes f2r<...>001.fld / f2i<...>001.fld
             class(abstract_system_rdp), intent(inout) :: sys
       !! Pulsatile 2Dh system (nek_system_torus_upo_2Dh).
             type(nek_dvector), intent(inout) :: bf
@@ -738,10 +749,13 @@
             integer, optional, intent(in) :: maxiter
             integer, optional, intent(in) :: maxiter_inner
             character(len=*), optional, intent(in) :: buffer_base
-      !! Filename stem for the baseflow buffer. Default '2dtorus'.
+      !! Filename stem for the baseflow buffer. Default '2d'//session (case
+      !! torus2Dh -> n2dtorus2Dh001.fld), which is also what the Floquet
+      !! operator assumes when its %base is left blank.
             logical, optional, intent(in) :: if_save_orbit
-      !! Re-record the converged orbit under prefix 'b', so the Floquet run has
-      !! a stable input the next Newton solve will not overwrite. Default .true.
+      !! Record the converged (gauged) orbit once more, so the n2d files on
+      !! disk are the returned orbit and not the last Newton iterate.
+      !! Default .true.
             logical, optional, intent(in) :: if_gauge
       !! Put the fundamental flowrate harmonic on a pure cosine before
       !! returning. Default .true.
@@ -750,7 +764,8 @@
             character(len=*), optional, intent(in) :: jac0
       !! 'fd' (default) or 'seed'.
             integer, optional, intent(in) :: nfft_out
-      !! Number of temporal harmonics for the orbit transform. Default 32.
+      !! DEPRECATED and ignored: the orbit is no longer transformed here. Call
+      !! tfft_f2d after this routine instead.
       ! internal
             character(len=*), parameter :: this_procedure = 'unsteady_flowrate_newton'
             character(len=256) :: msg
@@ -758,15 +773,14 @@
             real(dp), dimension(lmfc) :: amp, phase
             real(dp), dimension(lfc) :: d
             logical :: save_orbit_, gauge_
-            integer :: nmf, nf, i, k, nfft
+            integer :: nmf, nf, i, k
 
             save_orbit_ = optval(if_save_orbit, .true.)
             gauge_ = optval(if_gauge, .true.)
-            nfft = optval(nfft_out, 32)
-            if (nfft < 0 .or. nfft > mfft_max) then
-               write (msg, '(A,I0,A,I0,A)') 'nfft= ', nfft, 
-     &            ' outside [0, ', mfft_max, ']. Raise mfft_max.'
-               call nek_stop_error(msg, this_module, this_procedure)
+            if (present(nfft_out)) then
+               call nek_log_warning('nfft_out is deprecated and ignored: the orbit is no longer '//
+     &            'transformed by the Newton driver. Call tfft_f2d(tol) afterwards.',
+     &            this_module, this_procedure)
             end if
 
       ! ---- sizes and checks
@@ -823,7 +837,7 @@
 
       ! ---- the DRIVER owns the buffer lifetime: the nonlinear map only
       !      consumes it and fails through check_init if this is skipped.
-            call bf_init(base=optval(buffer_base, '2dtorus'), write_chunks=.true., min_steps=50)
+            call bf_init(base=buffer_base, write_chunks=.true., min_steps=50)
             call bf_set_prefix('n')
 
             call flowrate_newton(sys, bf, tol, rtol_mf, tol_mode=tol_mode, maxiter=maxiter,
@@ -833,22 +847,19 @@
       ! ---- gauge the time origin
             if (gauge_) call shift_mflow_phase_upo(bf, tol)
 
-      ! ---- one recorded nonlinear pass over the converged orbit, transformed
-      !      in time. The pass is what fills the buffer; the only files kept
-      !      are the 2*(M+1) harmonic fields.
+      ! ---- one recorded nonlinear pass over the converged (gauged) orbit. It
+      !      leaves the n2d chunk files and n<base>.dt on disk for exactly the
+      !      orbit returned; tfft_f2d transforms them on request.
             if (save_orbit_) then
-               write (msg, '(A,I0)') 'Transforming the converged orbit, M= ', nfft
-               call nek_log_message(msg, this_module, this_procedure)
+               call nek_log_message('Recording the converged orbit ...', this_module, this_procedure)
                call bf_set_prefix('n')
-               call neklab_timer_tag(phase='tfft')
+               call neklab_timer_tag(phase='save_orbit')
                call neklab_timer_start(t_save_orbit)
                call sys%response(bf, res, tol)
                call neklab_timer_stop(t_save_orbit)
                write (msg, '(3X,A,1X,E16.8)') 'converged |F(X)| :', res%norm()
                call nek_log_message(msg, this_module, this_procedure)
                call bf_summary()
-               call tfft_baseflow(nfft, prefix='n', if_outpost=.true.)
-               call tfft_free()
             end if
 
       ! ---- hand the converged forcing back and leave a restart sidecar. Taken
@@ -912,12 +923,12 @@
             real(dp), dimension(lmfc) :: mf
             integer  :: k
             logical  :: do_out, do_mflow, do_res, is_unsteady
- 
+
             do_res   = optval(if_write_residual, .true.)
             do_mflow = optval(if_write_mflow, .true.)
             do_out   = optval(if_outpost_fld, .false.)
             pfx_warm = optval(prefix, 'wst')
- 
+
       ! --- pre-conditions
             select type (sys)
                type is (nek_system_torus_2Dh)
@@ -948,7 +959,7 @@
             if (T <= 0.0_dp) then
                call nek_stop_error('Integration time must be > 0.0.', this_module, this_procedure)
             end if
- 
+
       ! --- header
             call nek_log_message('', this_module, this_procedure)
             call nek_log_message('################## WARMUP ####################',
@@ -958,11 +969,11 @@
             call nek_log_message('', this_module, this_procedure)
 
             if (do_out) call set_fldindex(pfx_warm, 1)
- 
+
             do k = 1, nperiods
- 
+
                call sys%response(x, res, atol)
- 
+
                call x%add(res)
 
                if (do_mflow) then
@@ -970,20 +981,20 @@
                   if (.not. is_unsteady) call t2Dh%measure_mflow(x%theta(:, 1), mf)
                   call t2Dh%mflow_summary()
                end if
-               
+
                if (do_res) then
                   rnrm = res%norm()
-                  write (msg, '(3X,A,E16.8,A,I0,A,I0,A,E16.8)') 'time ', k*T, ' period ', k, '/', 
+                  write (msg, '(3X,A,E16.8,A,I0,A,I0,A,E16.8)') 'time ', k*T, ' period ', k, '/',
      &               nperiods, ' : res = ', rnrm
                else
                   write (msg, '(3X,A,E16.8,A,I0,A,I0)') 'time ', k*T, ' period ', k, '/', nperiods
                end if
                call nek_log_message(msg, this_module, this_procedure)
-               
+
                if (do_out) call outpost_dnek(x, pfx_warm)
- 
+
             end do
- 
+
       ! --- footer
             call nek_log_message('', this_module, this_procedure)
             rnrm = res%norm()
@@ -992,7 +1003,7 @@
             call nek_log_message('##################################################',
      &                           this_module, this_procedure)
             call nek_log_message('', this_module, this_procedure)
- 
+
          end subroutine warmup_torus_2Dh
 
       !====================================================================

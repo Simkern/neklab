@@ -33,6 +33,26 @@
       !! sign in the module worth reading twice.
       !!
       !!--------------------------------------------------------------------
+      !! TWO-SIDED COEFFICIENTS (tfft_coef)
+      !!--------------------------------------------------------------------
+      !!
+      !! For the coefficient files the transform is handed out two-sided,
+      !!
+      !!   c_m = (1/T) int_0^T f exp(-i m w t) dt ,   m = -M .. M ,
+      !!   f(x,t) = sum_{m=-M}^{M} c_m(x) exp(i m w t) ,
+      !!
+      !! which is numpy's norm="forward" convention: ifft(c, norm="forward")
+      !! on a uniform grid, or the plain sum above at any t, reconstructs f
+      !! with no rescaling. For a spatially real field (nfld = 3)
+      !! c_{-m} = conj(c_m) and c_m = fhat_m. For a spatially complex field
+      !! (nfld = 6, f = f^R + i f^I, columns 1:3 and 4:6) the two signs are
+      !! independent:
+      !!
+      !!   Re c_{+-m} = a_m^R +- b_m^I ,   Im c_{+-m} = a_m^I -+ b_m^R .
+      !!
+      !! Each c_m is returned as two (nbf, 3) real arrays, (u_z, u_R, u_phi).
+      !!
+      !!--------------------------------------------------------------------
       !! QUADRATURE
       !!--------------------------------------------------------------------
       !!
@@ -49,6 +69,22 @@
       !! the time-averaged spatial energy. This is a bilinear consistency
       !! that catches sign errors, packing errors and undersampling in one
       !! number; look at it before believing any per-harmonic amplitude.
+      !!
+      !!--------------------------------------------------------------------
+      !! TRUNCATION (tfft_truncate)
+      !!--------------------------------------------------------------------
+      !!
+      !! e(m) = sum_i int_V |c_m^i|^2 dV is the energy of the two-sided
+      !! coefficient m, and E = sum_{|m|<=mmax} e(m) the energy of the computed
+      !! spectrum. The harmonic-pair energy is P(0) = e(0), P(m) = e(m)+e(-m).
+      !! The retained order M is the smallest one with
+      !!
+      !!   sum_{m=M+1}^{mmax} P(m) / E  <  tol ,
+      !!
+      !! i.e. contiguous, and the same rule for a real or a complex field.
+      !! The criterion is relative to the COMPUTED spectrum: what lies beyond
+      !! mmax is only visible through the Parseval tail, which is logged and
+      !! compared with tol separately.
       !!
       !!--------------------------------------------------------------------
       !! GENERALITY
@@ -126,6 +162,8 @@
          public :: tfft_start, tfft_add, tfft_close, tfft_free
          public :: tfft_get, tfft_demodulate
          public :: tfft_outpost, tfft_spectrum
+         public :: tfft_coef, tfft_truncate
+         public :: tfft_get_period, tfft_get_omega, tfft_get_mharm, tfft_get_nfld
 
       contains
 
@@ -378,7 +416,8 @@
       !!
       !! and the two-sided complex spectrum of the complex signal is
       !! c_{+-m} = A_m -+ i B_m. Note c_{-m} is NOT the conjugate of c_m for a
-      !! complex signal, so both signs carry information.
+      !! complex signal, so both signs carry information. tfft_coef returns
+      !! c_m directly.
             integer, intent(in) :: m
             real(dp), dimension(:, :), intent(out) :: fre
             real(dp), dimension(:, :), intent(out) :: fim
@@ -407,6 +446,161 @@
                end if
             end do
          end subroutine tfft_get
+
+         subroutine tfft_coef(m, cre, cim)
+      !! Two-sided complex coefficient c_m, m in [-M, M], as real and imaginary
+      !! parts, each (nbf, 3) = (u_z, u_R, u_phi). See TWO-SIDED COEFFICIENTS
+      !! in the header for the convention and the packing.
+            integer, intent(in) :: m
+            real(dp), dimension(:, :), intent(out) :: cre
+            real(dp), dimension(:, :), intent(out) :: cim
+      ! internal
+            character(len=*), parameter :: this_procedure = 'tfft_coef'
+            character(len=256) :: msg
+            real(dp) :: s
+            integer :: i, ma
+            call check_closed(this_procedure)
+            if (abs(m) > mharm) then
+               write (msg, '(A,I0,A,I0,A,I0,A)') 'Harmonic ', m, ' outside [', -mharm, ', ',
+     &            mharm, '].'
+               call nek_stop_error(msg, this_module, this_procedure)
+            end if
+            if (nfld /= 3 .and. nfld /= 6) then
+               call nek_stop_error('tfft_coef expects nfld = 3 or 6.', this_module, this_procedure)
+            end if
+            if (size(cre, 1) < nbf .or. size(cre, 2) < 3 .or.
+     &          size(cim, 1) < nbf .or. size(cim, 2) < 3) then
+               call nek_stop_error('Output arrays are too small.', this_module, this_procedure)
+            end if
+            ma = abs(m)
+            s = real(sign(1, m), dp)
+            do i = 1, 3
+               if (ma == 0) then
+                  call copy(cre(1, i), fh(1, i, 1), nbf)
+                  if (nfld == 6) then
+                     call copy(cim(1, i), fh(1, i + 3, 1), nbf)
+                  else
+                     call rzero(cim(1, i), nbf)
+                  end if
+               else
+      ! Re c = a^R + s b^I ,  Im c = a^I - s b^R   (b^I = a^I = 0 for nfld = 3)
+                  call copy(cre(1, i), fh(1, i, 2*ma), nbf)
+                  if (nfld == 6) then
+                     call add2s2(cre(1, i), fh(1, i + 3, 2*ma + 1), s, nbf)
+                     call copy(cim(1, i), fh(1, i + 3, 2*ma), nbf)
+                  else
+                     call rzero(cim(1, i), nbf)
+                  end if
+                  call add2s2(cim(1, i), fh(1, i, 2*ma + 1), -s, nbf)
+               end if
+            end do
+         end subroutine tfft_coef
+
+         subroutine tfft_truncate(tol, mkeep, efrac, tail_parseval)
+      !! Chooses the retained order M (see TRUNCATION in the header) and
+      !! returns the energy of every two-sided coefficient as a fraction of the
+      !! computed spectrum: efrac(m) = e(m)/E for m = -mharm .. mharm. The
+      !! harmonic-pair fraction of m >= 1 is efrac(m) + efrac(-m).
+      !!
+      !! Logs M, the energy dropped by the truncation, and the Parseval tail
+      !! beyond mharm, and warns when either the truncation needed every
+      !! computed harmonic or the Parseval tail exceeds tol: in both cases
+      !! mmax was not large enough to resolve the requested tolerance.
+            real(dp), intent(in) :: tol
+            integer, intent(out) :: mkeep
+            real(dp), dimension(-mfft_max:mfft_max), intent(out) :: efrac
+            real(dp), optional, intent(out) :: tail_parseval
+      ! internal
+            character(len=*), parameter :: this_procedure = 'tfft_truncate'
+            character(len=256) :: msg
+            real(dp), dimension(:, :), allocatable :: cre, cim
+            real(dp), dimension(-mfft_max:mfft_max) :: e
+            real(dp), external :: glsc3
+            real(dp) :: E_spec, E_time, rest, tailp, dropped
+            integer :: m, i, k
+
+            call check_closed(this_procedure)
+            allocate (cre(nbf, 3), cim(nbf, 3))
+            e = 0.0_dp
+            efrac = 0.0_dp
+            do m = -mharm, mharm
+               call tfft_coef(m, cre, cim)
+               do i = 1, 3
+                  e(m) = e(m) + glsc3(cre(1, i), bm1, cre(1, i), nbf)
+     &                        + glsc3(cim(1, i), bm1, cim(1, i), nbf)
+               end do
+            end do
+            deallocate (cre, cim)
+
+            E_spec = sum(e(-mharm:mharm))
+            if (E_spec <= atol_dp) then
+               call nek_log_warning('Spectrum has zero energy: keeping the mean only.',
+     &            this_module, this_procedure)
+               mkeep = 0
+               if (present(tail_parseval)) tail_parseval = 0.0_dp
+               return
+            end if
+            efrac(-mharm:mharm) = e(-mharm:mharm)/E_spec
+
+      ! Smallest M whose discarded pair energy is below tol. At M = mharm
+      ! nothing is discarded, so the loop always terminates.
+            mkeep = mharm
+            dropped = 0.0_dp
+            do k = 0, mharm
+               rest = 0.0_dp
+               do m = k + 1, mharm
+                  rest = rest + efrac(m) + efrac(-m)
+               end do
+               if (rest < tol) then
+                  mkeep = k
+                  dropped = rest
+                  exit
+               end if
+            end do
+
+            E_time = tsq/max(period, atol_dp)
+            tailp = 1.0_dp - E_spec/max(E_time, atol_dp)
+            if (present(tail_parseval)) tail_parseval = tailp
+
+            write (msg, '(A,A,A,E10.3,A,I0,A,I0,A,E10.3,A,E10.3)') 'truncate [', trim(label),
+     &         '] tol= ', tol, ': keep |m| <= ', mkeep, ' of ', mharm, ', dropped= ', dropped,
+     &         ', Parseval tail beyond mmax= ', tailp
+            call nek_log_message(msg, this_module, this_procedure)
+            if (mkeep == mharm .and. mharm > 0) then
+               call nek_log_warning('Every computed harmonic is needed to meet tol: increase '//
+     &            'mmax, the truncation is set by mmax rather than by tol.',
+     &            this_module, this_procedure)
+            end if
+            if (tailp > tol) then
+               call nek_log_warning('Parseval tail beyond mmax exceeds tol: either mmax is too '//
+     &            'small or tol is below the trapezoidal quadrature floor (~(m w dt)^2).',
+     &            this_module, this_procedure)
+            end if
+         end subroutine tfft_truncate
+
+      !====================================================================
+      !     ACCESSORS
+      !====================================================================
+
+         pure function tfft_get_period() result(T)
+            real(dp) :: T
+            T = period
+         end function tfft_get_period
+
+         pure function tfft_get_omega() result(w)
+            real(dp) :: w
+            w = omega
+         end function tfft_get_omega
+
+         pure function tfft_get_mharm() result(m)
+            integer :: m
+            m = mharm
+         end function tfft_get_mharm
+
+         pure function tfft_get_nfld() result(n)
+            integer :: n
+            n = nfld
+         end function tfft_get_nfld
 
       !====================================================================
       !     DIAGNOSTICS AND OUTPUT

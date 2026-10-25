@@ -1,5 +1,6 @@
       submodule(neklab_systems) fixed_point_torus_2Dh
          implicit none
+         real(dp), parameter :: cfl_limit = 0.4_dp
       contains
          module procedure nonlinear_map_torus_2Dh
          use neklab_2Dh, only: nek_advance_2Dh_axisym_nl
@@ -14,7 +15,7 @@
       ! Set appropriate tolerances and Nek status
                call setup_nonlinear_solver(recompute_dt = .true., 
      &                                     solve_temperature = .true.,
-     &                                     cfl_limit    = 0.4_dp,
+     &                                     cfl_limit    = cfl_limit,
      &                                     vtol         = atol*0.1, 
      &                                     ptol         = atol*0.1)
       ! Intgrate the nonlinear equations forward
@@ -55,7 +56,7 @@
                call setup_linear_solver(solve_baseflow = .false.,
      &                                  solve_temperature = .true.,
      &                                  recompute_dt   = .true.,
-     &                                  cfl_limit      = 0.4_dp, 
+     &                                  cfl_limit      = cfl_limit, 
      &                                  vtol           = atol*0.1,
      &                                  ptol           = atol*0.1)
       ! Set the initial condition for Nek5000's linearized solver.
@@ -98,7 +99,7 @@
      &                                  solve_baseflow = .false.,
      &                                  solve_temperature = .true.,
      &                                  recompute_dt   = .true.,
-     &                                  cfl_limit      = 0.4_dp, 
+     &                                  cfl_limit      = cfl_limit, 
      &                                  vtol           = atol*0.1, 
      &                                  ptol           = atol*0.1)
       ! Set the initial condition for Nek5000's linearized solver.

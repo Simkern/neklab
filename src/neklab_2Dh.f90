@@ -16,7 +16,7 @@
          use neklab_2Dh_common, only: setup_step_2Dh, cresvipp_2Dh, setup_incomprp_2Dh,
      &                                ebar_2Dh, incomprp_solve_2Dh, incomprp_update_2Dh,
      &                                solve_pressure_2Dh, setrhs_pressure_2Dh,
-     &                                gensoln_pressure_2Dh, bm2_map12_2Dh
+     &                                gensoln_pressure_2Dh
          use neklab_2Dh_planar, only: prepare_step_2Dh_planar, make_coupling_2Dh_planar,
      &                                makefp_2Dh_planar, ophx_2Dh_planar, ophinv_2Dh_planar,
      &                                incomprp_div_2Dh_planar, incomprp_dw_2Dh_planar,
@@ -30,7 +30,7 @@
      &                                pres_matvec_axisym, maxit_p_axisym, alpha_eq_zero
          use neklab_2Dh_torsion, only: if_torsion_zero, refresh_torsion_forcing_nl,
      &                                 add_torsion_pressure_phi_nl,
-     &                                 dphi_apply, lambda_correction, add_lambda_block_E,
+     &                                 add_dlam_div, lambda_correction, add_lambda_block_E,
      &                                 torsion_lambda
          use neklab_nek_setup, only: nek_stop_error
          use neklab_timing, only: neklab_timer_start, neklab_timer_stop,
@@ -61,7 +61,7 @@
       ! Nonlinear helix step (fluid_2Dh_helix, incomprn_2Dh_helix)
          real(dp), dimension(lv,3), private :: nl_resv, nl_dv
          real(dp), dimension(lv),   private :: nl_h1, nl_h2, nl_h2inv, nl_w
-         real(dp), dimension(lp),   private :: nl_dp, nl_w2
+         real(dp), dimension(lp),   private :: nl_dp
          real(dp), private :: pbasis_nl(lp,mxprev)
          integer,  private :: nprev_nl = 0
          real(dp), private :: dtbdlast_nl = 0.0_dp
@@ -313,11 +313,9 @@
             call invers2(nl_h2inv, nl_h2, ntot1)
 
       ! right-hand side -(D u* + D_lam U_phi*)
-            call opdiv        (nl_dp, vx, vy, vz)
-            call dphi_apply   (nl_w, t(1,1,1,1,1))
-            call bm2_map12_2Dh(nl_w2, nl_w)
-            call add2  (nl_dp, nl_w2, ntot2)
-            call chsign(nl_dp, ntot2)
+            call opdiv       (nl_dp, vx, vy, vz)
+            call add_dlam_div(nl_dp, t(1,1,1,1,1))
+            call chsign      (nl_dp, ntot2)
             call ortho (nl_dp)
 
             istart = param(95)

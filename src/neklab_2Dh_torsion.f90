@@ -91,8 +91,10 @@
          real(dp), dimension(lv), private :: m_t                 ! dlam_grad_t
          real(dp), dimension(lv), private :: k_dZ, k_dR, k_dP, k_L ! kernels
          real(dp), dimension(lv), private :: acc_a, acc_b, acc_c, cf_1 ! drivers
-         real(dp), dimension(lv), private :: e_a, e_b             ! add_lambda_block_E
-         real(dp), dimension(lp), private :: e_m2, pe_m2, pl_m2   ! add_lambda_block_E, add_torsion_pressure_phi_nl
+         real(dp), dimension(lv), private :: e_a, d_t             ! add_lambda_block_E, add_dlam_div
+         real(dp), dimension(lp), private :: d_m2, pm_t           ! add_dlam_div, dlam_grad_t
+         real(dp), dimension(lp), private :: pe_m2, pl_m2         ! add_torsion_pressure_phi_nl
+         real(dp), private :: vol_bm2 = 0.0_dp                    ! sum(bm2), for the mean removal
 
          public :: build_torsion_coeffs
          public :: check_torsion_cache
@@ -103,6 +105,7 @@
          public :: dphi_alpha_apply
          public :: dphi_alpha_apply_t
          public :: dlam_grad_t
+         public :: add_dlam_div
          public :: add_lambda_block_E
          public :: lambda_correction
          public :: torsion_lambda
@@ -123,6 +126,7 @@
       !! registers the nonlinear torsion terms. Idempotent. Called by
       !! init_2Dh_axisym.
             real(dp) :: r, zc, Rc
+            real(dp), external :: glsum
             integer :: i, ntot1
 
             if (torsion_coeffs_defined) return
@@ -135,6 +139,7 @@
 
             ntot1 = lx1*ly1*lz1*nelv
             lambda_built = t2Dh%get_lambda()
+            vol_bm2 = glsum(bm2, lx2*ly2*lz2*nelv)
             zc = t2Dh%get_axial_centre()
             Rc = t2Dh%get_curv_radius()
 
@@ -255,13 +260,49 @@
             call chsign        (dout, ntot1)
          end subroutine dphi_apply_t
 
+         subroutine add_dlam_div(d, u)
+      !! d += D_lam u, the torsion part of the discrete divergence (M2, weighted):
+      !!    D_lam u = (I - bm2 1^T / sum(bm2)) bm2 I12( -(lambda/R) dtheta u ).
+      !! The projection makes 1^T D_lam u = 0 EXACTLY. Continuously
+      !! int D_lam u = -lambda int dtheta u dZ dR = 0 for any u (dtheta is tangent
+      !! to the wall); discretely the quadrature leaves an O(discretisation)
+      !! mean. Without the projection the constant pressure mode is not in the
+      !! null space of E = D B^-1 D^T, while ortho and the hsmg preconditioner
+      !! assume it is: the pressure solve then carries an O(1) spurious mean that
+      !! ortho discards, leaving an O(1) divergence error every step.
+            real(dp), dimension(lp), intent(inout) :: d
+            real(dp), dimension(lv), intent(in)    :: u
+            real(dp), external :: glsum
+            real(dp) :: s
+            integer :: ntot2
+            if (if_torsion_zero) return
+            ntot2 = lx2*ly2*lz2*nelv
+            call dphi_apply   (d_t, u)
+            call bm2_map12_2Dh(d_m2, d_t)
+            s = glsum(d_m2, ntot2)/vol_bm2
+            call add2s2(d_m2, bm2, -s, ntot2)
+            call add2  (d, d_m2, ntot2)
+         end subroutine add_dlam_div
+
          subroutine dlam_grad_t(dout, p)
-      !! dout = D_lam^T p = dphi_apply_t( I12^T (bm2 p) ): the weak, element-local
-      !! u_phi pressure term (Nek's sign convention: the momentum RHS gets
-      !! +D^T p). p lives on M2.
+      !! dout = D_lam^T p, the exact transpose of add_dlam_div:
+      !!    D_lam^T p = dphi_apply_t( I12^T (bm2 (p - pbar)) ),  pbar = (bm2.p)/sum(bm2),
+      !! so that D_lam^T 1 = 0 exactly. Weak, element-local u_phi pressure term
+      !! (Nek's sign convention: the momentum RHS gets +D^T p). p lives on M2.
             real(dp), dimension(lv), intent(out) :: dout
             real(dp), dimension(lx2*ly2*lz2*lelv), intent(in) :: p
-            call bm2_map12T_2Dh(m_t, p)
+            real(dp), external :: glsc2
+            real(dp) :: pbar
+            integer :: ntot2
+            if (if_torsion_zero) then
+               call rzero(dout, lx1*ly1*lz1*nelv)
+               return
+            end if
+            ntot2 = lx2*ly2*lz2*nelv
+            pbar = glsc2(p, bm2, ntot2)/vol_bm2
+            call copy(pm_t, p, ntot2)
+            call cadd(pm_t, -pbar, ntot2)
+            call bm2_map12T_2Dh(m_t, pm_t)
             call dphi_apply_t  (dout, m_t)
          end subroutine dlam_grad_t
 
@@ -531,14 +572,9 @@
             real(dp), dimension(lp), intent(inout) :: ap
             real(dp), dimension(lp), intent(in)    :: wp
             real(dp), dimension(lv), intent(in)    :: h2inv, mask
-            integer :: ntot1, ntot2
             if (if_torsion_zero) return
-            ntot1 = lx1*ly1*lz1*nelv
-            ntot2 = lx2*ly2*lz2*nelv
             call lambda_correction(e_a, wp, h2inv, mask)
-            call dphi_apply   (e_b, e_a)
-            call bm2_map12_2Dh(e_m2, e_b)
-            call add2(ap, e_m2, ntot2)
+            call add_dlam_div(ap, e_a)
          end subroutine add_lambda_block_E
 
          subroutine lambda_correction(dw, dp_, h2inv, mask)

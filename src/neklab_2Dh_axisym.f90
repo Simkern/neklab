@@ -6,11 +6,10 @@
      &                                solve_helmholtz_2Dh
          use neklab_2Dh_torsion, only: if_torsion_zero, check_torsion_cache,
      &                                 build_torsion_coeffs,
-     &                                 dphi_apply, dphi_apply_t,
-     &                                 dphi_alpha_apply, dphi_alpha_apply_t,
+     &                                 dphi_apply, dphi_apply_t, dphi_alpha_apply, dphi_alpha_apply_t,
      &                                 add_torsion_forcing_RZ, add_torsion_forcing_phi,
      &                                 add_torsion_coupling,
-     &                                 dlam_grad_t, add_lambda_block_E
+     &                                 dlam_grad_t, add_dlam_div, add_lambda_block_E
          use neklab_nek_setup, only: nek_log_debug, nek_log_message, nek_stop_error
          use neklab_timing, only: neklab_timer_start, neklab_timer_stop,
      &                            t_axisym_makefp, t_axisym_solve_cpl, t_axisym_solve_pres_cpl,
@@ -456,8 +455,6 @@
             
             if (alpha_eq_zero .and. if_torsion_zero) return
 
-            call rzero(tmp_m1a, ntot1)
-            
             ! --- alpha part, from the opposite slot
             if (.not. alpha_eq_zero) then
                ipert = npert + 1 - jp
@@ -465,16 +462,11 @@
                call copy(tmp_m1a, w(1,1,ipert), ntot1)
                call col2(tmp_m1a, alphaR, ntot1)       ! scale on M1 BEFORE mapping to M2
                if (spert == -1) call chsign(tmp_m1a, ntot1)
+               call bm2_map12_2Dh(frc_div, tmp_m1a)
             end if
             
-            ! --- lambda part, from THIS slot: -(lambda/R)*dtheta(u_phi). Accumulated
-            !     on M1 alongside the alpha part so a single map12 below carries both.
-            if (.not. if_torsion_zero) then
-               call dphi_apply(tmp_m1b, w(1,1,jp))
-               call add2      (tmp_m1a, tmp_m1b, ntot1)
-            end if
-            
-            call bm2_map12_2Dh(frc_div, tmp_m1a)           
+            ! --- lambda part, from THIS slot (mean-free pair, see add_dlam_div)
+            call add_dlam_div(frc_div, w(1,1,jp))         
          end subroutine compute_frc_div_axisym
          
          subroutine makefp_2Dh_axisym()

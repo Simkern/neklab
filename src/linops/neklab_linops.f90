@@ -12,7 +12,7 @@
          use neklab_helix
          use neklab_2Dh_planar, only: init_2Dh_planar
          use neklab_2Dh_axisym, only: init_2Dh_axisym
-         use neklab_2Dh_torsion, only: torsion_active, torsion_lambda
+         use neklab_2Dh_torsion, only: lambda_eq_zero, torsion_lambda
          use neklab_2Dh, only: nek_advance_2Dh_planar, nek_advance_2Dh_axisym
          implicit none
          include "SIZE"

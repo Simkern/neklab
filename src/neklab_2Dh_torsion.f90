@@ -105,7 +105,7 @@
          integer, parameter :: lxy = lx1*ly1
 
       ! --- state
-         logical,  private :: torsion_on    = .false.   ! lambda /= 0 and init done
+         logical,  public, protected :: lambda_eq_zero = .true.   ! no torsion (torus), or init not done
          logical,  private :: torsion_built = .false.
          real(dp), private :: lambda_t  = 0.0_dp        ! lambda = tau/kappa
          real(dp), private :: alpha_t   = 0.0_dp        ! alpha of the linear step (G6)
@@ -139,7 +139,6 @@
          real(dp), dimension(lxy), private :: e_r, e_s, e_w                 ! dth element work
 
          public :: init_torsion_2Dh
-         public :: torsion_active
          public :: torsion_lambda
          public :: set_torsion_alpha
          public :: check_wall_centering
@@ -169,12 +168,8 @@
             alpha_t = alpha
          end subroutine set_torsion_alpha
 
-         logical function torsion_active()
-            torsion_active = torsion_on
-         end function torsion_active
-
          real(dp) function torsion_lambda()
-            torsion_lambda = merge(lambda_t, 0.0_dp, torsion_on)
+            torsion_lambda = merge(0.0_dp, lambda_t, lambda_eq_zero)
          end function torsion_lambda
 
          subroutine init_torsion_2Dh()
@@ -190,7 +185,7 @@
 
             if (torsion_built) return
             torsion_built = .true.
-            torsion_on = .false.
+            lambda_eq_zero = .true.
             if (t2Dh%is_torsion_zero()) then
                call nek_log_message('lambda = 0: torsion terms inactive.', this_module, this_procedure)
                return
@@ -228,7 +223,7 @@
             call add_neklab_source_term (torsion_source_pw,  'torsion')
             call set_cfl_velocity_hook(torsion_transport_velocity)
 
-            torsion_on = .true.
+            lambda_eq_zero = .false.
             write (msg, '(A,ES14.6,A,ES14.6,A,ES14.6)') 'torsion active: lambda =', lambda_t,
      &         ', z_c =', z_centre, ', R_c =', R_centre
             call nek_log_message(msg, this_module, this_procedure)
@@ -368,7 +363,7 @@
             real(dp), external :: glsum
             real(dp) :: s
             integer :: ntot2
-            if (.not. torsion_on) return
+            if (lambda_eq_zero) return
             ntot2 = lx2*ly2*lz2*nelv
             call dtheta(p_m1a, u)
             call col2  (p_m1a, mlamR_f, lx1*ly1*lz1*nelv)
@@ -387,7 +382,7 @@
             real(dp) :: pm
             integer :: ntot2
             ntot2 = lx2*ly2*lz2*nelv
-            if (.not. torsion_on) then
+            if (lambda_eq_zero) then
                call rzero(g, lx1*ly1*lz1*nelv)
                return
             end if
@@ -406,7 +401,7 @@
             real(dp), dimension(lp), intent(inout) :: ap
             real(dp), dimension(lp), intent(in)    :: p
             real(dp), dimension(lv), intent(in)    :: h2inv, mask
-            if (.not. torsion_on) return
+            if (lambda_eq_zero) return
             call lambda_correction(e_m1, p, h2inv, mask)
             call add_dlam_div(ap, e_m1)
          end subroutine add_lambda_block_E
@@ -419,7 +414,7 @@
             real(dp), dimension(lv), intent(in)  :: h2inv, mask
             integer :: ntot1
             call dlam_grad(dw, dp_)
-            if (.not. torsion_on) return
+            if (lambda_eq_zero) return
             ntot1 = lx1*ly1*lz1*nelv
             call col2 (dw, mask, ntot1)
             call dssum(dw, lx1, ly1, lz1)
@@ -531,7 +526,7 @@
             integer :: ntot1
             ntot1 = lx1*ly1*lz1*nelv
             call rzero(FZ, ntot1); call rzero(FR, ntot1); call rzero(Fs, ntot1)
-            if (.not. torsion_on) return
+            if (lambda_eq_zero) return
             call add_torsion_advection(FZ, FR, Fs, UZ, UR, Us, UZ, UR, Us)
             call add_torsion_viscous  (FZ, FR, Fs, UZ, UR, Us)
          end subroutine torsion_force_nl
@@ -544,7 +539,7 @@
             integer :: ntot1
             ntot1 = lx1*ly1*lz1*nelv
             call rzero(FZ, ntot1); call rzero(FR, ntot1); call rzero(Fs, ntot1)
-            if (.not. torsion_on) return
+            if (lambda_eq_zero) return
             call add_torsion_advection(FZ, FR, Fs, UZ, UR, Us, uZp, uRp, usp)
             call add_torsion_advection(FZ, FR, Fs, uZp, uRp, usp, UZ, UR, Us)
             call add_torsion_viscous  (FZ, FR, Fs, uZp, uRp, usp)
@@ -673,7 +668,7 @@
             integer :: ntot1
             ntot1 = lx1*ly1*lz1*nelv
             call rzero(FZ, ntot1); call rzero(FR, ntot1); call rzero(Fs, ntot1)
-            if (.not. torsion_on) return
+            if (lambda_eq_zero) return
             call add_torsion_advection_lin_adj(FZ, FR, Fs, UZ, UR, Us, wZ, wR, ws)
             call add_torsion_viscous_adj      (FZ, FR, Fs, wZ, wR, ws)
          end subroutine torsion_force_lin_adj
@@ -684,7 +679,7 @@
       !! Called by prepare_step_2Dh_axisym at every adjoint step. No-op without
       !! torsion.
             integer :: ntot1
-            if (.not. torsion_on) return
+            if (lambda_eq_zero) return
             ntot1 = lx1*ly1*lz1*nelv
             call gradm1 (divU_f, k_h, k_gs, vx)    ! dU_Z/dZ
             call gradm1 (k_gZ, k_t2, k_gs, vy)     ! dU_R/dR
@@ -699,7 +694,7 @@
             real(dp), dimension(lv), intent(in)    :: wZ, wR, ws
             integer :: i
             real(dp) :: q
-            if (.not. torsion_on) return
+            if (lambda_eq_zero) return
             do i = 1, lx1*ly1*lz1*nelv
                q = divU_f(i)*bm1(i,1,1,1)
                FZ(i) = FZ(i) + q*vtrans(i,1,1,1,1)*wZ(i)
@@ -717,7 +712,7 @@
       !! registered userf/userq terms. Nek rebuilds F exactly: makeuf multiplies
       !! by bm1 and makeabf by rho; makeuq by bm1 and neklab_source by rhoCp.
             integer :: ntot1
-            if (.not. torsion_on) return
+            if (lambda_eq_zero) return
             ntot1 = lx1*ly1*lz1*nelv
             call torsion_force_nl(fZ_nl, fR_nl, fs_nl, vx, vy, t(1,1,1,1,1))
             call col3   (k_t1, vtrans(1,1,1,1,1), bm1, ntot1)
@@ -731,7 +726,7 @@
             real(dp), intent(inout) :: fx, fy, fz
             integer, intent(in) :: ix, iy, iz, e
             integer :: i
-            if (.not. torsion_on) return
+            if (lambda_eq_zero) return
             i = ix + lx1*((iy - 1) + ly1*((iz - 1) + lz1*(e - 1)))
             fx = fx + fZ_nl(i)
             fy = fy + fR_nl(i)
@@ -741,7 +736,7 @@
             real(dp), intent(inout) :: q
             integer, intent(in) :: ix, iy, iz, e
             integer :: i
-            if (.not. torsion_on) return
+            if (lambda_eq_zero) return
             i = ix + lx1*((iy - 1) + ly1*((iz - 1) + lz1*(e - 1)))
             q = q + fs_nl(i)
          end subroutine torsion_source_pw
@@ -753,7 +748,7 @@
       !! it is not extrapolated again.
             real(dp) :: cst
             integer :: ntot2
-            if (.not. torsion_on) return
+            if (lambda_eq_zero) return
             ntot2 = lx2*ly2*lz2*nelv
             if (nbd == 3) then
                cst = dtlag(1)/dtlag(2)
@@ -782,7 +777,7 @@
             real(dp), dimension(lv), intent(inout) :: bfx_jp, bfy_jp
             integer, intent(in) :: jp_
             integer :: ntot1, ipert
-            if (.not. torsion_on) return
+            if (lambda_eq_zero) return
             ntot1 = lx1*ly1*lz1*nelv
             ipert = npert + 1 - jp_
             if (.not. ifadj) then
@@ -805,7 +800,7 @@
          subroutine torsion_add_linear_s(bq_jp)
       !! Scalar stage of makefp: bqp += L_s (computed by torsion_add_linear_uv).
             real(dp), dimension(lv), intent(inout) :: bq_jp
-            if (.not. torsion_on) return
+            if (lambda_eq_zero) return
             call add2(bq_jp, lin_Fs, lx1*ly1*lz1*nelv)
          end subroutine torsion_add_linear_s
 
@@ -822,7 +817,7 @@
             integer :: i
             real(dp) :: c
             do i = 1, lx1*ly1*lz1*nelv
-               c = merge(lambda_t*t(i,1,1,1,1)*invR_f(i), 0.0_dp, torsion_on)
+               c = merge(0.0_dp, lambda_t*t(i,1,1,1,1)*invR_f(i), lambda_eq_zero)
                cx(i) = vx(i,1,1,1) + c*rho_f(i)
                cy(i) = vy(i,1,1,1) - c*zeta_f(i)
                cz(i) = 0.0_dp

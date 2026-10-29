@@ -65,7 +65,10 @@
          end procedure exptA_2Dh_planar_matvec
 
          module procedure exptA_2Dh_planar_rmatvec
-         character(len=*), parameter :: this_procedure = "exptA_2Dh_planar_rmatvecr"
+      ! Same betaz and the same dt/nsteps (cfl_limit) as matvec: the adjoint
+      ! terms switch on ifadj (deploy A), so this is the adjoint of the same
+      ! discrete propagator.
+         character(len=*), parameter :: this_procedure = "exptA_2Dh_planar_rmatvec"
          logical :: if_advW
          select type (vec_in)
          type is (nek_zvector)
@@ -75,15 +78,15 @@
                call vec2nek(vx, vy, vz, pr, t, self%baseflow)
          ! Check whether we need to consider spanwise advection (W)
                if_advW = check_W(self%if_advW, self%betaz, wtol)
-         ! Ensure correct Nek status
+         ! Ensure correct Nek status (transpose -> ifadj)
                call setup_linear_solver(transpose     = .true.,
      &                                  silent        = .false.,
      &                                  endtime       = self%tau,
      &                                  recompute_dt  = .false.,
-     &                                  cfl_limit     = 0.5_dp)
-         ! Set initial condition for the linearized solver.
+     &                                  cfl_limit     = cfl_limit)
+         ! Set initial condition for the adjoint solver.
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
-         ! Integrate the equations forward in time.
+         ! Integrate the adjoint equations, same betaz.
                time = 0.0_dp
                do istep = 1, nsteps
                   call nek_advance_2Dh_planar(self%betaz, if_advW)
@@ -179,7 +182,7 @@
          call init_2Dh_axisym(.true.) ! no-op if already done; activates torsion
          if (lpert < 2) call nek_stop_error('The axisym_torsion propagator needs lpert = 2 '//
      &      '(Re and Im slots) in SIZE.', this_module, this_procedure)
-         if (.not. torsion_active()) call nek_log_warning('lambda = 0: no torsion, '//
+         if (lambda_eq_zero) call nek_log_warning('lambda = 0: no torsion, '//
      &      'this is the torus operator (exptA_2Dh_axisym_linop).', this_module, this_procedure)
          ! For the baseflow field for dt/nsteps/cfl computation.
          call vec2nek(vx, vy, vz, pr, t, self%baseflow)
@@ -267,7 +270,6 @@
             call type_error('vec_in','nek_zvector','IN',this_module,this_procedure)
          end select
          end procedure exptA_2Dh_axisym_torsion_rmatvec
-
 
          logical function check_W(if_advW_in, betaz, wtol) result(if_advW)
             ! Cross-check whether W advection is enabled and whether the W field is nonzero.

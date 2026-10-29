@@ -30,7 +30,7 @@
      &                                check_2Dh_properties, check_2Dh_masks,
      &                                bm2_map12_2Dh, bm2_map12T_2Dh,
      &                                solve_helmholtz_2Dh, incomprp_block_solve_2Dh
-         use neklab_2Dh_torsion, only: init_torsion_2Dh, torsion_active,
+         use neklab_2Dh_torsion, only: init_torsion_2Dh, lambda_eq_zero,
      &                                 add_dlam_div, dlam_grad, add_lambda_block_E,
      &                                 torsion_add_linear_uv, torsion_add_linear_s,
      &                                 set_torsion_alpha, torsion_prepare_adjoint
@@ -88,10 +88,9 @@
          public ::   incomprp_block_2Dh_axisym
          public ::          pres_matvec_axisym
          public ::    pres_block_matvec_axisym
-         
+
          public :: build_axisym_coeffs
          public :: enable_axisym_curvature_terms
-         public :: block_pressure_needed
 
       contains
 
@@ -335,7 +334,7 @@
                end do
             end if
 
-            if (torsion_active()) then
+            if (.not. lambda_eq_zero) then
                call dlam_grad(tmp_m1a, prextr)
                call add2     (gradp(1,jp), tmp_m1a, ntot1)
             end if
@@ -357,7 +356,7 @@
 
             ntot1 = lx1*ly1*lz1*nelv
             call rzero(dw, ntot1)
-            if (alpha_eq_zero .and. .not. torsion_active()) return
+            if (alpha_eq_zero .and. lambda_eq_zero) return
 
             if (.not. alpha_eq_zero) then
                ipert = npert + 1 - jp
@@ -365,7 +364,7 @@
                call col2          (dw, alphaR, ntot1)
                if (jp == 1) call chsign(dw, ntot1)
             end if
-            if (torsion_active()) then
+            if (.not. lambda_eq_zero) then
                call dlam_grad(tmp_m1a, dpr(1,jp))
                call add2     (dw, tmp_m1a, ntot1)
             end if
@@ -385,7 +384,7 @@
 
             ntot1 = lx1*ly1*lz1*nelv
             call rzero(frc_div, lx2*ly2*lz2*nelv)
-            if (alpha_eq_zero .and. .not. torsion_active()) return
+            if (alpha_eq_zero .and. lambda_eq_zero) return
 
             if (.not. alpha_eq_zero) then
                ipert = npert + 1 - jp
@@ -592,11 +591,6 @@
             real(dp), dimension(lv), intent(in)  :: u, h1, h2
             call helmholtz_matvec_2Dh_axisym(Au, u, h1, h2, shift_op, 1)
          end subroutine helm_matvec_axisym
-
-         logical function block_pressure_needed()
-      !! The two slots couple in the pressure system iff alpha /= 0 and lambda /= 0.
-            block_pressure_needed = (.not. alpha_eq_zero) .and. torsion_active()
-         end function block_pressure_needed
 
          subroutine pres_block_matvec_axisym(Ap, p, h1, h2, h2inv)
       !! Two-slot pressure operator E p = D (h2inv B^-1) G p, G = D^T:

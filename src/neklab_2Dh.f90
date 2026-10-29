@@ -1,4 +1,4 @@
-module neklab_2Dh
+      module neklab_2Dh
       !! The 2Dh steppers.
       !!
       !!   nek_advance_2Dh_planar(betaz)   linear, cartesian, spanwise wavenumber
@@ -35,9 +35,9 @@ module neklab_2Dh
      &                                makefp_2Dh_axisym, ophx_2Dh_axisym,
      &                                ophinv_uz_2Dh_axisym, ophinv_urphi_2Dh_axisym,
      &                                incomprp_div_2Dh_axisym, incomprp_dw_2Dh_axisym,
-     &                                incomprp_block_2Dh_axisym, block_pressure_needed,
+     &                                incomprp_block_2Dh_axisym, alpha_eq_zero,
      &                                pres_matvec_axisym, maxit_p_axisym
-         use neklab_2Dh_torsion, only: torsion_active, torsion_lambda,
+         use neklab_2Dh_torsion, only: lambda_eq_zero, torsion_lambda,
      &                                 torsion_refresh_nl, torsion_add_pressure_nl,
      &                                 add_dlam_div, lambda_correction, add_lambda_block_E
          use neklab_nek_setup, only: nek_stop_error, neklab_cfl_scale
@@ -207,7 +207,7 @@ module neklab_2Dh
       !     at alpha /= 0 with torsion the two slots are solved together)
             call neklab_timer_start(t_axisym_adv_pressure)
             call setup_incomprp_2Dh(h1, h2, h2inv)
-            if (block_pressure_needed()) then
+            if (.not. (alpha_eq_zero .or. lambda_eq_zero)) then
                do jp = 1, npert
                   call incomprp_div_2Dh_axisym(dpr(1,jp))  ! -(D u + D_alpha u_s + D_lam u_s)
                end do
@@ -253,7 +253,7 @@ module neklab_2Dh
             if (ifmhd .or. ifpert .or. ifmvbd .or. ifcvode .or. ifrich .or. ifneknekc)
      &         call nek_stop_error('unsupported Nek option (mhd/pert/moving mesh/cvode/rich/neknek).',
      &         this_module, this_procedure)
-            if (torsion_active()) then
+            if (.not. lambda_eq_zero) then
                if (param(54) /= 0.0_dp .or. param(55) /= 0.0_dp) call nek_stop_error(
      &            'vol_flow (param 54/55) is in-plane only: not supported with torsion.',
      &            this_module, this_procedure)
@@ -268,7 +268,7 @@ module neklab_2Dh
       ! the full transport velocity (incl. the torsion rotation) meets param(26)
                p26 = param(26)
                ct0 = ctarg
-               if (torsion_active() .and. param(12) > 0.0_dp) then
+               if (.not. lambda_eq_zero .and. param(12) > 0.0_dp) then
                   param(26) = p26*neklab_cfl_scale()
                   ctarg = param(26)
                end if
@@ -288,7 +288,7 @@ module neklab_2Dh
                if (ifheat) call heat(igeom)
                if (igeom == 1) call torsion_add_pressure_nl()   ! bq(u_s) += D_lam^T p_ext
                if (ifflow) then
-                  if (igeom == 2 .and. torsion_active()) then
+                  if (igeom == 2 .and. .not. lambda_eq_zero) then
                      call fluid_2Dh_full()
                   else
                      call fluid(igeom)

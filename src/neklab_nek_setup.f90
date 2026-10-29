@@ -110,7 +110,7 @@
             character(len=*), parameter :: nekfmt = '(5X,A)'
             real(dp) :: dt_old
             integer :: idt, n
-            integer, parameter :: max_idt = 100
+            integer, parameter :: max_idt = 200
             character(len=128) :: msg
             logical :: full_summary
             logical :: iffxdt
@@ -236,7 +236,7 @@
                do while (abs(param(12) - dt) > 0.0_dp) ! we need to repeat this until dt_in = dt_out
                   idt = idt + 1
                   if (idt > max_idt) then
-                     call nek_log_message('max_idt reached.', this_module, 'setup_nek')
+                     call nek_log_debug('max_idt reached.', this_module, 'setup_nek')
                      exit
                   end if
                   dt = param(12)

@@ -76,6 +76,14 @@
       ! Block GMRES work space (solve_pressure_block_2Dh)
          real(dp), dimension(lp,2,lgmres), private :: bv_gm, bz_gm
          real(dp), dimension(lp,2),        private :: bw_gm, br_gm, bx_gm
+      ! Block residual projection (incomprp_block_solve_2Dh): E-orthonormal
+      ! basis of previous two-slot solutions. Reset when bd(1)/dt or the
+      ! wavenumber changes (E depends on both).
+         real(dp), dimension(lp,2,mxprev), private :: bpbasis
+         integer,  private :: bnprev = 0
+         real(dp), private :: bwav_last = -1.0_dp
+         real(dp), dimension(lp,2), private :: bpbar, bpnew
+         public :: incomprp_block_solve_2Dh
 
       contains
 
@@ -210,6 +218,7 @@
             dtbd   = bd(1)/dt
             if (dtbd /= dtbdlast) then
                nprev(:) = 0
+               bnprev   = 0
                dtbdlast = dtbd
             end if
             call rzero  (h1, ntot1)
@@ -616,8 +625,9 @@
       !! algorithm, scaling (ml/mu, norm_fac) and tolerance logic as
       !! solve_pressure_2Dh; the vectors are (lp, 2), inner products sum over both
       !! slots, and the preconditioner is block-diagonal: hsmg + ebar correction on
-      !! each slot (it is exact for the slot-diagonal part A). No projection of
-      !! previous solutions; no ortho (alpha /= 0: E is non-singular).
+      !! each slot (it is exact for the slot-diagonal part A). No ortho
+      !! (alpha /= 0: E is non-singular). Residual projection: see
+      !! incomprp_block_solve_2Dh, which wraps this solver.
             include 'GMRES'
             real(dp), dimension(lp,2), intent(inout) :: res
             real(dp), dimension(lv),   intent(in)    :: h1, h2, h2inv
@@ -782,6 +792,156 @@
                bdot = glsc2(a(1,1), b(1,1), ntot2) + glsc2(a(1,2), b(1,2), ntot2)
             end function bdot
          end subroutine solve_pressure_block_2Dh
+
+      !--------------------------------------------------------------------
+      !     Block (two-slot) residual projection
+      !--------------------------------------------------------------------
+      ! Same algorithm as setrhs/gensoln/econj_pressure_2Dh (Fischer's
+      ! projection, Nek's param(93) basis size, param(95) start step) on (lp,2)
+      ! vectors, with the E-inner product of the coupled operator:
+      !   <a, b>_E = sum_k a(:,k).(E b)(:,k).
+      ! E is symmetric positive definite at alpha /= 0 (U10a/b), so the basis is
+      ! well defined. The projected part is exact; GMRES solves for the rest.
+
+         subroutine incomprp_block_solve_2Dh(dpr, h1, h2, h2inv, matvec, ebar, wavenumber, maxit, label)
+      !! Coupled pressure solve of both slots with residual projection:
+      !! dpr holds the right-hand sides on entry, the corrections on exit.
+            real(dp), dimension(lp,2), intent(inout) :: dpr
+            real(dp), dimension(lv),   intent(in)    :: h1, h2, h2inv
+            procedure(abstract_pressure_block_matvec) :: matvec
+            real(dp), intent(in) :: ebar, wavenumber
+            integer,  intent(in) :: maxit
+            character(len=*), intent(in) :: label
+            logical :: ifprjp
+            integer :: istart, iter
+            if (wavenumber /= bwav_last) then
+               bnprev    = 0
+               bwav_last = wavenumber
+            end if
+            istart = param(95)
+            ifprjp = (istep >= istart .and. istart /= 0)
+            if (ifprjp) call setrhs_pressure_block_2Dh(dpr, h1, h2, h2inv, matvec)
+            call solve_pressure_block_2Dh(dpr, h1, h2, h2inv, matvec, iter, ebar, maxit,
+     &                                    label, wavenumber)
+            if (ifprjp) call gensoln_pressure_block_2Dh(dpr, h1, h2, h2inv, matvec)
+         end subroutine incomprp_block_solve_2Dh
+
+         subroutine setrhs_pressure_block_2Dh(dpr, h1, h2, h2inv, matvec)
+      !! pbar = sum_i <dpr, q_i> q_i (q_i E-orthonormal), dpr <- dpr - E pbar.
+            real(dp), dimension(lp,2), intent(inout) :: dpr
+            real(dp), dimension(lv),   intent(in)    :: h1, h2, h2inv
+            procedure(abstract_pressure_block_matvec) :: matvec
+            real(dp) :: alpha(mxprev), work(mxprev)
+            real(dp) :: alpha1, alpha2, ratio
+            real(dp), external :: glsc3, vlsc2
+            integer :: ntot2, i, k
+            call neklab_timer_start(t_pres_proj)
+            ntot2 = lx2*ly2*lz2*nelv
+            call rzero(bpbar, 2*lp)
+            if (bnprev == 0) then
+               call neklab_timer_stop(t_pres_proj)
+               return
+            end if
+            alpha1 = glsc3(dpr(1,1), dpr(1,1), bm2inv, ntot2) + glsc3(dpr(1,2), dpr(1,2), bm2inv, ntot2)
+            if (alpha1 <= 0.0_dp) then
+               call neklab_timer_stop(t_pres_proj)
+               return
+            end if
+            alpha1 = sqrt(alpha1/volvm2)
+            do i = 1, bnprev
+               alpha(i) = vlsc2(dpr(1,1), bpbasis(1,1,i), ntot2) + vlsc2(dpr(1,2), bpbasis(1,2,i), ntot2)
+            end do
+            call gop(alpha, work, '+  ', bnprev)
+            do i = 1, bnprev
+               do k = 1, 2
+                  call add2s2(bpbar(1,k), bpbasis(1,k,i), alpha(i), ntot2)
+               end do
+            end do
+            call matvec(bpnew, bpbar, h1, h2, h2inv)
+            do k = 1, 2
+               call sub2(dpr(1,k), bpnew(1,k), ntot2)
+            end do
+            alpha2 = glsc3(dpr(1,1), dpr(1,1), bm2inv, ntot2) + glsc3(dpr(1,2), dpr(1,2), bm2inv, ntot2)
+            if (alpha2 > 0.0_dp) then
+               alpha2 = sqrt(alpha2/volvm2)
+               ratio  = alpha1/alpha2
+               if (nio == 0) write(6,13) istep, '  Project PRES BL', alpha2, alpha1, ratio, bnprev, mxprev
+            end if
+ 13         format(i11,a,6x,1p3e13.4,i4,i4)
+            call neklab_timer_stop(t_pres_proj)
+         end subroutine setrhs_pressure_block_2Dh
+
+         subroutine gensoln_pressure_block_2Dh(dpr, h1, h2, h2inv, matvec)
+      !! dpr <- dpr + pbar; add the new solution to the basis (restart when full).
+            real(dp), dimension(lp,2), intent(inout) :: dpr
+            real(dp), dimension(lv),   intent(in)    :: h1, h2, h2inv
+            procedure(abstract_pressure_block_matvec) :: matvec
+            integer :: ntot2, mprev, ierr, k
+            call neklab_timer_start(t_pres_proj)
+            mprev = min(int(param(93)), mxprev)
+            ntot2 = lx2*ly2*lz2*nelv
+            if (bnprev < mprev) then
+               bnprev = bnprev + 1
+               do k = 1, 2
+                  call copy(bpbasis(1,k,bnprev), dpr(1,k), ntot2)
+                  call add2(dpr(1,k), bpbar(1,k), ntot2)
+               end do
+               call econj_pressure_block_2Dh(h1, h2, h2inv, matvec, ierr)
+               if (ierr == 1) then
+                  bnprev = 1
+                  do k = 1, 2
+                     call copy(bpbasis(1,k,1), dpr(1,k), ntot2)
+                  end do
+                  call econj_pressure_block_2Dh(h1, h2, h2inv, matvec, ierr)
+                  if (ierr == 1) bnprev = 0
+               end if
+            else
+               bnprev = 1
+               do k = 1, 2
+                  call add2(dpr(1,k), bpbar(1,k), ntot2)
+                  call copy(bpbasis(1,k,1), dpr(1,k), ntot2)
+               end do
+               call econj_pressure_block_2Dh(h1, h2, h2inv, matvec, ierr)
+               if (ierr == 1) bnprev = 0
+            end if
+            call neklab_timer_stop(t_pres_proj)
+         end subroutine gensoln_pressure_block_2Dh
+
+         subroutine econj_pressure_block_2Dh(h1, h2, h2inv, matvec, ierr)
+      !! E-orthonormalise basis vector bnprev against 1..bnprev-1 (classical
+      !! Gram-Schmidt, as econj_pressure_2Dh).
+            real(dp), dimension(lv), intent(in) :: h1, h2, h2inv
+            procedure(abstract_pressure_block_matvec) :: matvec
+            integer, intent(out) :: ierr
+            real(dp) :: alpha(mxprev), work(mxprev), alphad
+            real(dp), external :: vlsc2, glsc2
+            integer :: ntot2, i, k, n1
+            ierr  = 0
+            ntot2 = lx2*ly2*lz2*nelv
+            call matvec(bpnew, bpbasis(1,1,bnprev), h1, h2, h2inv)
+            alphad = glsc2(bpnew(1,1), bpbasis(1,1,bnprev), ntot2)
+     &             + glsc2(bpnew(1,2), bpbasis(1,2,bnprev), ntot2)
+            n1 = bnprev - 1
+            do i = 1, n1
+               alpha(i) = vlsc2(bpnew(1,1), bpbasis(1,1,i), ntot2) + vlsc2(bpnew(1,2), bpbasis(1,2,i), ntot2)
+            end do
+            if (n1 > 0) call gop(alpha, work, '+  ', n1)
+            do i = 1, n1
+               do k = 1, 2
+                  call add2s2(bpbasis(1,k,bnprev), bpbasis(1,k,i), -alpha(i), ntot2)
+               end do
+               alphad = alphad - alpha(i)**2
+            end do
+            if (alphad <= 0.0_dp) then
+               if (alphad < -1e-12 .and. nio == 0)
+     &            write(6,*) 'WARNING: alphad <= 0 in econj_pressure_block_2Dh', alphad, bnprev
+               ierr = 1
+               return
+            end if
+            do k = 1, 2
+               call cmult(bpbasis(1,k,bnprev), 1.0_dp/sqrt(alphad), ntot2)
+            end do
+         end subroutine econj_pressure_block_2Dh
 
          subroutine setrhs_pressure_2Dh(dpr, h1, h2, h2inv, proj_set, niprev, matvec, info_str)
             real(dp), dimension(lp), intent(inout) :: dpr

@@ -23,7 +23,7 @@
          use neklab_2Dh_common, only: wmask, build_wmask,
      &                                check_2Dh_properties, check_2Dh_masks,
      &                                bm2_map12_2Dh, bm2_map12T_2Dh,
-     &                                solve_helmholtz_2Dh, solve_pressure_block_2Dh
+     &                                solve_helmholtz_2Dh, incomprp_block_solve_2Dh
          use neklab_2Dh_torsion, only: init_torsion_2Dh, torsion_active,
      &                                 dlam_div_add, dlam_grad_t, lambda_block_E_add,
      &                                 torsion_add_linear_uv, torsion_add_linear_s,
@@ -191,7 +191,7 @@
                end do
             end if
          end subroutine ophx_2Dh_axisym
- 
+
          subroutine ophinv_uz_2Dh_axisym(resv_jp, h1, h2)
       !! u_Z increments of all slots: assemble, mask, solve, update vxp.
             real(dp), dimension(lv,3,lpert), intent(inout) :: resv_jp
@@ -661,14 +661,14 @@
             integer,  intent(in) :: maxit
             real(dp) :: ebar
             real(dp), external :: glsum
-            integer :: iter, ntot2
+            integer :: ntot2
             ntot2 = lx2*ly2*lz2*nelv
             call rzero(blk_one, 2*lp)
             call rone (blk_one(1,1), ntot2)
             call pres_block_matvec_axisym(blk_e1, blk_one, h1, h2, h2inv)
             ebar = glsum(blk_e1(1,1), ntot2)
-            call solve_pressure_block_2Dh(dpr, h1, h2, h2inv, pres_block_matvec_axisym, iter,
-     &                                    ebar, maxit, 'alpha', alpha)
+            call incomprp_block_solve_2Dh(dpr, h1, h2, h2inv, pres_block_matvec_axisym,
+     &                                    ebar, alpha, maxit, 'alpha')
          end subroutine incomprp_block_2Dh_axisym
 
          subroutine pres_matvec_axisym(Ap, p, h1, h2, h2inv, intype)

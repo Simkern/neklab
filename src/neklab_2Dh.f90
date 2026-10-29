@@ -1,4 +1,4 @@
-      module neklab_2Dh
+module neklab_2Dh
       !! The 2Dh steppers.
       !!
       !!   nek_advance_2Dh_planar(betaz)   linear, cartesian, spanwise wavenumber
@@ -20,8 +20,7 @@
       !!                                 E = D B^-1 D^T, D = [D_in, D_lam],
       !!                                 correcting u_Z, u_R and u_s.
       !! Without torsion the hooks return at once and fluid(2) is Nek's: the
-      !! step is nek_advance (set_nl_full_projection(.true.) forces the custom
-      !! projection anyway, to test it against Nek's on the torus).
+      !! step is nek_advance.
          use LightKrylov, only: dp
          use neklab_2Dh_common, only: setup_step_2Dh, cresvipp_2Dh, setup_incomprp_2Dh,
      &                                ebar_2Dh, incomprp_solve_2Dh, incomprp_update_2Dh,
@@ -40,8 +39,8 @@
      &                                pres_matvec_axisym, maxit_p_axisym
          use neklab_2Dh_torsion, only: torsion_active, torsion_lambda,
      &                                 torsion_refresh_nl, torsion_add_pressure_nl,
-     &                                 dlam_div_add, lambda_correction, lambda_block_E_add
-         use neklab_nek_setup, only: nek_stop_error, nek_log_message, neklab_cfl_scale
+     &                                 add_dlam_div, lambda_correction, add_lambda_block_E
+         use neklab_nek_setup, only: nek_stop_error, neklab_cfl_scale
          use neklab_timing, only: neklab_timer_start, neklab_timer_stop,
      &                            neklab_clock_tic, neklab_clock_toc,
      &                            t_planar_advance, t_planar_adv_setup, t_planar_adv_advection,
@@ -73,13 +72,11 @@
          real(dp), private :: pbasis_nl(lp,mxprev)
          integer,  private :: nprev_nl = 0
          real(dp), private :: dtbdlast_nl = 0.0_dp
-         logical,  private :: nl_full_always = .false.
          real(dp), dimension(lp),   private :: dv_m2
 
          public :: nek_advance_2Dh_planar
          public :: nek_advance_2Dh_axisym
          public :: nek_advance_2Dh_axisym_nl
-         public :: set_nl_full_projection
          public :: divergence_2Dh_axisym
 
       contains
@@ -187,7 +184,7 @@
             call neklab_timer_start(t_axisym_adv_rhs)
             do jp = 1, npert
                igeom = 1
-               call makefp_2Dh_axisym()                   ! incl. curvature and torsion G2+G3
+               call makefp_2Dh_axisym()                   ! incl. curvature and torsion
                igeom = 2
                intype = -1
                ifield = 1
@@ -241,13 +238,6 @@
       !     NONLINEAR STEP
       !=====================================================================
 
-         subroutine set_nl_full_projection(flag)
-      !! Testing: use the custom full projection even without torsion (it must
-      !! then reproduce Nek's incomprn to solver tolerance).
-            logical, intent(in) :: flag
-            nl_full_always = flag
-         end subroutine set_nl_full_projection
-
          subroutine nek_advance_2Dh_axisym_nl()
       !! One NONLINEAR step of the axisymmetric 2Dh problem (torus, helix): the
       !! P_N-P_{N-2} branch of Nek's nek_advance (drive1.f), with the torsion
@@ -298,7 +288,7 @@
                if (ifheat) call heat(igeom)
                if (igeom == 1) call torsion_add_pressure_nl()   ! bq(u_s) += D_lam^T p_ext
                if (ifflow) then
-                  if (igeom == 2 .and. (torsion_active() .or. nl_full_always)) then
+                  if (igeom == 2 .and. torsion_active()) then
                      call fluid_2Dh_full()
                   else
                      call fluid(igeom)
@@ -351,7 +341,7 @@
             call invers2(nl_h2inv, nl_h2, ntot1)
 
             call opdiv       (nl_dp, vx, vy, vz)
-            call dlam_div_add(nl_dp, t(1,1,1,1,1))
+            call add_dlam_div(nl_dp, t(1,1,1,1,1))
             call chsign      (nl_dp, ntot2)
             call ortho       (nl_dp)
 
@@ -368,10 +358,8 @@
             call opbinv (nl_dv(1,1), nl_dv(1,2), nl_dv(1,3),
      &                   nl_resv(1,1), nl_resv(1,2), nl_resv(1,3), nl_h2inv)
             call opadd2 (vx, vy, vz, nl_dv(1,1), nl_dv(1,2), nl_dv(1,3))
-            if (torsion_active()) then
-               call lambda_correction(nl_ws, nl_dp, nl_h2inv, tmask(1,1,1,1,1))
-               call add2(t(1,1,1,1,1), nl_ws, ntot1)
-            end if
+            call lambda_correction(nl_ws, nl_dp, nl_h2inv, tmask(1,1,1,1,1))
+            call add2(t(1,1,1,1,1), nl_ws, ntot1)
             call add2(pr, nl_dp, ntot2)
          end subroutine incomprn_2Dh_full
 
@@ -383,7 +371,7 @@
             real(dp), dimension(lv), intent(in)  :: h1, h2, h2inv
             integer, intent(in) :: intype
             call cdabdtp(Ap, p, h1, h2, h2inv, intype)
-            call lambda_block_E_add(Ap, p, h2inv, tmask(1,1,1,1,1))
+            call add_lambda_block_E(Ap, p, h2inv, tmask(1,1,1,1,1))
          end subroutine pres_matvec_full_nl
 
          real(dp) function divergence_2Dh_axisym(nonlinear, slot) result(rdiv)
@@ -397,12 +385,12 @@
             ntot2 = lx2*ly2*lz2*nelv
             if (nonlinear) then
                call opdiv       (dv_m2, vx, vy, vz)
-               call dlam_div_add(dv_m2, t(1,1,1,1,1))
+               call add_dlam_div(dv_m2, t(1,1,1,1,1))
             else
                k = 1
                if (present(slot)) k = slot
                call opdiv       (dv_m2, vxp(1,k), vyp(1,k), vzp(1,k))
-               call dlam_div_add(dv_m2, tp(1,1,k))
+               call add_dlam_div(dv_m2, tp(1,1,k))
             end if
             rdiv = sqrt(glsc3(dv_m2, dv_m2, bm2inv, ntot2)/volvm2)
          end function divergence_2Dh_axisym

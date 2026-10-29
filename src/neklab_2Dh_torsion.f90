@@ -8,6 +8,8 @@
       !!   torsion_refresh_nl         nonlinear step, from U^n, before heat(1)
       !!   torsion_add_pressure_nl    nonlinear step, after heat(1): bq += D_lam^T p_ext
       !!   torsion_add_linear_uv/_s   linear step, makefp: bfxp/bfyp/bqp += L(U; u)
+      !!                              (adjoint mode: += L^T(U; v), see ADJOINT below)
+      !!   torsion_prepare_adjoint    adjoint linear step, from prepare_step_2Dh_axisym
       !!   torsion_transport_velocity CFL hook (rotation advection c(U) dth)
       !!   dlam_div_add, dlam_grad_t  the continuity/pressure pair, both steppers
       !!   lambda_block_E_add         the lambda block of the pressure operator
@@ -50,6 +52,43 @@
       !! so that E 1 = 0 holds exactly: ortho and the hsmg preconditioner assume it.
       !!
       !!--------------------------------------------------------------------
+      !! ADJOINT (ifadj, linear step only)
+      !!--------------------------------------------------------------------
+      !!
+      !! The adjoint step runs at the SAME alpha (deploy A) and reuses the step
+      !! unchanged except for the explicit force. With F(u) the weak torsion force
+      !! of the direct step (a local, unassembled vector, linear in u), the
+      !! adjoint force is its exact algebraic transpose F^T(v):
+      !!
+      !!   v^T F(u) = F^T(v)^T u    for all u, v      (round-off; unit test T1/T2)
+      !!
+      !! For M = rho*B the adjoint of L = M^-1 F in the M-inner product is
+      !! M^-1 F^T, so F^T is the right weak force as long as rho is the same
+      !! constant in all three equations (rho = rho cp; the nek_zvector inner
+      !! product is bm1-weighted, without rho).
+      !!
+      !!   G2 lin.  F = rho b [c(U) S(u) + c(u) S(U)]   ->  add_g2lin_t
+      !!   G3       pointwise 3x3 + dth couplings       ->  add_g3_t (lambda^2 L_theta
+      !!                                                   is symmetric: unchanged)
+      !!   G6       slot block [[0, -a K], [a K, 0]]    ->  [[0, a K^T], [-a K^T, 0]]:
+      !!            slot 1 += +alpha K^T(v_Im), slot 2 += -alpha K^T(v_Re)
+      !!   D_lam    part of the projection P = I - B^-1 D^T E^-1 D: self-adjoint,
+      !!            nothing to do (same for the alpha*lambda pressure cross blocks)
+      !!
+      !! One term is NOT a torsion transpose but is needed because of torsion.
+      !! Nek's adjoint transport (advabp_adjoint_axisym, convabp) is +(U.grad) v,
+      !! the continuous adjoint of -(U.grad) u only if div U = 0. With torsion the
+      !! in-plane divergence of the base flow is not zero:
+      !!   div_in U = dU_Z/dZ + (1/R) d(R U_R)/dR = (lambda/R) dth U_s   (G5),
+      !! so the adjoint of Nek's transport is +(U.grad) v + (div_in U) v. The
+      !! missing part is added here (add_adjoint_div, all three components), with
+      !! div_in U computed from the base flow by gradm1 (torsion_prepare_adjoint,
+      !! every step, so a replayed base flow is followed). Together with the
+      !! G2 transpose this makes the adjoint transport +(W.grad) v, W = the full
+      !! in-plane transport velocity (weighted divergence-free). At lambda = 0
+      !! nothing is added: the torus adjoint is unchanged.
+      !!
+      !!--------------------------------------------------------------------
       !! DISCRETE dth
       !!--------------------------------------------------------------------
       !!
@@ -67,6 +106,7 @@
       !! partial configuration is still a consistent nonlinear/linear pair (the
       !! Jacobian tests remain valid). 'pres' removes D_lam everywhere at once:
       !! continuity, E, gradient and correction. Call before init_2Dh_axisym.
+      !! The switches act on the adjoint transposes too.
          use LightKrylov, only: dp
          use stdlib_optval, only: optval
          use neklab_nek_setup, only: nek_log_message, nek_log_warning, nek_log_debug,
@@ -95,10 +135,13 @@
          logical,  private :: use_adv  = .true.
          logical,  private :: use_visc = .true.
          logical,  private :: use_pres = .true.
+         logical,  private :: use_adj_div = .true.      ! adjoint: (div_in U) v term (testing switch)
+         logical,  private :: adj_prepared = .false.    ! torsion_prepare_adjoint has run
 
       ! --- coefficient fields (M1)
          real(dp), dimension(lv), private :: zeta_f, rho_f, invR_f
          real(dp), dimension(lv), private :: Ar_f, As_f   ! dth = Ar d/dr + As d/ds
+         real(dp), dimension(lv), private :: adj_divU = 0.0_dp  ! div_in U of the base (adjoint)
 
       ! --- nonlinear forcing as accelerations, read pointwise by the registered terms
          real(dp), dimension(lv), private :: fZ_nl = 0.0_dp, fR_nl = 0.0_dp, fs_nl = 0.0_dp
@@ -110,6 +153,7 @@
       ! --- scratch, one group per call level
          real(dp), dimension(lv), private :: k_dZ, k_dR, k_ds, k_t1, k_t2   ! kernels
          real(dp), dimension(lv), private :: k_aZ, k_aR, k_as               ! kernels (2nd arg)
+         real(dp), dimension(lv), private :: k_gZ, k_gR, k_gs, k_h          ! transposed kernels
          real(dp), dimension(lv), private :: p_m1a, p_m1b                   ! pressure pair
          real(dp), dimension(lp), private :: p_m2a                          ! pressure pair
          real(dp), dimension(lv), private :: e_m1                           ! E block, correction
@@ -131,6 +175,12 @@
          public :: check_wall_centering
          public :: set_torsion_alpha
          public :: add_g2, add_g3, add_g6  ! kernels, exposed for the unit tests
+      ! adjoint
+         public :: torsion_prepare_adjoint
+         public :: torsion_force_lin_t
+         public :: add_g2lin_t, add_g3_t, add_g6_t, add_adjoint_div   ! exposed for the unit tests
+         public :: set_torsion_adjoint_div
+         public :: torsion_base_divergence
 
       contains
 
@@ -157,6 +207,13 @@
             real(dp), intent(in) :: alpha
             alph = alpha
          end subroutine set_torsion_alpha
+
+         subroutine set_torsion_adjoint_div(flag)
+      !! Testing only: switch the adjoint (div_in U) v term off, to show what it
+      !! is worth in the adjoint identity. Default (and production): on.
+            logical, intent(in) :: flag
+            use_adj_div = flag
+         end subroutine set_torsion_adjoint_div
 
          logical function torsion_active()
             torsion_active = torsion_on
@@ -185,7 +242,6 @@
                return
             end if
             if (ldim /= 2) call nek_stop_error('torsion requires a 2D mesh.', this_module, this_procedure)
-            if (ifadj) call nek_stop_error('torsion: adjoint not implemented.', this_module, this_procedure)
 
             lamt = t2Dh%get_lambda()
             zcen  = t2Dh%get_axial_centre()
@@ -563,6 +619,211 @@
          end subroutine torsion_force_lin
 
       !====================================================================
+      !     ADJOINT: EXACT TRANSPOSES OF THE WEAK FORCES
+      !====================================================================
+      !
+      ! Each routine adds F^T(w) for the corresponding direct routine, i.e.
+      !   sum_i w_i F_i(u) = sum_i F^T(w)_i u_i      (all local nodes, all components)
+      ! The row weight of the direct force (rho bm1, mu bm1) multiplies w first;
+      ! dth in a row becomes dth^T of that product in the column.
+
+         subroutine add_g2lin_t(FZ, FR, Fs, UZ, UR, Us, wZ, wR, ws)
+      !! F += [G2(U,.) + G2(.,U)]^T w. Transpose of
+      !!   A: u -> rho b c(U) S(u)   :  g = rho b c(U) w (per row),
+      !!        F_Z += dth^T g_Z - g_R,  F_R += dth^T g_R + g_Z,  F_s += dth^T g_s
+      !!   B: u -> rho b (lambda u_s/R) S(U):
+      !!        F_s += (lambda/R) b sum_k rho_k w_k S_k(U)
+            real(dp), dimension(lv), intent(inout) :: FZ, FR, Fs
+            real(dp), dimension(lv), intent(in)    :: UZ, UR, Us, wZ, wR, ws
+            integer :: i, ntot1
+            real(dp) :: c
+            if (.not. use_adv) return
+            ntot1 = lx1*ly1*lz1*nelv
+      ! A: transpose of c(U) S(u)
+            do i = 1, ntot1
+               c = lamt*Us(i)*invR_f(i)*bm1(i,1,1,1)
+               k_gZ(i) = c*vtrans(i,1,1,1,1)*wZ(i)
+               k_gR(i) = c*vtrans(i,1,1,1,1)*wR(i)
+               k_gs(i) = c*vtrans(i,1,1,1,2)*ws(i)
+               FZ(i) = FZ(i) - k_gR(i)
+               FR(i) = FR(i) + k_gZ(i)
+            end do
+            call dtheta_t(k_h, k_gZ)
+            call add2(FZ, k_h, ntot1)
+            call dtheta_t(k_h, k_gR)
+            call add2(FR, k_h, ntot1)
+            call dtheta_t(k_h, k_gs)
+            call add2(Fs, k_h, ntot1)
+      ! B: transpose of c(u) S(U)
+            call dtheta(k_aZ, UZ)
+            call dtheta(k_aR, UR)
+            call dtheta(k_as, Us)
+            do i = 1, ntot1
+               c = lamt*invR_f(i)*bm1(i,1,1,1)
+               Fs(i) = Fs(i) + c*( vtrans(i,1,1,1,1)*( wZ(i)*(k_aZ(i) + UR(i))
+     &                                               + wR(i)*(k_aR(i) - UZ(i)) )
+     &                           + vtrans(i,1,1,1,2)*ws(i)*k_as(i) )
+            end do
+         end subroutine add_g2lin_t
+
+         subroutine add_g3_t(FZ, FR, Fs, wZ, wR, ws)
+      !! F += G3^T w. With a = (mu1 b w_Z, mu1 b w_R, mu2 b w_s):
+      !!   F_Z += -l2R2 a_Z + l lzR3 a_R + lR2 a_s          + dth^T(-2 l2R2 a_R)
+      !!   F_R += -l lzR3 a_Z - l2R2 a_R + lzR3 a_s         + dth^T( 2 l2R2 a_Z - 2 lR2 a_s)
+      !!   F_s +=  lR2 a_Z - lzR3 a_R                       + dth^T( 2 lR2 a_R)
+      !! plus the lambda^2 L_theta block, which is symmetric (same code as add_g3).
+      !! (l2R2 = l^2/R^2, lR2 = l/R^2, lzR3 = l zeta/R^3, as in add_g3.)
+            real(dp), dimension(lv), intent(inout) :: FZ, FR, Fs
+            real(dp), dimension(lv), intent(in)    :: wZ, wR, ws
+            integer :: i, ntot1
+            real(dp) :: iR, iR2, l2R2, lR2, lzR3, b, aZ, aR, as
+            if (.not. use_visc) return
+            ntot1 = lx1*ly1*lz1*nelv
+            do i = 1, ntot1
+               iR   = invR_f(i)
+               iR2  = iR*iR
+               l2R2 = lamt*lamt*iR2
+               lR2  = lamt*iR2
+               lzR3 = lamt*zeta_f(i)*iR2*iR
+               b    = bm1(i,1,1,1)
+               aZ   = vdiff(i,1,1,1,1)*b*wZ(i)
+               aR   = vdiff(i,1,1,1,1)*b*wR(i)
+               as   = vdiff(i,1,1,1,2)*b*ws(i)
+               FZ(i) = FZ(i) - l2R2*aZ + lamt*lzR3*aR + lR2*as
+               FR(i) = FR(i) - lamt*lzR3*aZ - l2R2*aR + lzR3*as
+               Fs(i) = Fs(i) + lR2*aZ - lzR3*aR
+               k_gZ(i) = -2.0_dp*l2R2*aR
+               k_gR(i) =  2.0_dp*l2R2*aZ - 2.0_dp*lR2*as
+               k_gs(i) =  2.0_dp*lR2*aR
+            end do
+            call dtheta_t(k_h, k_gZ)
+            call add2(FZ, k_h, ntot1)
+            call dtheta_t(k_h, k_gR)
+            call add2(FR, k_h, ntot1)
+            call dtheta_t(k_h, k_gs)
+            call add2(Fs, k_h, ntot1)
+      ! lambda^2 L_theta: - lambda^2 mu dth^T[(bm1/R^2) dth w], symmetric
+            call dtheta(k_dZ, wZ)
+            call dtheta(k_dR, wR)
+            call dtheta(k_ds, ws)
+            do i = 1, ntot1
+               b = -lamt*lamt*bm1(i,1,1,1)*invR_f(i)*invR_f(i)
+               k_t1(i) = b*vdiff(i,1,1,1,1)*k_dZ(i)
+            end do
+            call dtheta_t(k_t2, k_t1)
+            call add2(FZ, k_t2, ntot1)
+            do i = 1, ntot1
+               b = -lamt*lamt*bm1(i,1,1,1)*invR_f(i)*invR_f(i)
+               k_t1(i) = b*vdiff(i,1,1,1,1)*k_dR(i)
+            end do
+            call dtheta_t(k_t2, k_t1)
+            call add2(FR, k_t2, ntot1)
+            do i = 1, ntot1
+               b = -lamt*lamt*bm1(i,1,1,1)*invR_f(i)*invR_f(i)
+               k_t1(i) = b*vdiff(i,1,1,1,2)*k_ds(i)
+            end do
+            call dtheta_t(k_t2, k_t1)
+            call add2(Fs, k_t2, ntot1)
+         end subroutine add_g3_t
+
+         subroutine add_g6_t(FZ, FR, Fs, wZ, wR, ws, coef)
+      !! F += coef * K^T w, K the real G6 operator of add_g6 (F += coef K v).
+      !! With a = coef lambda (mu1 b w_Z, mu1 b w_R, mu2 b w_s):
+      !!   F_Z += dth^T(2/R^2 a_Z) - zeta/R^3 a_Z - 2/R^2 a_R
+      !!   F_R += dth^T(2/R^2 a_R) - zeta/R^3 a_R + 2/R^2 a_Z
+      !!   F_s += dth^T(2/R^2 a_s) - zeta/R^3 a_s
+      !! The caller picks coef from the TRANSPOSED slot block (see header).
+            real(dp), dimension(lv), intent(inout) :: FZ, FR, Fs
+            real(dp), dimension(lv), intent(in)    :: wZ, wR, ws
+            real(dp), intent(in) :: coef
+            integer :: i, ntot1
+            real(dp) :: iR2, zR3, aZ, aR, as
+            if (.not. use_visc) return
+            if (coef == 0.0_dp) return
+            ntot1 = lx1*ly1*lz1*nelv
+            do i = 1, ntot1
+               iR2 = invR_f(i)*invR_f(i)
+               zR3 = zeta_f(i)*iR2*invR_f(i)
+               aZ  = coef*lamt*vdiff(i,1,1,1,1)*bm1(i,1,1,1)*wZ(i)
+               aR  = coef*lamt*vdiff(i,1,1,1,1)*bm1(i,1,1,1)*wR(i)
+               as  = coef*lamt*vdiff(i,1,1,1,2)*bm1(i,1,1,1)*ws(i)
+               FZ(i) = FZ(i) - zR3*aZ - 2.0_dp*iR2*aR
+               FR(i) = FR(i) - zR3*aR + 2.0_dp*iR2*aZ
+               Fs(i) = Fs(i) - zR3*as
+               k_gZ(i) = 2.0_dp*iR2*aZ
+               k_gR(i) = 2.0_dp*iR2*aR
+               k_gs(i) = 2.0_dp*iR2*as
+            end do
+            call dtheta_t(k_h, k_gZ)
+            call add2(FZ, k_h, ntot1)
+            call dtheta_t(k_h, k_gR)
+            call add2(FR, k_h, ntot1)
+            call dtheta_t(k_h, k_gs)
+            call add2(Fs, k_h, ntot1)
+         end subroutine add_g6_t
+
+         subroutine torsion_force_lin_t(FZ, FR, Fs, UZ, UR, Us, wZ, wR, ws)
+      !! Exact transpose of torsion_force_lin (same base U):
+      !!   [G2(U,.) + G2(.,U) + G3]^T w.
+            real(dp), dimension(lv), intent(out) :: FZ, FR, Fs
+            real(dp), dimension(lv), intent(in)  :: UZ, UR, Us, wZ, wR, ws
+            integer :: ntot1
+            ntot1 = lx1*ly1*lz1*nelv
+            call rzero(FZ, ntot1); call rzero(FR, ntot1); call rzero(Fs, ntot1)
+            if (.not. torsion_on) return
+            call add_g2lin_t(FZ, FR, Fs, UZ, UR, Us, wZ, wR, ws)
+            call add_g3_t   (FZ, FR, Fs, wZ, wR, ws)
+         end subroutine torsion_force_lin_t
+
+         subroutine torsion_prepare_adjoint()
+      !! Adjoint step setup, from the base flow in (vx, vy): the in-plane
+      !! divergence div_in U = dU_Z/dZ + dU_R/dR + U_R/R, collocated (gradm1).
+      !! Called by prepare_step_2Dh_axisym at every adjoint step. No-op without
+      !! torsion.
+            integer :: i, ntot1
+            if (.not. torsion_on) return
+            ntot1 = lx1*ly1*lz1*nelv
+            call gradm1(k_t1, k_h, k_gs, vx)       ! k_t1 = dU_Z/dZ
+            call gradm1(k_gZ, k_t2, k_gs, vy)      ! k_t2 = dU_R/dR
+            do i = 1, ntot1
+               adj_divU(i) = k_t1(i) + k_t2(i) + vy(i,1,1,1)*invR_f(i)
+            end do
+            adj_prepared = .true.
+         end subroutine torsion_prepare_adjoint
+
+         subroutine add_adjoint_div(FZ, FR, Fs, wZ, wR, ws)
+      !! F_k += rho_k bm1 (div_in U) w_k: the part of the adjoint of Nek's
+      !! transport -(U.grad) u that Nek's adjoint (+(U.grad) v) leaves out
+      !! because it assumes div U = 0 (see the ADJOINT section of the header).
+            real(dp), dimension(lv), intent(inout) :: FZ, FR, Fs
+            real(dp), dimension(lv), intent(in)    :: wZ, wR, ws
+            integer :: i, ntot1
+            real(dp) :: q
+            if (.not. (torsion_on .and. use_adj_div)) return
+            if (.not. adj_prepared) call nek_stop_error('torsion_prepare_adjoint was not called.',
+     &         this_module, 'add_adjoint_div')
+            ntot1 = lx1*ly1*lz1*nelv
+            do i = 1, ntot1
+               q = adj_divU(i)*bm1(i,1,1,1)
+               FZ(i) = FZ(i) + q*vtrans(i,1,1,1,1)*wZ(i)
+               FR(i) = FR(i) + q*vtrans(i,1,1,1,1)*wR(i)
+               Fs(i) = Fs(i) + q*vtrans(i,1,1,1,2)*ws(i)
+            end do
+         end subroutine add_adjoint_div
+
+         subroutine torsion_base_divergence(qcol, qcont)
+      !! Diagnostics (tests): the collocated in-plane divergence of the base
+      !! flow used by the adjoint (qcol, needs torsion_prepare_adjoint) and the
+      !! value continuity predicts for it, (lambda/R) dth U_s (qcont).
+            real(dp), dimension(lv), intent(out) :: qcol, qcont
+            integer :: ntot1
+            ntot1 = lx1*ly1*lz1*nelv
+            call copy(qcol, adj_divU, ntot1)
+            call dtheta(qcont, t(1,1,1,1,1))
+            qcont(1:ntot1) = lamt*invR_f(1:ntot1)*qcont(1:ntot1)
+         end subroutine torsion_base_divergence
+
+      !====================================================================
       !     NONLINEAR STEP HOOKS
       !====================================================================
 
@@ -639,19 +900,33 @@
          subroutine torsion_add_linear_uv(bfx_jp, bfy_jp, jp_)
       !! Velocity stage of makefp: bfxp/bfyp += L_Z, L_R of slot jp_; the u_s
       !! component is kept for torsion_add_linear_s.
+      !! Adjoint mode (ifadj): the transposed force L^T, the (div_in U) v term,
+      !! and the transposed G6 slot block.
             real(dp), dimension(lv), intent(inout) :: bfx_jp, bfy_jp
             integer, intent(in) :: jp_
             integer :: ntot1, ipert
             if (.not. torsion_on) return
             ntot1 = lx1*ly1*lz1*nelv
-            call torsion_force_lin(lin_FZ, lin_FR, lin_Fs, vx, vy, t(1,1,1,1,1),
-     &                             vxp(1,jp_), vyp(1,jp_), tp(1,1,jp_))
+            ipert = npert + 1 - jp_
+            if (.not. ifadj) then
+               call torsion_force_lin(lin_FZ, lin_FR, lin_Fs, vx, vy, t(1,1,1,1,1),
+     &                                vxp(1,jp_), vyp(1,jp_), tp(1,1,jp_))
       ! alpha*lambda coupling (G6) from the other slot: slot 1 (Re) receives
       ! -alpha*G6(u_Im), slot 2 (Im) receives +alpha*G6(u_Re)
-            if (alph /= 0.0_dp) then
-               ipert = npert + 1 - jp_
-               call add_g6(lin_FZ, lin_FR, lin_Fs, vxp(1,ipert), vyp(1,ipert), tp(1,1,ipert),
-     &                     merge(-alph, alph, jp_ == 1))
+               if (alph /= 0.0_dp) then
+                  call add_g6(lin_FZ, lin_FR, lin_Fs, vxp(1,ipert), vyp(1,ipert), tp(1,1,ipert),
+     &                        merge(-alph, alph, jp_ == 1))
+               end if
+            else
+               call torsion_force_lin_t(lin_FZ, lin_FR, lin_Fs, vx, vy, t(1,1,1,1,1),
+     &                                  vxp(1,jp_), vyp(1,jp_), tp(1,1,jp_))
+               call add_adjoint_div(lin_FZ, lin_FR, lin_Fs, vxp(1,jp_), vyp(1,jp_), tp(1,1,jp_))
+      ! transposed G6 slot block: slot 1 receives +alpha*G6^T(v_Im),
+      ! slot 2 receives -alpha*G6^T(v_Re)
+               if (alph /= 0.0_dp) then
+                  call add_g6_t(lin_FZ, lin_FR, lin_Fs, vxp(1,ipert), vyp(1,ipert), tp(1,1,ipert),
+     &                          merge(alph, -alph, jp_ == 1))
+               end if
             end if
             call add2(bfx_jp, lin_FZ, ntot1)
             call add2(bfy_jp, lin_FR, ntot1)
@@ -672,6 +947,7 @@
       !! In-plane velocity that sets the explicit advective limit:
       !!   a = (U_Z + c rho, U_R - c zeta, 0),  c = lambda U_s/R.
       !! The rotation part c dth is explicit and invisible to Nek's CFL.
+      !! The adjoint is transported by the same W (with the sign reversed).
             real(dp), dimension(lv), intent(out) :: cx, cy, cz
             integer :: i, ntot1
             real(dp) :: c

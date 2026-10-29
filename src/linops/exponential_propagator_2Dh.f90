@@ -229,11 +229,43 @@
          end select
          end procedure exptA_2Dh_axisym_torsion_matvec
 
-         module procedure exptA_2Dh_axisym_torsion_rmatvec
-         character(len=*), parameter :: this_procedure = "exptA_2Dh_axisym_torsion_rmatvec"
-         call nek_stop_error('Adjoint of the axisym_torsion propagator not implemented '//
-     &      '(torsion terms have no transpose yet).', this_module, this_procedure)
-         end procedure exptA_2Dh_axisym_torsion_rmatvec
+         module procedure exptA_2Dh_planar_rmatvec
+      ! Same betaz and the same dt/nsteps (cfl_limit) as matvec: the adjoint
+      ! terms switch on ifadj (deploy A), so this is the adjoint of the same
+      ! discrete propagator.
+         character(len=*), parameter :: this_procedure = "exptA_2Dh_planar_rmatvec"
+         logical :: if_advW
+         select type (vec_in)
+         type is (nek_zvector)
+            select type (vec_out)
+            type is (nek_zvector)
+         ! Force baseflow.
+               call vec2nek(vx, vy, vz, pr, t, self%baseflow)
+         ! Check whether we need to consider spanwise advection (W)
+               if_advW = check_W(self%if_advW, self%betaz, wtol)
+         ! Ensure correct Nek status (transpose -> ifadj)
+               call setup_linear_solver(transpose     = .true.,
+     &                                  silent        = .false.,
+     &                                  endtime       = self%tau,
+     &                                  recompute_dt  = .false.,
+     &                                  cfl_limit     = cfl_limit)
+         ! Set initial condition for the adjoint solver.
+               call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
+         ! Integrate the adjoint equations, same betaz.
+               time = 0.0_dp
+               do istep = 1, nsteps
+                  call nek_advance_2Dh_planar(self%betaz, if_advW)
+               end do
+         ! Copy the final solution to vector.
+               call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
+            class default
+               call type_error('vec_out','nek_zvector','OUT',this_module,this_procedure)
+            end select
+         class default
+            call type_error('vec_in','nek_zvector','IN',this_module,this_procedure)
+         end select
+         end procedure exptA_2Dh_planar_rmatvec
+
 
          logical function check_W(if_advW_in, betaz, wtol) result(if_advW)
             ! Cross-check whether W advection is enabled and whether the W field is nonzero.

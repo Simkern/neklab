@@ -36,6 +36,7 @@
      &                                makefp_2Dh_axisym, ophx_2Dh_axisym,
      &                                ophinv_uz_2Dh_axisym, ophinv_urphi_2Dh_axisym,
      &                                incomprp_div_2Dh_axisym, incomprp_dw_2Dh_axisym,
+     &                                incomprp_block_2Dh_axisym, block_pressure_needed,
      &                                pres_matvec_axisym, maxit_p_axisym
          use neklab_2Dh_torsion, only: torsion_active, torsion_lambda,
      &                                 torsion_refresh_nl, torsion_add_pressure_nl,
@@ -53,18 +54,18 @@
          include "SIZE"
          include "TOTAL"
          include "ADJOINT" ! ifadj
- 
+
          private
          character(len=*), parameter, private :: this_module = 'neklab_2Dh'
          integer, parameter :: lv = lx1*ly1*lz1*lelv
          integer, parameter :: lp = lx2*ly2*lz2*lelv
- 
+
       ! Fields handed from one stage to the next (linear steppers)
          real(dp), dimension(lv,lpert),   private :: gradw    ! third-component pressure gradient
          real(dp), dimension(lv,3,lpert), private :: resv_jp  ! momentum residuals per slot
          real(dp), dimension(lv),         private :: dw       ! third-component pressure correction
          real(dp), dimension(lp,lpert),   private :: dpr      ! pressure correction
- 
+
       ! Nonlinear step (fluid_2Dh_full, incomprn_2Dh_full)
          real(dp), dimension(lv,3), private :: nl_resv, nl_dv
          real(dp), dimension(lv),   private :: nl_h1, nl_h2, nl_h2inv, nl_ws
@@ -74,15 +75,15 @@
          real(dp), private :: dtbdlast_nl = 0.0_dp
          logical,  private :: nl_full_always = .false.
          real(dp), dimension(lp),   private :: dv_m2
- 
+
          public :: nek_advance_2Dh_planar
          public :: nek_advance_2Dh_axisym
          public :: nek_advance_2Dh_axisym_nl
          public :: set_nl_full_projection
          public :: divergence_2Dh_axisym
- 
+
       contains
- 
+
          subroutine nek_advance_2Dh_planar(betaz, if_advW_in)
       !! One linear step of the cartesian 2Dh problem, spanwise wavenumber betaz.
             real(dp), intent(in) :: betaz
@@ -95,68 +96,65 @@
             common /scrhi/  h2inv
             real(dp) :: ebar
             integer :: igeom, intype, ntot1
- 
+
             ntot1 = lx1*ly1*lz1*nelv
-            call prepare_step_2Dh_planar(betaz, if_advW_in)    ! init check, betaz, W-advection switch
+            call prepare_step_2Dh_planar(betaz, if_advW_in)
 
             call neklab_timer_start(t_planar_advance)
             call neklab_clock_tic()
- 
+
             call neklab_timer_start(t_planar_adv_setup)
             call setup_step_2Dh()
             call neklab_timer_stop(t_planar_adv_setup)
- 
-      ! --- explicit slot-coupled terms: read jp, write ipert
+
             call neklab_timer_start(t_planar_adv_advection)
             do jp = 1, npert
-               call make_coupling_2Dh_planar(gradw)              ! gradz_p, W-advection
+               call make_coupling_2Dh_planar(gradw)
             end do
             call neklab_timer_stop(t_planar_adv_advection)
- 
-      ! --- momentum, per slot
+
             do jp = 1, npert
                call neklab_timer_start(t_planar_adv_rhs)
-               igeom = 1                                         ! old geometry, old velocity
-               call makefp_2Dh_planar()                          ! makefp + lagfieldp + makeqp + lagscalp
-               igeom = 2                                         ! new geometry, new velocity
+               igeom = 1
+               call makefp_2Dh_planar()
+               igeom = 2
                intype = -1
                ifield = 1
                call sethlm(h1, h2, intype)
-               if (ifadj) call seth2bc(h2)   ! adjoint O/ON boundary term
+               if (ifadj) call seth2bc(h2)
                call cresvipp_2Dh(resv1, resv2, resv3, gradw(1,jp))
                call ophx_2Dh_planar(resv1, resv2, resv3, h1, h2)
                call neklab_timer_stop(t_planar_adv_rhs)
- 
+
                call neklab_timer_start(t_planar_adv_velocity)
                call ophinv_2Dh_planar(dv1, dv2, dv3, resv1, resv2, resv3, h1, h2)
                call opadd2(vxp(1,jp), vyp(1,jp), vzp(1,jp), dv1, dv2, dv3)
                call add2  (tp(1,1,jp), dv3, ntot1)
                call neklab_timer_stop(t_planar_adv_velocity)
             end do
- 
-      ! --- incompressibility
+
             call neklab_timer_start(t_planar_adv_pressure)
             call setup_incomprp_2Dh(h1, h2, h2inv)
             call ebar_2Dh(ebar, pres_matvec_planar, h1, h2, h2inv, betaz)
             do jp = 1, npert
-               call incomprp_div_2Dh_planar(dpr(1,jp))           ! -(D u + D_beta w), reads ipert
+               call incomprp_div_2Dh_planar(dpr(1,jp))
                call incomprp_solve_2Dh(dpr(1,jp), h1, h2, h2inv, pres_matvec_planar, ebar,
      &                                 betaz, maxit_p_planar, 'beta')
             end do
             call neklab_timer_stop(t_planar_adv_pressure)
- 
+
             call neklab_timer_start(t_planar_adv_correction)
             do jp = 1, npert
-               call incomprp_dw_2Dh_planar(dw, dpr, h2inv)       ! w correction, reads ipert
-               call incomprp_update_2Dh(dpr(1,jp), dw, h2inv)    ! u, v, w and p updates
+               call incomprp_dw_2Dh_planar(dw, dpr, h2inv)
+               call incomprp_update_2Dh(dpr(1,jp), dw, h2inv)
             end do
             call neklab_timer_stop(t_planar_adv_correction)
- 
+
             call neklab_clock_toc()
             call neklab_timer_stop(t_planar_advance)
-            jp = 0   ! back to the nonlinear solver's slot
+            jp = 0
          end subroutine nek_advance_2Dh_planar
- 
+
          subroutine nek_advance_2Dh_axisym(alpha)
       !! One linear step of the axisymmetric 2Dh problem, azimuthal wavenumber
       !! alpha: the exact linearisation of nek_advance_2Dh_axisym_nl about the
@@ -168,81 +166,88 @@
             common /scrhi/  h2inv
             real(dp) :: ebar
             integer :: igeom, intype
- 
-            call prepare_step_2Dh_axisym(alpha)                 ! coefficients, npert check
- 
+
+            call prepare_step_2Dh_axisym(alpha)
+
             call neklab_timer_start(t_axisym_advance)
             call neklab_clock_tic()
- 
+
             call neklab_timer_start(t_axisym_adv_setup)
             call setup_step_2Dh()
             call neklab_timer_stop(t_axisym_adv_setup)
- 
+
       ! --- explicit slot-coupled terms: read jp, write ipert
             call neklab_timer_start(t_axisym_adv_advection)
             do jp = 1, npert
-               call make_coupling_2Dh_axisym(gradw)               ! gradp, swirl advection, torsion alpha*lambda
+               call make_coupling_2Dh_axisym(gradw)       ! gradp (incl. D_lam^T p_ext), swirl advection
             end do
             call neklab_timer_stop(t_axisym_adv_advection)
- 
+
       ! --- momentum right-hand sides, per slot
             call neklab_timer_start(t_axisym_adv_rhs)
             do jp = 1, npert
-               igeom = 1                                         ! old geometry, old velocity
-               call makefp_2Dh_axisym()                          ! incl. curvature terms
-               igeom = 2                                         ! new geometry, new velocity
+               igeom = 1
+               call makefp_2Dh_axisym()                   ! incl. curvature and torsion G2+G3
+               igeom = 2
                intype = -1
                ifield = 1
                call sethlm(h1, h2, intype)
-               if (ifadj) call seth2bc(h2)   ! adjoint O/ON boundary term
+               if (ifadj) call seth2bc(h2)
                call cresvipp_2Dh(resv_jp(1,1,jp), resv_jp(1,2,jp), resv_jp(1,3,jp), gradw(1,jp))
             end do
-      ! --- H u: u_Z per slot; u_R/u_phi coupled across the slots at alpha /= 0
             call ophx_2Dh_axisym(resv_jp, h1, h2)
             call neklab_timer_stop(t_axisym_adv_rhs)
- 
+
             call neklab_timer_start(t_axisym_adv_uz)
-            call ophinv_uz_2Dh_axisym(resv_jp, h1, h2)           ! solves and updates vxp
+            call ophinv_uz_2Dh_axisym(resv_jp, h1, h2)
             call neklab_timer_stop(t_axisym_adv_uz)
- 
+
             call neklab_timer_start(t_axisym_adv_urphi)
-            call ophinv_urphi_2Dh_axisym(resv_jp, h1, h2)        ! solves and updates vyp, tp
+            call ophinv_urphi_2Dh_axisym(resv_jp, h1, h2)
             call neklab_timer_stop(t_axisym_adv_urphi)
- 
-      ! --- incompressibility
+
+      ! --- incompressibility (E includes the lambda block when torsion is on;
+      !     at alpha /= 0 with torsion the two slots are solved together)
             call neklab_timer_start(t_axisym_adv_pressure)
             call setup_incomprp_2Dh(h1, h2, h2inv)
-            call ebar_2Dh(ebar, pres_matvec_axisym, h1, h2, h2inv, alpha)
-            do jp = 1, npert
-               call incomprp_div_2Dh_axisym(dpr(1,jp))        ! -(D u + D_alpha u_phi), reads ipert
-               call incomprp_solve_2Dh(dpr(1,jp), h1, h2, h2inv, pres_matvec_axisym, ebar,
-     &                                 alpha, maxit_p_axisym, 'alpha')
-            end do
+            if (block_pressure_needed()) then
+               do jp = 1, npert
+                  call incomprp_div_2Dh_axisym(dpr(1,jp))  ! -(D u + D_alpha u_s + D_lam u_s)
+               end do
+               call incomprp_block_2Dh_axisym(dpr, h1, h2, h2inv, alpha, maxit_p_axisym)
+            else
+               call ebar_2Dh(ebar, pres_matvec_axisym, h1, h2, h2inv, alpha)
+               do jp = 1, npert
+                  call incomprp_div_2Dh_axisym(dpr(1,jp))  ! -(D u + D_alpha u_phi + D_lam u_phi)
+                  call incomprp_solve_2Dh(dpr(1,jp), h1, h2, h2inv, pres_matvec_axisym, ebar,
+     &                                    alpha, maxit_p_axisym, 'alpha')
+               end do
+            end if
             call neklab_timer_stop(t_axisym_adv_pressure)
- 
+
             call neklab_timer_start(t_axisym_adv_correction)
             do jp = 1, npert
-               call incomprp_dw_2Dh_axisym(dw, dpr, h2inv)       ! u_phi correction, reads ipert
-               call incomprp_update_2Dh(dpr(1,jp), dw, h2inv)    ! u_Z, u_R, u_phi and p updates
+               call incomprp_dw_2Dh_axisym(dw, dpr, h2inv)
+               call incomprp_update_2Dh(dpr(1,jp), dw, h2inv)
             end do
             call neklab_timer_stop(t_axisym_adv_correction)
- 
+
             call neklab_clock_toc()
             call neklab_timer_stop(t_axisym_advance)
-            jp = 0   ! back to the nonlinear solver's slot
+            jp = 0
          end subroutine nek_advance_2Dh_axisym
- 
+
       !=====================================================================
       !     NONLINEAR STEP
       !=====================================================================
- 
+
          subroutine set_nl_full_projection(flag)
       !! Testing: use the custom full projection even without torsion (it must
       !! then reproduce Nek's incomprn to solver tolerance).
             logical, intent(in) :: flag
             nl_full_always = flag
          end subroutine set_nl_full_projection
- 
+
          subroutine nek_advance_2Dh_axisym_nl()
       !! One NONLINEAR step of the axisymmetric 2Dh problem (torus, helix): the
       !! P_N-P_{N-2} branch of Nek's nek_advance (drive1.f), with the torsion
@@ -251,7 +256,7 @@
             integer :: igeom
             common /cgeom/ igeom
             real(dp) :: p26, ct0
- 
+
             call init_2Dh_axisym()
             if (ifsplit) call nek_stop_error('P_N-P_N is not supported by the 2Dh steppers.',
      &         this_module, this_procedure)
@@ -265,7 +270,7 @@
                if (filterType /= 0) call nek_stop_error('filtering is not supported with torsion '//
      &            '(the linear step has no filter).', this_module, this_procedure)
             end if
- 
+
             call nekgsync
             call setup_convect(2)                     ! convecting field from U^n (dealiasing)
             if (iftran) then
@@ -302,7 +307,7 @@
                if (igeom == ngeom .and. filterType == 1) call q_filter(param(103))
             end do
          end subroutine nek_advance_2Dh_axisym_nl
- 
+
          subroutine fluid_2Dh_full()
       !! fluid(2) of Nek (drive2.f) -> plan3(igeom = 2) (planx.f) up to and
       !! including the in-plane predictor, then incomprn_2Dh_full.
@@ -320,7 +325,7 @@
             call incomprn_2Dh_full()
             call chkptol
          end subroutine fluid_2Dh_full
- 
+
          subroutine incomprn_2Dh_full()
       !! Projection with the full operator (cf. incomprn, induct.f):
       !!   E dp = -(D u* + D_lam U_s*),  E = D (h2inv B^-1) D^T + D_lam (h2inv B^-1) D_lam^T
@@ -335,7 +340,7 @@
             ntot1 = lx1*ly1*lz1*nelv
             ntot2 = lx2*ly2*lz2*nelv
             ifield = 1
- 
+
             dtbd = bd(1)/dt
             if (dtbd /= dtbdlast_nl .or. istep <= 1) then
                nprev_nl = 0                                  ! operator changed: basis is stale
@@ -344,12 +349,12 @@
             call rzero  (nl_h1, ntot1)
             call cmult2 (nl_h2, vtrans(1,1,1,1,1), dtbd, ntot1)
             call invers2(nl_h2inv, nl_h2, ntot1)
- 
+
             call opdiv       (nl_dp, vx, vy, vz)
             call dlam_div_add(nl_dp, t(1,1,1,1,1))
             call chsign      (nl_dp, ntot2)
             call ortho       (nl_dp)
- 
+
             istart = param(95)
             ifprjp = (istep >= istart .and. istart /= 0)
             if (ifprjp) call setrhs_pressure_2Dh(nl_dp, nl_h1, nl_h2, nl_h2inv, pbasis_nl, nprev_nl,
@@ -358,7 +363,7 @@
      &                              0.0_dp, .true., maxit_p_axisym, 'lambda', torsion_lambda(), 'NL')
             if (ifprjp) call gensoln_pressure_2Dh(nl_dp, nl_h1, nl_h2, nl_h2inv, pbasis_nl, nprev_nl,
      &                                            pres_matvec_full_nl)
- 
+
             call opgradt(nl_resv(1,1), nl_resv(1,2), nl_resv(1,3), nl_dp)
             call opbinv (nl_dv(1,1), nl_dv(1,2), nl_dv(1,3),
      &                   nl_resv(1,1), nl_resv(1,2), nl_resv(1,3), nl_h2inv)
@@ -369,7 +374,7 @@
             end if
             call add2(pr, nl_dp, ntot2)
          end subroutine incomprn_2Dh_full
- 
+
          subroutine pres_matvec_full_nl(Ap, p, h1, h2, h2inv, intype)
       !! Full pressure operator of the nonlinear step (tmask = wmask is enforced
       !! by the torsion init).
@@ -380,7 +385,7 @@
             call cdabdtp(Ap, p, h1, h2, h2inv, intype)
             call lambda_block_E_add(Ap, p, h2inv, tmask(1,1,1,1,1))
          end subroutine pres_matvec_full_nl
- 
+
          real(dp) function divergence_2Dh_axisym(nonlinear, slot) result(rdiv)
       !! ||D u + D_lam u_s|| in the bm2^-1 norm of the pressure GMRES residual,
       !! for the nonlinear fields (nonlinear = .true.) or perturbation slot
@@ -401,12 +406,9 @@
             end if
             rdiv = sqrt(glsc3(dv_m2, dv_m2, bm2inv, ntot2)/volvm2)
          end function divergence_2Dh_axisym
- 
+
          subroutine seth2bc(h2)
-      ! THIS SHOULD BE IN THE NEK CORE LATER BUT IS CURRENTLY NOT
-      !
-      !     sets diagonal terms for boundary conditions if required
-      !
+      ! Sets diagonal terms for adjoint O/ON and bn boundary conditions.
          include 'SIZE'
          include 'MASS'
          include 'PARALLEL'
@@ -416,35 +418,27 @@
          include 'INPUT'
          include 'NEKUSE'
          include 'GEOM'
-         
          real      h2(lx1,ly1,lz1,1)
          character cb*3
          integer   nfaces,nxyz,nel,ntot,iel,iface,ieg
          integer   kx1,kx2,ky1,ky2,kz1,kz2,ix,iy,iz,ia
          logical   ifalgn,ifnorx,ifnory,ifnorz
          real      unorm
-         
          nfaces=2*ldim
          nxyz  =nx1*ny1*nz1
          nel   =nelfld(ifield)
          ntot  =nxyz*nel
-         
          do iel=1,nelv
             ieg=lglel(iel)
             do iface=1,nfaces
                cb = cbc(iface,iel,ifield)
-      !
-      !     Adjoint O/o/ON/on conditions
-      !
                if ((cb.eq.'O  '.or.cb.eq.'o  '.or.cb.eq.'ON '.or.cb.eq.'on ').and.ifadj) then
                   ia = 0
-      !     Loop on the points of the face
                   call facind(kx1,kx2,ky1,ky2,kz1,kz2,nx1,ny1,nz1,iface)
                   do iz=kz1,kz2
                      do iy=ky1,ky2
                         do ix=kx1,kx2
                            ia = ia + 1
-      !     add an U_n (baseflow velocity) coefficient to H2
                            h2(ix,iy,iz,iel)=h2(ix,iy,iz,iel)+
      &                     area(ia,1,iface,iel)/bm1(ix,iy,iz,iel)*
      &                     (unx(ia,1,iface,iel)*vx(ix,iy,iz,iel)
@@ -454,9 +448,6 @@
                      end do
                   end do
                end if
-      !
-      !     bn condition
-      !
                if (cb.eq.'bn ') then
                   ia = 0
                   call chknord (ifalgn,ifnorx,ifnory,ifnorz,iface,iel)
@@ -465,7 +456,6 @@
                      do iy=ky1,ky2
                         do ix=kx1,kx2
                            ia = ia + 1
-      !     add an un (from userbc) coefficient to H2
                            if (optlevel.le.2) call nekasgn (ix,iy,iz,iel)
                            call userbc(ix,iy,iz,iface,ieg)
                            if(ifnorx) unorm=ux*unx(ia,1,iface,iel)
@@ -479,8 +469,7 @@
                end if
             enddo
          enddo
-
          return
          end
- 
+
       end module neklab_2Dh

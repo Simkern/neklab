@@ -19,7 +19,7 @@
       !!
       !!   Z = xm1, R = ym1, zeta = Z - z_c, rho = R - R_c, lambda = tau/kappa
       !!   dth f = zeta df/dR - rho df/dZ        (rotation about (z_c, R_c))
-      !!   D_s   = (1/R)(P - lambda dth),  P = -i alpha (0 here: alpha = 0)
+      !!   D_s   = (1/R)(P - lambda dth),  P = -i alpha (P = 0 for the base flow)
       !!   u = (u_Z, u_R, u_s) = (vx, vy, t(:,1))  base;  (vxp, vyp, tp) perturbation
       !!
       !! Terms Nek does not provide, as right-hand-side force densities:
@@ -29,6 +29,9 @@
       !!       nonlinear: G2(U,U);   linear: G2(U,u) + G2(u,U)   (exact by construction)
       !!   G3  viscous             mu * [torsion part of (D_s + M)^2 v] at P = 0
       !!                           (linear in v; lambda^2/R^2 shifts on Z, R included)
+      !!   G6  alpha*lambda (linear step, alpha /= 0): the P*lambda part of
+      !!       mu (D_s + M)^2 u,  mu i alpha lambda [(2/R^2) dth u - (zeta/R^3) u
+      !!       + (2/R^2)(u_R, -u_Z, 0)]; odd in P, so it swaps slots (+i rule)
       !!   G4  pressure, u_s eq.   +(lambda/R) dth p   =  weak  D_lam^T p
       !!   G5  continuity          -(lambda/R) dth u_s =  weak  D_lam u_s
       !!
@@ -75,34 +78,35 @@
          include "SIZE"
          include "TOTAL"
          include "ADJOINT"
- 
+
          private
          character(len=*), parameter, private :: this_module = 'neklab_2Dh_torsion'
          integer, parameter :: lv = lx1*ly1*lz1*lelv
          integer, parameter :: lp = lx2*ly2*lz2*lelv
- 
+
       ! --- state
          logical,  private :: torsion_on    = .false.   ! lambda /= 0 and init done
          logical,  private :: torsion_built = .false.
          real(dp), private :: lamt  = 0.0_dp
+         real(dp), private :: alph  = 0.0_dp            ! alpha of the linear step (G6)
          real(dp), private :: zcen   = 0.0_dp
          real(dp), private :: Rcen   = 0.0_dp
          real(dp), private :: vol2 = 0.0_dp            ! sum(bm2), mean removal
          logical,  private :: use_adv  = .true.
          logical,  private :: use_visc = .true.
          logical,  private :: use_pres = .true.
- 
+
       ! --- coefficient fields (M1)
          real(dp), dimension(lv), private :: zeta_f, rho_f, invR_f
          real(dp), dimension(lv), private :: Ar_f, As_f   ! dth = Ar d/dr + As d/ds
- 
+
       ! --- nonlinear forcing as accelerations, read pointwise by the registered terms
          real(dp), dimension(lv), private :: fZ_nl = 0.0_dp, fR_nl = 0.0_dp, fs_nl = 0.0_dp
- 
+
       ! --- linear forcing of the current slot, computed at the velocity stage of
       !     makefp and consumed (u_s part) at its scalar stage
          real(dp), dimension(lv), private :: lin_FZ, lin_FR, lin_Fs
- 
+
       ! --- scratch, one group per call level
          real(dp), dimension(lv), private :: k_dZ, k_dR, k_ds, k_t1, k_t2   ! kernels
          real(dp), dimension(lv), private :: k_aZ, k_aR, k_as               ! kernels (2nd arg)
@@ -112,7 +116,7 @@
          real(dp), dimension(lp), private :: e_m2                           ! E block
          real(dp), dimension(lp), private :: n_pext                         ! nonlinear p_ext
          real(dp), dimension(lx1,ly1), private :: t_r, t_s                  ! dth element work
- 
+
          public :: init_torsion_2Dh
          public :: set_torsion_groups
          public :: torsion_active
@@ -125,14 +129,15 @@
          public :: torsion_add_linear_uv, torsion_add_linear_s
          public :: torsion_transport_velocity
          public :: check_wall_centering
-         public :: add_g2, add_g3          ! kernels, exposed for the unit tests
- 
+         public :: set_torsion_alpha
+         public :: add_g2, add_g3, add_g6  ! kernels, exposed for the unit tests
+
       contains
- 
+
       !====================================================================
       !     SETUP
       !====================================================================
- 
+
          subroutine set_torsion_groups(adv, visc, pres)
       !! Switch term groups on/off in BOTH solvers. Default: all on.
             logical, optional, intent(in) :: adv, visc, pres
@@ -145,15 +150,22 @@
             write (msg, '(A,3L2)') 'torsion groups (adv, visc, pres):', use_adv, use_visc, use_pres
             call nek_log_message(msg, this_module, 'set_torsion_groups')
          end subroutine set_torsion_groups
- 
+
+         subroutine set_torsion_alpha(alpha)
+      !! Wavenumber of the linear step, for the alpha*lambda viscous coupling G6.
+      !! Set by build_axisym_coeffs (neklab_2Dh_axisym).
+            real(dp), intent(in) :: alpha
+            alph = alpha
+         end subroutine set_torsion_alpha
+
          logical function torsion_active()
             torsion_active = torsion_on
          end function torsion_active
- 
+
          real(dp) function torsion_lambda()
             torsion_lambda = merge(lamt, 0.0_dp, torsion_on)
          end function torsion_lambda
- 
+
          subroutine init_torsion_2Dh()
       !! Build the coefficients from t2Dh%init_geom and register the nonlinear
       !! terms and the CFL velocity. Idempotent. Called by init_2Dh_axisym, after
@@ -164,7 +176,7 @@
             real(dp), external :: glsum
             integer :: i, ie, ix, iy, ntot1
             real(dp) :: dev
- 
+
             if (torsion_built) return
             torsion_built = .true.
             torsion_on = .false.
@@ -174,12 +186,12 @@
             end if
             if (ldim /= 2) call nek_stop_error('torsion requires a 2D mesh.', this_module, this_procedure)
             if (ifadj) call nek_stop_error('torsion: adjoint not implemented.', this_module, this_procedure)
- 
+
             lamt = t2Dh%get_lambda()
             zcen  = t2Dh%get_axial_centre()
             Rcen  = t2Dh%get_curv_radius()
             ntot1 = lx1*ly1*lz1*nelv
- 
+
             do i = 1, ntot1
                zeta_f(i) = xm1(i,1,1,1) - zcen
                rho_f(i)  = ym1(i,1,1,1) - Rcen
@@ -195,15 +207,15 @@
                end do
             end do
             vol2 = glsum(bm2, lx2*ly2*lz2*nelv)
- 
+
             call check_full_section(this_procedure)
             call check_masks_equal(this_procedure)
             call check_wall_centering(dev, verbose=.true.)
- 
+
             call add_neklab_forcing_term(torsion_forcing_pw, 'torsion')
             call add_neklab_source_term (torsion_source_pw,  'torsion')
             call set_cfl_velocity_hook(torsion_transport_velocity)
- 
+
             torsion_on = .true.
             write (msg, '(A,ES14.6,A,ES14.6,A,ES14.6)') 'torsion active: lambda =', lamt,
      &         ', z_c =', zcen, ', R_c =', Rcen
@@ -211,7 +223,7 @@
             write (msg, '(A,3L2)') 'torsion groups (adv, visc, pres):', use_adv, use_visc, use_pres
             call nek_log_message(msg, this_module, this_procedure)
          end subroutine init_torsion_2Dh
- 
+
          subroutine check_full_section(caller)
       !! Torsion breaks Z -> -Z symmetry and dth is wall-normal on a plane
       !! Z = z_c: a helix needs the full cross-section (no SYM/ON faces).
@@ -230,7 +242,7 @@
             if (nbad > 0) call nek_stop_error('lambda /= 0 requires the full cross-section: '//
      &         'SYM/ON faces found.', this_module, caller)
          end subroutine check_full_section
- 
+
          subroutine check_masks_equal(caller)
       !! The nonlinear step masks u_s with tmask (Nek's scalar), the linear one
       !! with wmask. With torsion the two steps must be the same operator.
@@ -245,7 +257,7 @@
             if (nbad > 0) call nek_stop_error('lambda /= 0 requires tmask = wmask '//
      &         '(temperature BCs must match the velocity BCs).', this_module, caller)
          end subroutine check_masks_equal
- 
+
          subroutine check_wall_centering(maxdev, verbose)
       !! dth is tangent to the wall only if the wall is the circle of radius
       !! t2Dh%radius about (z_c, R_c). Reports the largest deviation of a
@@ -277,8 +289,13 @@
                end do
             end do
             maxdev = glmax(maxdev, 1)
+            write (msg, '(A,ES12.4)') 'max wall deviation from the circle about (z_c, R_c): ', maxdev
+            if (maxdev > 1.0e-2_dp*a) then
+               call nek_stop_error(trim(msg)//' > 1e-2*radius: the wall is not centred on '//
+     &            '(z_c, R_c). Mesh/geometry mismatch (e.g. coordinates read by load_fld: '//
+     &            'use load_fld(''file U P T'')).', this_module, this_procedure)
+            end if
             if (optval(verbose, .false.)) then
-               write (msg, '(A,ES12.4)') 'max wall deviation from the circle about (z_c, R_c): ', maxdev
                if (maxdev > 1.0e-3_dp*a) then
                   call nek_log_warning(trim(msg)//' -- (z_c, R_c) is not the wall centre?',
      &               this_module, this_procedure)
@@ -287,11 +304,11 @@
                end if
             end if
          end subroutine check_wall_centering
- 
+
       !====================================================================
       !     dth AND ITS EXACT TRANSPOSE
       !====================================================================
- 
+
          subroutine dtheta(out, f)
       !! out = dth f = A_r f_r + A_s f_s, element-local (no dssum).
             real(dp), dimension(lx1,ly1,lelv), intent(out) :: out
@@ -309,7 +326,7 @@
                end do
             end do
          end subroutine dtheta
- 
+
          subroutine dtheta_t(out, g)
       !! out = dth^T g = D_r^T (A_r g) + D_s^T (A_s g), element-local.
             real(dp), dimension(lx1,ly1,lelv), intent(out) :: out
@@ -329,7 +346,7 @@
                out(:,:,ie) = out(:,:,ie) + w2
             end do
          end subroutine dtheta_t
- 
+
       !====================================================================
       !     THE CONTINUITY / PRESSURE PAIR (mean-free)
       !====================================================================
@@ -342,7 +359,7 @@
       ! so 1^T D_lam u = 0 and D_lam^T 1 = 0 exactly, and the pair is an exact
       ! transpose. The removed mean is O(discretisation): the continuous
       ! integral of dth u vanishes on a circular wall centred at (z_c, R_c).
- 
+
          subroutine dlam_div_add(d, u)
       !! d += D_lam u   (d on M2, u on M1). No-op without torsion or with pres off.
             real(dp), dimension(lp), intent(inout) :: d
@@ -360,7 +377,7 @@
             call add2s2(p_m2a, bm2, -s, ntot2)
             call add2(d, p_m2a, ntot2)
          end subroutine dlam_div_add
- 
+
          subroutine dlam_grad_t(g, p)
       !! g = D_lam^T p   (g on M1, element-local, unassembled; p on M2).
       !! Zero without torsion or with pres off.
@@ -382,7 +399,7 @@
             p_m1b(1:ntot1) = -lamt*invR_f(1:ntot1)*p_m1b(1:ntot1)
             call dtheta_t(g, p_m1b)
          end subroutine dlam_grad_t
- 
+
          subroutine lambda_block_E_add(ap, p, h2inv, mask)
       !! ap += D_lam (mask h2inv B^-1) D_lam^T p : the lambda block of the
       !! pressure operator E = D (h2inv B^-1) D^T. Symmetric, positive
@@ -395,7 +412,7 @@
             call lambda_correction(e_m1, p, h2inv, mask)
             call dlam_div_add(ap, e_m1)
          end subroutine lambda_block_E_add
- 
+
          subroutine lambda_correction(dw, dp_, h2inv, mask)
       !! dw = mask h2inv B^-1 D_lam^T dp : the u_s pressure correction, same
       !! sign and same B^-1 as the in-plane one (opgradt -> opbinv).
@@ -411,11 +428,11 @@
             call col2 (dw, binvm1, ntot1)
             call col2 (dw, h2inv, ntot1)
          end subroutine lambda_correction
- 
+
       !====================================================================
       !     G2 AND G3: WEAK FORCE VECTORS
       !====================================================================
- 
+
          subroutine add_g2(FZ, FR, Fs, aZ, aR, as, bZ, bR, bs)
       !! F += rho bm1 c(a) S(b),  c(a) = lambda a_s/R,
       !! S(b) = (dth b_Z + b_R, dth b_R - b_Z, dth b_s).
@@ -438,7 +455,7 @@
                Fs(i) = Fs(i) + w2*k_as(i)
             end do
          end subroutine add_g2
- 
+
          subroutine add_g3(FZ, FR, Fs, vZ, vR, vs)
       !! F += mu * [torsion part of (D_s + M)^2 v] at P = 0, weak:
       !!   pointwise: bm1 * ( 2 l^2/R^2 (dth v_R, -dth v_Z, 0) + 2 l/R^2 (0, dth v_s, -dth v_R)
@@ -489,7 +506,36 @@
             call dtheta_t(k_t2, k_t1)
             call add2(Fs, k_t2, ntot1)
          end subroutine add_g3
- 
+
+         subroutine add_g6(FZ, FR, Fs, vZ, vR, vs, coef)
+      !! alpha*lambda viscous coupling, the P*lambda part of mu (D_s + M)^2 v with
+      !! P = -i alpha (helix_2Dh_derivation.tex, eq. lapexp):
+      !!   mu * i * alpha lambda [ (2/R^2) dth v - (zeta/R^3) v + (2/R^2)(v_R, -v_Z, 0) ].
+      !! This routine adds the REAL coefficient, F += coef * mu * bm1 * lambda [...],
+      !! with coef = +-alpha chosen by the caller from the +i slot rule
+      !! (Re[i w] = -Im w, Im[i w] = Re w).
+            real(dp), dimension(lv), intent(inout) :: FZ, FR, Fs
+            real(dp), dimension(lv), intent(in)    :: vZ, vR, vs
+            real(dp), intent(in) :: coef
+            integer :: i, ntot1
+            real(dp) :: iR2, zR3, c1, c2
+            if (.not. use_visc) return
+            if (coef == 0.0_dp) return
+            ntot1 = lx1*ly1*lz1*nelv
+            call dtheta(k_dZ, vZ)
+            call dtheta(k_dR, vR)
+            call dtheta(k_ds, vs)
+            do i = 1, ntot1
+               iR2 = invR_f(i)*invR_f(i)
+               zR3 = zeta_f(i)*iR2*invR_f(i)
+               c1  = coef*lamt*vdiff(i,1,1,1,1)*bm1(i,1,1,1)
+               c2  = coef*lamt*vdiff(i,1,1,1,2)*bm1(i,1,1,1)
+               FZ(i) = FZ(i) + c1*( 2.0_dp*iR2*k_dZ(i) - zR3*vZ(i) + 2.0_dp*iR2*vR(i) )
+               FR(i) = FR(i) + c1*( 2.0_dp*iR2*k_dR(i) - zR3*vR(i) - 2.0_dp*iR2*vZ(i) )
+               Fs(i) = Fs(i) + c2*( 2.0_dp*iR2*k_ds(i) - zR3*vs(i) )
+            end do
+         end subroutine add_g6
+
          subroutine torsion_force_nl(FZ, FR, Fs, UZ, UR, Us)
       !! Nonlinear torsion force (weak): G2(U,U) + G3(U).
             real(dp), dimension(lv), intent(out) :: FZ, FR, Fs
@@ -501,7 +547,7 @@
             call add_g2(FZ, FR, Fs, UZ, UR, Us, UZ, UR, Us)
             call add_g3(FZ, FR, Fs, UZ, UR, Us)
          end subroutine torsion_force_nl
- 
+
          subroutine torsion_force_lin(FZ, FR, Fs, UZ, UR, Us, uZp, uRp, usp)
       !! Linearised torsion force (weak): G2(U,u) + G2(u,U) + G3(u). Exact
       !! derivative of torsion_force_nl by construction (G2 bilinear, G3 linear).
@@ -515,11 +561,11 @@
             call add_g2(FZ, FR, Fs, uZp, uRp, usp, UZ, UR, Us)
             call add_g3(FZ, FR, Fs, uZp, uRp, usp)
          end subroutine torsion_force_lin
- 
+
       !====================================================================
       !     NONLINEAR STEP HOOKS
       !====================================================================
- 
+
          subroutine torsion_refresh_nl()
       !! From U^n (vx, vy, t) before heat(1): the accelerations read by the
       !! registered userf/userq terms. Nek rebuilds F exactly: makeuf multiplies
@@ -534,7 +580,7 @@
                fs_nl(i) = fs_nl(i)/(vtrans(i,1,1,1,2)*bm1(i,1,1,1))
             end do
          end subroutine torsion_refresh_nl
- 
+
          subroutine torsion_forcing_pw(fx, fy, fz, ix, iy, iz, e)
             real(dp), intent(inout) :: fx, fy, fz
             integer, intent(in) :: ix, iy, iz, e
@@ -544,7 +590,7 @@
             fx = fx + fZ_nl(i)
             fy = fy + fR_nl(i)
          end subroutine torsion_forcing_pw
- 
+
          subroutine torsion_source_pw(q, ix, iy, iz, e)
             real(dp), intent(inout) :: q
             integer, intent(in) :: ix, iy, iz, e
@@ -553,7 +599,7 @@
             i = ix + lx1*((iy - 1) + ly1*((iz - 1) + lz1*(e - 1)))
             q = q + fs_nl(i)
          end subroutine torsion_source_pw
- 
+
          subroutine torsion_add_pressure_nl()
       !! After heat(1), before heat(2): bq(u_s) += D_lam^T p_ext, with p_ext the
       !! extrapolation that cresvif/extrapp will apply to the in-plane gradient
@@ -578,43 +624,50 @@
             call dlam_grad_t(e_m1, n_pext)
             call add2(bq(1,1,1,1,1), e_m1, ntot1)
          end subroutine torsion_add_pressure_nl
- 
+
          subroutine extrap_copy(pe, p, pl, cst, n)
             integer, intent(in) :: n
             real(dp), intent(out) :: pe(n)
             real(dp), intent(in)  :: p(n), pl(n), cst
             pe = p + cst*(p - pl)
          end subroutine extrap_copy
- 
+
       !====================================================================
       !     LINEAR STEP HOOKS (slot jp)
       !====================================================================
- 
+
          subroutine torsion_add_linear_uv(bfx_jp, bfy_jp, jp_)
       !! Velocity stage of makefp: bfxp/bfyp += L_Z, L_R of slot jp_; the u_s
       !! component is kept for torsion_add_linear_s.
             real(dp), dimension(lv), intent(inout) :: bfx_jp, bfy_jp
             integer, intent(in) :: jp_
-            integer :: ntot1
+            integer :: ntot1, ipert
             if (.not. torsion_on) return
             ntot1 = lx1*ly1*lz1*nelv
             call torsion_force_lin(lin_FZ, lin_FR, lin_Fs, vx, vy, t(1,1,1,1,1),
      &                             vxp(1,jp_), vyp(1,jp_), tp(1,1,jp_))
+      ! alpha*lambda coupling (G6) from the other slot: slot 1 (Re) receives
+      ! -alpha*G6(u_Im), slot 2 (Im) receives +alpha*G6(u_Re)
+            if (alph /= 0.0_dp) then
+               ipert = npert + 1 - jp_
+               call add_g6(lin_FZ, lin_FR, lin_Fs, vxp(1,ipert), vyp(1,ipert), tp(1,1,ipert),
+     &                     merge(-alph, alph, jp_ == 1))
+            end if
             call add2(bfx_jp, lin_FZ, ntot1)
             call add2(bfy_jp, lin_FR, ntot1)
          end subroutine torsion_add_linear_uv
- 
+
          subroutine torsion_add_linear_s(bq_jp)
       !! Scalar stage of makefp: bqp += L_s (computed by torsion_add_linear_uv).
             real(dp), dimension(lv), intent(inout) :: bq_jp
             if (.not. torsion_on) return
             call add2(bq_jp, lin_Fs, lx1*ly1*lz1*nelv)
          end subroutine torsion_add_linear_s
- 
+
       !====================================================================
       !     CFL
       !====================================================================
- 
+
          subroutine torsion_transport_velocity(cx, cy, cz)
       !! In-plane velocity that sets the explicit advective limit:
       !!   a = (U_Z + c rho, U_R - c zeta, 0),  c = lambda U_s/R.
@@ -630,5 +683,5 @@
                cz(i) = 0.0_dp
             end do
          end subroutine torsion_transport_velocity
- 
+
       end module neklab_2Dh_torsion

@@ -229,34 +229,36 @@
          end select
          end procedure exptA_2Dh_axisym_torsion_matvec
 
-         module procedure exptA_2Dh_planar_rmatvec
-      ! Same betaz and the same dt/nsteps (cfl_limit) as matvec: the adjoint
-      ! terms switch on ifadj (deploy A), so this is the adjoint of the same
-      ! discrete propagator.
-         character(len=*), parameter :: this_procedure = "exptA_2Dh_planar_rmatvec"
-         logical :: if_advW
+         module procedure exptA_2Dh_axisym_torsion_rmatvec
+      ! Adjoint of exptA_2Dh_axisym_torsion_matvec (deploy R3): same alpha, same
+      ! dt/nsteps (recompute_dt, cfl_limit) and the same pressure handling as
+      ! matvec. With ifadj the torsion module adds the exact transposes of
+      ! G2/G3/G6 and the (div_in U) v term of Nek's transport; the projection
+      ! (D_lam included) is self-adjoint and unchanged.
+         character(len=*), parameter :: this_procedure = "exptA_2Dh_axisym_torsion_rmatvec"
          select type (vec_in)
          type is (nek_zvector)
             select type (vec_out)
             type is (nek_zvector)
          ! Force baseflow.
                call vec2nek(vx, vy, vz, pr, t, self%baseflow)
-         ! Check whether we need to consider spanwise advection (W)
-               if_advW = check_W(self%if_advW, self%betaz, wtol)
          ! Ensure correct Nek status (transpose -> ifadj)
-               call setup_linear_solver(transpose     = .true.,
-     &                                  silent        = .false.,
-     &                                  endtime       = self%tau,
-     &                                  recompute_dt  = .false.,
-     &                                  cfl_limit     = cfl_limit)
-         ! Set initial condition for the adjoint solver.
+               call setup_linear_solver(transpose         = .true.,
+     &                                  silent            = .false.,
+     &                                  endtime           = self%tau,
+     &                                  recompute_dt      = .false.,
+     &                                  cfl_limit         = cfl_limit,
+     &                                  solve_temperature = .true.)
+         ! Set initial condition for the adjoint solver; velocity only.
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
-         ! Integrate the adjoint equations, same betaz.
+               call rzero(prp, lp*lpert)
+         ! Integrate the adjoint equations, same alpha (terms switch on ifadj).
                time = 0.0_dp
                do istep = 1, nsteps
-                  call nek_advance_2Dh_planar(self%betaz, if_advW)
+                  call nek_advance_2Dh_axisym(self%alpha)
                end do
-         ! Copy the final solution to vector.
+         ! Copy the final solution to vector; velocity only.
+               call rzero(prp, lp*lpert)
                call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
             class default
                call type_error('vec_out','nek_zvector','OUT',this_module,this_procedure)
@@ -264,7 +266,7 @@
          class default
             call type_error('vec_in','nek_zvector','IN',this_module,this_procedure)
          end select
-         end procedure exptA_2Dh_planar_rmatvec
+         end procedure exptA_2Dh_axisym_torsion_rmatvec
 
 
          logical function check_W(if_advW_in, betaz, wtol) result(if_advW)

@@ -12,7 +12,8 @@
          use LightKrylov, only: dp
          use neklab_nek_setup, only: nek_log_message, nek_log_warning, nek_stop_error
          use neklab_timing, only: neklab_timer_start, neklab_timer_stop,
-     &                            t_helm_solve, t_pres_solve, t_pres_prec, t_pres_proj
+     &                            t_helm_solve, t_pres_solve, t_pres_prec, t_pres_proj,
+     &                            t_pres_block_solve, t_pres_block_prec
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -650,7 +651,7 @@
             real(dp), external :: vlsc2, glsum
             character(len=128) :: msg
 
-            call neklab_timer_start(t_pres_solve)
+            call neklab_timer_start(t_pres_block_solve)
             ntot2 = lx2*ly2*lz2*nelv
             if (.not. iflag) then
                iflag = .true.
@@ -704,13 +705,13 @@
                do j = 1, m
                   iter = iter + 1
                   etime2 = dnekclock()
-                  call neklab_timer_start(t_pres_prec)
+                  call neklab_timer_start(t_pres_block_prec)
                   do kk = 1, 2
                      call col3(bw_gm(1,kk), mu_gmres, bv_gm(1,kk,j), ntot2)
                      call hsmg_solve(bz_gm(1,kk,j), bw_gm(1,kk))
                      if (ebar /= 0.0_dp) call cadd(bz_gm(1,kk,j), glsum(bw_gm(1,kk),ntot2)/ebar, ntot2)
                   end do
-                  call neklab_timer_stop(t_pres_prec)
+                  call neklab_timer_stop(t_pres_block_prec)
                   etime_p = etime_p + dnekclock() - etime2
                   call matvec(bw_gm, bz_gm(1,1,j), h1, h2, h2inv)
                   do kk = 1, 2
@@ -784,7 +785,7 @@
             if (nio == 0) write(6,9998) istep, '  U-PRES gmres  '//label//' = ', wavenumber,
      &         'BL', iter, divex, div0, tolpss, etime_p, etime1
  9998       format(i11,a,F5.1,1X,A,1X,I6,1p5e13.4)
-            call neklab_timer_stop(t_pres_solve)
+            call neklab_timer_stop(t_pres_block_solve)
          contains
             real(dp) function bdot(a, b)
                real(dp), dimension(lp,2), intent(in) :: a, b

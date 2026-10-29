@@ -38,7 +38,7 @@
          use neklab_timing, only: neklab_timer_start, neklab_timer_stop,
      &                            t_axisym_makefp, t_axisym_solve_cpl,
      &                            t_axisym_helm_matvec, t_axisym_cpl_matvec,
-     &                            t_axisym_pres_matvec
+     &                            t_axisym_pres_matvec, t_axisym_pres_block_matvec
          use neklab_nek_forcing, only: add_neklab_forcing_term, add_neklab_source_term
          implicit none
          include "SIZE"
@@ -49,7 +49,7 @@
          character(len=*), parameter, private :: this_module = 'neklab_2Dh_axisym'
          integer, parameter :: lv = lx1*ly1*lz1*lelv
          integer, parameter :: lp = lx2*ly2*lz2*lelv
-         integer, parameter, public :: maxit_p_axisym = 1500 ! max iterations for pressure solve
+         integer, parameter, public :: maxit_p_axisym = 1000 ! max iterations for pressure solve
 
          real(dp), dimension(:,:,:,:), pointer, private :: shift_op => null() ! shift seen by helm_matvec_axisym
 
@@ -85,9 +85,9 @@
          public ::     ophinv_urphi_2Dh_axisym
          public ::     incomprp_div_2Dh_axisym
          public ::      incomprp_dw_2Dh_axisym
-         public ::   incomprp_block_2Dh_axisym
          public ::          pres_matvec_axisym
          public ::    pres_block_matvec_axisym
+         public ::  incomprp_block_2Dh_axisym
 
          public :: build_axisym_coeffs
          public :: enable_axisym_curvature_terms
@@ -602,7 +602,7 @@
             real(dp), dimension(lp,2), intent(in)  :: p
             real(dp), dimension(lv),   intent(in)  :: h1, h2, h2inv
             integer :: jp_save, k, ntot2
-            call neklab_timer_start(t_axisym_pres_matvec)
+            call neklab_timer_start(t_axisym_pres_block_matvec)
             ntot2 = lx2*ly2*lz2*nelv
             jp_save = jp
             do k = 1, 2
@@ -616,7 +616,7 @@
                call add2(Ap(1,jp), tmp_m2, ntot2)
             end do
             jp = jp_save
-            call neklab_timer_stop(t_axisym_pres_matvec)
+            call neklab_timer_stop(t_axisym_pres_block_matvec)
          end subroutine pres_block_matvec_axisym
 
          subroutine incomprp_block_2Dh_axisym(dpr, h1, h2, h2inv, alpha, maxit)

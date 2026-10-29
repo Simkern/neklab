@@ -93,6 +93,8 @@
          use neklab_nek_forcing, only: add_neklab_forcing_term, add_neklab_source_term
          use neklab_2Dh_common, only: wmask, bm2_map12_2Dh, bm2_map12T_2Dh
          use neklab_t2Dh, only: t2Dh
+         use neklab_timing, only: neklab_timer_start, neklab_timer_stop,
+     &                            t_torsion_lin, t_torsion_refresh_nl
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -713,6 +715,7 @@
       !! by bm1 and makeabf by rho; makeuq by bm1 and neklab_source by rhoCp.
             integer :: ntot1
             if (lambda_eq_zero) return
+            call neklab_timer_start(t_torsion_refresh_nl)
             ntot1 = lx1*ly1*lz1*nelv
             call torsion_force_nl(fZ_nl, fR_nl, fs_nl, vx, vy, t(1,1,1,1,1))
             call col3   (k_t1, vtrans(1,1,1,1,1), bm1, ntot1)
@@ -720,6 +723,7 @@
             call invcol2(fR_nl, k_t1, ntot1)
             call col3   (k_t1, vtrans(1,1,1,1,2), bm1, ntot1)
             call invcol2(fs_nl, k_t1, ntot1)
+            call neklab_timer_stop(t_torsion_refresh_nl)
          end subroutine torsion_refresh_nl
 
          subroutine torsion_forcing_pw(fx, fy, fz, ix, iy, iz, e)
@@ -778,6 +782,7 @@
             integer, intent(in) :: jp_
             integer :: ntot1, ipert
             if (lambda_eq_zero) return
+            call neklab_timer_start(t_torsion_lin)
             ntot1 = lx1*ly1*lz1*nelv
             ipert = npert + 1 - jp_
             if (.not. ifadj) then
@@ -795,6 +800,7 @@
             end if
             call add2(bfx_jp, lin_FZ, ntot1)
             call add2(bfy_jp, lin_FR, ntot1)
+            call neklab_timer_stop(t_torsion_lin)
          end subroutine torsion_add_linear_uv
 
          subroutine torsion_add_linear_s(bq_jp)

@@ -41,14 +41,7 @@
      &                                 torsion_refresh_nl, torsion_add_pressure_nl,
      &                                 add_dlam_div, lambda_correction, add_lambda_block_E
          use neklab_nek_setup, only: nek_stop_error, neklab_cfl_scale
-         use neklab_timing, only: neklab_timer_start, neklab_timer_stop,
-     &                            neklab_clock_tic, neklab_clock_toc,
-     &                            t_planar_advance, t_planar_adv_setup, t_planar_adv_advection,
-     &                            t_planar_adv_rhs, t_planar_adv_velocity, t_planar_adv_pressure,
-     &                            t_planar_adv_correction,
-     &                            t_axisym_advance, t_axisym_adv_setup, t_axisym_adv_advection,
-     &                            t_axisym_adv_rhs, t_axisym_adv_uz, t_axisym_adv_urphi,
-     &                            t_axisym_adv_pressure, t_axisym_adv_correction
+         use neklab_timing, only: neklab_timer_start, neklab_timer_stop, t_incomprn_full
          implicit none
          include "SIZE"
          include "TOTAL"
@@ -97,21 +90,15 @@
             ntot1 = lx1*ly1*lz1*nelv
             call prepare_step_2Dh_planar(betaz, if_advW_in)
 
-            call neklab_timer_start(t_planar_advance)
-            call neklab_clock_tic()
-
-            call neklab_timer_start(t_planar_adv_setup)
             call setup_step_2Dh()
-            call neklab_timer_stop(t_planar_adv_setup)
 
-            call neklab_timer_start(t_planar_adv_advection)
+      ! --- explicit slot-coupled terms: read jp, write ipert
             do jp = 1, npert
                call make_coupling_2Dh_planar(gradw)
             end do
-            call neklab_timer_stop(t_planar_adv_advection)
 
+      ! --- per slot: right-hand side and velocity increments
             do jp = 1, npert
-               call neklab_timer_start(t_planar_adv_rhs)
                igeom = 1
                call makefp_2Dh_planar()
                igeom = 2
@@ -121,16 +108,13 @@
                if (ifadj) call seth2bc(h2)
                call cresvipp_2Dh(resv1, resv2, resv3, gradw(1,jp))
                call ophx_2Dh_planar(resv1, resv2, resv3, h1, h2)
-               call neklab_timer_stop(t_planar_adv_rhs)
 
-               call neklab_timer_start(t_planar_adv_velocity)
                call ophinv_2Dh_planar(dv1, dv2, dv3, resv1, resv2, resv3, h1, h2)
                call opadd2(vxp(1,jp), vyp(1,jp), vzp(1,jp), dv1, dv2, dv3)
                call add2  (tp(1,1,jp), dv3, ntot1)
-               call neklab_timer_stop(t_planar_adv_velocity)
             end do
 
-            call neklab_timer_start(t_planar_adv_pressure)
+      ! --- incompressibility
             call setup_incomprp_2Dh(h1, h2, h2inv)
             call ebar_2Dh(ebar, pres_matvec_planar, h1, h2, h2inv, betaz)
             do jp = 1, npert
@@ -138,17 +122,13 @@
                call incomprp_solve_2Dh(dpr(1,jp), h1, h2, h2inv, pres_matvec_planar, ebar,
      &                                 betaz, maxit_p_planar, 'beta')
             end do
-            call neklab_timer_stop(t_planar_adv_pressure)
 
-            call neklab_timer_start(t_planar_adv_correction)
+      ! --- correction
             do jp = 1, npert
                call incomprp_dw_2Dh_planar(dw, dpr, h2inv)
                call incomprp_update_2Dh(dpr(1,jp), dw, h2inv)
             end do
-            call neklab_timer_stop(t_planar_adv_correction)
 
-            call neklab_clock_toc()
-            call neklab_timer_stop(t_planar_advance)
             jp = 0
          end subroutine nek_advance_2Dh_planar
 
@@ -166,22 +146,14 @@
 
             call prepare_step_2Dh_axisym(alpha)
 
-            call neklab_timer_start(t_axisym_advance)
-            call neklab_clock_tic()
-
-            call neklab_timer_start(t_axisym_adv_setup)
             call setup_step_2Dh()
-            call neklab_timer_stop(t_axisym_adv_setup)
 
       ! --- explicit slot-coupled terms: read jp, write ipert
-            call neklab_timer_start(t_axisym_adv_advection)
             do jp = 1, npert
                call make_coupling_2Dh_axisym(gradw)       ! gradp (incl. D_lam^T p_ext), swirl advection
             end do
-            call neklab_timer_stop(t_axisym_adv_advection)
 
       ! --- momentum right-hand sides, per slot
-            call neklab_timer_start(t_axisym_adv_rhs)
             do jp = 1, npert
                igeom = 1
                call makefp_2Dh_axisym()                   ! incl. curvature and torsion
@@ -193,19 +165,13 @@
                call cresvipp_2Dh(resv_jp(1,1,jp), resv_jp(1,2,jp), resv_jp(1,3,jp), gradw(1,jp))
             end do
             call ophx_2Dh_axisym(resv_jp, h1, h2)
-            call neklab_timer_stop(t_axisym_adv_rhs)
 
-            call neklab_timer_start(t_axisym_adv_uz)
+      ! --- velocity increments: u_Z per slot, (u_R, u_phi) coupled at alpha /= 0
             call ophinv_uz_2Dh_axisym(resv_jp, h1, h2)
-            call neklab_timer_stop(t_axisym_adv_uz)
-
-            call neklab_timer_start(t_axisym_adv_urphi)
             call ophinv_urphi_2Dh_axisym(resv_jp, h1, h2)
-            call neklab_timer_stop(t_axisym_adv_urphi)
 
       ! --- incompressibility (E includes the lambda block when torsion is on;
       !     at alpha /= 0 with torsion the two slots are solved together)
-            call neklab_timer_start(t_axisym_adv_pressure)
             call setup_incomprp_2Dh(h1, h2, h2inv)
             if (.not. (alpha_eq_zero .or. lambda_eq_zero)) then
                do jp = 1, npert
@@ -220,17 +186,13 @@
      &                                    alpha, maxit_p_axisym, 'alpha')
                end do
             end if
-            call neklab_timer_stop(t_axisym_adv_pressure)
 
-            call neklab_timer_start(t_axisym_adv_correction)
+      ! --- correction
             do jp = 1, npert
                call incomprp_dw_2Dh_axisym(dw, dpr, h2inv)
                call incomprp_update_2Dh(dpr(1,jp), dw, h2inv)
             end do
-            call neklab_timer_stop(t_axisym_adv_correction)
 
-            call neklab_clock_toc()
-            call neklab_timer_stop(t_axisym_advance)
             jp = 0
          end subroutine nek_advance_2Dh_axisym
 
@@ -327,6 +289,7 @@
             real(dp) :: dtbd
             logical :: ifprjp
             integer :: istart, iter, ntot1, ntot2
+            call neklab_timer_start(t_incomprn_full)
             ntot1 = lx1*ly1*lz1*nelv
             ntot2 = lx2*ly2*lz2*nelv
             ifield = 1
@@ -361,6 +324,7 @@
             call lambda_correction(nl_ws, nl_dp, nl_h2inv, tmask(1,1,1,1,1))
             call add2(t(1,1,1,1,1), nl_ws, ntot1)
             call add2(pr, nl_dp, ntot2)
+            call neklab_timer_stop(t_incomprn_full)
          end subroutine incomprn_2Dh_full
 
          subroutine pres_matvec_full_nl(Ap, p, h1, h2, h2inv, intype)

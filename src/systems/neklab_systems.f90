@@ -45,6 +45,7 @@
          public :: compute_fdot
          public :: nek_constant_tol
          public :: nek_dynamic_tol
+         real(dp), parameter, public :: nek_dyn_maxtol = 1.0e-04_dp   ! ceiling of nek_dynamic_tol
       
       !--------------------------------------------------
       !-----     NEKLAB SYSTEM FOR FIXED-POINTS   -------
@@ -361,8 +362,8 @@
             integer,  intent(out)  :: info
             !! Information flag
             ! internals
-            real(dp), parameter :: maxtol = 1.0e-04_dp ! maximum acceptable solver tolerance
-            real(dp), parameter :: mintol = 10.0*atol_dp! minimum acceptable solver tolerance
+            real(dp), parameter :: maxtol = nek_dyn_maxtol ! maximum acceptable solver tolerance
+            real(dp), parameter :: mintol = 10.0*atol_dp   ! minimum acceptable solver tolerance
             real(dp) :: tol_old, target_tol_
             character(len=256) :: msg
 

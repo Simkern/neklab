@@ -123,9 +123,11 @@
             opts = newton_dp_opts(maxiter=optval(maxiter, 40), ifbisect=.false.)
             call neklab_timer_start(t_fp_solve)
             if (tol_mode == 1) then
-               call newton(sys, X, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_constant_tol)
+               call newton(sys, X, gmres_rdp, info, rtol=0.0_dp, atol=tol, options=opts, 
+     &                     scheduler=nek_constant_tol)
             else
-               call newton(sys, X, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_dynamic_tol)
+               call newton(sys, X, gmres_rdp, info, rtol=0.0_dp, atol=min(tol, nek_dyn_maxtol),
+     &                     options=opts, scheduler=nek_dynamic_tol)
             end if
             call neklab_timer_stop(t_fp_solve)
          end subroutine solve_fixed_point

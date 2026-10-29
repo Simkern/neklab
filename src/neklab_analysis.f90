@@ -157,19 +157,21 @@
             character(len=3) :: file_prefix
             type(newton_dp_metadata) :: meta
       
-		tol_mode_ = optval(tol_mode, 1)
+            tol_mode_ = optval(tol_mode, 1)
 
-      	call nek_log_message('Starting newton iteration.', this_module, this_procedure)
+            call nek_log_message('Starting newton iteration.', this_module, this_procedure)
       
       ! Define options for the Newton solver
             opts = newton_dp_opts(maxiter=40, ifbisect=.false.)
       
       ! Call to LightKrylov.
             if (tol_mode_ == 1) then
-               call newton(sys, bf, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_constant_tol, meta=meta)
+               call newton(sys, bf, gmres_rdp, info, rtol=0.0_dp, atol=tol, options=opts,
+     &                     scheduler=nek_constant_tol, meta=meta)
             else
-		   call newton(sys, bf, gmres_rdp, info, atol=tol, options=opts, scheduler=nek_dynamic_tol, meta=meta)
-		end if
+               call newton(sys, bf, gmres_rdp, info, rtol=0.0_dp, atol=min(tol, nek_dyn_maxtol),
+     &                     options=opts, scheduler=nek_dynamic_tol, meta=meta)
+            end if
       
       ! Outpost initial condition.
             file_prefix = 'nwt'

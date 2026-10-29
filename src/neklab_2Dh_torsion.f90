@@ -1,661 +1,634 @@
       module neklab_2Dh_torsion
-      !! Torsion terms for helical pipes in the Frenet frame of the centreline
-      !! (derivation and symbolic verification: claude/helix_2Dh_derivation.tex).
+      !! Torsion terms of the 2Dh axisymmetric solver: helical pipe in the
+      !! Germano (Frenet) frame. Written from scratch (restart, 28 Oct 2026)
+      !! from helix_2Dh_derivation.tex; nothing here depends on either
+      !! stepper. The steppers (neklab_2Dh, neklab_2Dh_axisym) call:
+      !!
+      !!   init_torsion_2Dh           once, from init_2Dh_axisym
+      !!   torsion_refresh_nl         nonlinear step, from U^n, before heat(1)
+      !!   torsion_add_pressure_nl    nonlinear step, after heat(1): bq += D_lam^T p_ext
+      !!   torsion_add_linear_uv/_s   linear step, makefp: bfxp/bfyp/bqp += L(U; u)
+      !!   torsion_transport_velocity CFL hook (rotation advection c(U) dth)
+      !!   dlam_div_add, dlam_grad_t  the continuity/pressure pair, both steppers
+      !!   lambda_block_E_add         the lambda block of the pressure operator
+      !!   lambda_correction          the u_s pressure correction
       !!
       !!--------------------------------------------------------------------
-      !! OPERATORS
+      !! NOTATION  (helix_2Dh_derivation.tex, Sec. 2-3)
       !!--------------------------------------------------------------------
       !!
-      !!   streamwise derivative   T.grad = (1/R)(d_phi - lambda*dtheta)
-      !!   rotation generator      dtheta = zhat*d/dR - rhat*d/dZ ,
-      !!                           zhat = xm1 - z_c, rhat = ym1 - R_c
-      !!   rotation of a vector    S(v) = (dtheta v_Z + v_R, dtheta v_R - v_Z, dtheta v_phi)
+      !!   Z = xm1, R = ym1, zeta = Z - z_c, rho = R - R_c, lambda = tau/kappa
+      !!   dth f = zeta df/dR - rho df/dZ        (rotation about (z_c, R_c))
+      !!   D_s   = (1/R)(P - lambda dth),  P = -i alpha (0 here: alpha = 0)
+      !!   u = (u_Z, u_R, u_s) = (vx, vy, t(:,1))  base;  (vxp, vyp, tp) perturbation
       !!
-      !! lambda = tau/kappa and the axial centre z_c are set by t2Dh%init_geom;
-      !! lambda = 0 (default) is the torus and every entry point returns at once.
-      !! dtheta is tangent to the wall only for a circular wall centred on
-      !! (z_c, R_c): the mesh must be registered accordingly, and must be the
-      !! FULL cross-section (torsion breaks the Z -> -Z symmetry).
+      !! Terms Nek does not provide, as right-hand-side force densities:
+      !!
+      !!   G2  advection + frame   rho_d c(a) S(b),   c(a) = lambda a_s / R
+      !!                           S(b) = (dth b_Z + b_R, dth b_R - b_Z, dth b_s)
+      !!       nonlinear: G2(U,U);   linear: G2(U,u) + G2(u,U)   (exact by construction)
+      !!   G3  viscous             mu * [torsion part of (D_s + M)^2 v] at P = 0
+      !!                           (linear in v; lambda^2/R^2 shifts on Z, R included)
+      !!   G4  pressure, u_s eq.   +(lambda/R) dth p   =  weak  D_lam^T p
+      !!   G5  continuity          -(lambda/R) dth u_s =  weak  D_lam u_s
+      !!
+      !! G2 and G3 are computed ONCE, as weak (bm1-weighted) force vectors, by the
+      !! same routines for both solvers. The linear solver adds them to
+      !! bfxp/bfyp/bqp; the nonlinear one passes F/(rho bm1) through userf/userq,
+      !! which Nek multiplies back by bm1 (makeuf/makeuq) and rho (makeabf /
+      !! neklab_source). Both go through EXT3 at the same time level.
+      !!
+      !! G4/G5 are IMPLICIT in both solvers: D_lam is part of the projection
+      !! (E = D B^-1 D^T with D = [D_in, D_lam]) and the correction updates u_s.
+      !! An explicit D_lam^T P (route A) has a dt-independent pressure-error
+      !! instability for (lambda delta/(1-delta))^2 > 1/7 with EXT3.
+      !!
+      !! The D_lam pair is made exactly mean-free (1^T D_lam u = 0, D_lam^T 1 = 0),
+      !! so that E 1 = 0 holds exactly: ortho and the hsmg preconditioner assume it.
       !!
       !!--------------------------------------------------------------------
-      !! TREATMENT  (claude/H/deploy_H7_lambda_in_E.md)
+      !! DISCRETE dth
       !!--------------------------------------------------------------------
       !!
-      !! Explicit, in both solvers, from the same kernels below and at the same
-      !! time level (before EXT3):
+      !! Element-local collocation derivative (as gradm1):
+      !!   dth f = A_r f_r + A_s f_s ,
+      !!   A_r = (zeta ry - rho rx)/J ,  A_s = (zeta sy - rho sx)/J
+      !! dth_t is its exact algebraic transpose, never "-dth". The meshes must not
+      !! touch the axis (R > 0 is checked by init_2Dh_axisym).
       !!
-      !!   advection + frame rotation   RHS +(lambda U_phi/R) S(U)
-      !!                                (linear: + c(U) S(u) + c(u) S(U))
-      !!   viscous                      nu * [torsion part of the vector
-      !!                                Laplacian], INCLUDING -lambda^2/R^2 on
-      !!                                the Z and R components
+      !!--------------------------------------------------------------------
+      !! TERM-GROUP SWITCHES
+      !!--------------------------------------------------------------------
       !!
-      !! In the pressure step: incremental pressure correction on the full
-      !! divergence D = [D_in, D_lam],
-      !!
-      !!   D_lam u   = bm2 * I12( -(lambda/R) dtheta u )      (continuity)
-      !!   D_lam^T p = dphi_apply_t( I12^T(bm2 p) )            (u_phi pressure term)
-      !!
-      !!   - u_phi predictor: +D_lam^T p_ext, the SAME extrapolated pressure as
-      !!     the in-plane predictor (linear: compute_gradp_axisym; nonlinear:
-      !!     add_torsion_pressure_phi_nl, after heat(1));
-      !!   - E = D_in B^-1 D_in^T + D_lam B^-1 D_lam^T  (add_lambda_block_E);
-      !!   - correction u_phi += h2inv B^-1 D_lam^T dp  (lambda_correction,
-      !!     compute_dw_axisym).
-      !!
-      !! An explicit D_lam^T P with an in-plane-only projection is unstable for
-      !! |D_lam|^2/|D_in|^2 > 1/7 (EXT3), whatever dt: see the deploy note.
-      !!
-      !! alpha /= 0 with lambda /= 0 is refused by prepare_step_2Dh_axisym until
-      !! Step 7 (add_torsion_coupling and dphi_alpha_apply* are kept for it).
+      !! set_torsion_groups(adv, visc, pres) acts on BOTH solvers, so that a
+      !! partial configuration is still a consistent nonlinear/linear pair (the
+      !! Jacobian tests remain valid). 'pres' removes D_lam everywhere at once:
+      !! continuity, E, gradient and correction. Call before init_2Dh_axisym.
          use LightKrylov, only: dp
-         use neklab_t2Dh, only: t2Dh
-         use neklab_nek_setup, only: nek_log_debug, nek_log_message,
-     &                               nek_log_warning, nek_stop_error
+         use stdlib_optval, only: optval
+         use neklab_nek_setup, only: nek_log_message, nek_log_warning, nek_log_debug,
+     &                               nek_stop_error, set_cfl_velocity_hook
          use neklab_nek_forcing, only: add_neklab_forcing_term, add_neklab_source_term
-         use neklab_2Dh_common, only: bm2_map12_2Dh, bm2_map12T_2Dh
+         use neklab_2Dh_common, only: wmask, bm2_map12_2Dh, bm2_map12T_2Dh
+         use neklab_t2Dh, only: t2Dh
          implicit none
          include "SIZE"
          include "TOTAL"
-
+         include "ADJOINT"
+ 
          private
          character(len=*), parameter, private :: this_module = 'neklab_2Dh_torsion'
-
-         logical, public :: if_torsion_zero = .true.
-      !! Mirrors t2Dh%is_torsion_zero(), cached at build_torsion_coeffs time.
-
-         integer, parameter, private :: lv = lx1*ly1*lz1*lelv
-         integer, parameter, private :: lxyz = lx1*ly1*lz1
-         integer, parameter, private :: lp = lx2*ly2*lz2*lelv
-
-      ! --- coefficient fields, built once (lambda does not change at runtime)
-         real(dp), dimension(lv), private :: zhat_f, rhat_f
-         real(dp), dimension(lv), private :: lamR_f     ! lambda/R
-         real(dp), dimension(lv), private :: lamR2_f    ! lambda/R^2
-         real(dp), dimension(lv), private :: lam2R2_f   ! lambda^2/R^2
-         real(dp), dimension(lv), private :: lamzR3_f   ! lambda*zhat/R^3
-         real(dp), dimension(lv), private :: invR_f     ! 1/R
-         logical,  private :: torsion_coeffs_defined = .false.
-         real(dp), private :: lambda_built = 0.0_dp     ! lambda the coefficients were built with
-
-      ! --- nonlinear forcing (accelerations), refreshed before every step and
-      !     read pointwise by the registered terms below
-         real(dp), dimension(lv), private :: fZ_nl = 0.0_dp, fR_nl = 0.0_dp, fP_nl = 0.0_dp
-
-      ! --- scratch. Each group belongs to one level of the call tree, so no
-      !     routine overwrites an array its caller still reads.
-         real(dp), dimension(lv), private :: g_x, g_y, g_z       ! apply_dtheta
-         real(dp), dimension(lv), private :: l_g                 ! apply_Ltheta
-         real(dp), dimension(lv), private :: c_t                 ! add_cxy
-         real(dp), dimension(lv), private :: p_t                 ! dphi_apply_t
-         real(dp), dimension(lv), private :: m_t                 ! dlam_grad_t
-         real(dp), dimension(lv), private :: k_dZ, k_dR, k_dP, k_L ! kernels
-         real(dp), dimension(lv), private :: acc_a, acc_b, acc_c, cf_1 ! drivers
-         real(dp), dimension(lv), private :: e_a, d_t             ! add_lambda_block_E, add_dlam_div
-         real(dp), dimension(lp), private :: d_m2, pm_t           ! add_dlam_div, dlam_grad_t
-         real(dp), dimension(lp), private :: pe_m2, pl_m2         ! add_torsion_pressure_phi_nl
-         real(dp), private :: vol_bm2 = 0.0_dp                    ! sum(bm2), for the mean removal
-
-         public :: build_torsion_coeffs
-         public :: check_torsion_cache
-         public :: apply_dtheta
-         public :: apply_dtheta_t
-         public :: dphi_apply
-         public :: dphi_apply_t
-         public :: dphi_alpha_apply
-         public :: dphi_alpha_apply_t
-         public :: dlam_grad_t
-         public :: add_dlam_div
-         public :: add_lambda_block_E
-         public :: lambda_correction
+         integer, parameter :: lv = lx1*ly1*lz1*lelv
+         integer, parameter :: lp = lx2*ly2*lz2*lelv
+ 
+      ! --- state
+         logical,  private :: torsion_on    = .false.   ! lambda /= 0 and init done
+         logical,  private :: torsion_built = .false.
+         real(dp), private :: lamt  = 0.0_dp
+         real(dp), private :: zcen   = 0.0_dp
+         real(dp), private :: Rcen   = 0.0_dp
+         real(dp), private :: vol2 = 0.0_dp            ! sum(bm2), mean removal
+         logical,  private :: use_adv  = .true.
+         logical,  private :: use_visc = .true.
+         logical,  private :: use_pres = .true.
+ 
+      ! --- coefficient fields (M1)
+         real(dp), dimension(lv), private :: zeta_f, rho_f, invR_f
+         real(dp), dimension(lv), private :: Ar_f, As_f   ! dth = Ar d/dr + As d/ds
+ 
+      ! --- nonlinear forcing as accelerations, read pointwise by the registered terms
+         real(dp), dimension(lv), private :: fZ_nl = 0.0_dp, fR_nl = 0.0_dp, fs_nl = 0.0_dp
+ 
+      ! --- linear forcing of the current slot, computed at the velocity stage of
+      !     makefp and consumed (u_s part) at its scalar stage
+         real(dp), dimension(lv), private :: lin_FZ, lin_FR, lin_Fs
+ 
+      ! --- scratch, one group per call level
+         real(dp), dimension(lv), private :: k_dZ, k_dR, k_ds, k_t1, k_t2   ! kernels
+         real(dp), dimension(lv), private :: k_aZ, k_aR, k_as               ! kernels (2nd arg)
+         real(dp), dimension(lv), private :: p_m1a, p_m1b                   ! pressure pair
+         real(dp), dimension(lp), private :: p_m2a                          ! pressure pair
+         real(dp), dimension(lv), private :: e_m1                           ! E block, correction
+         real(dp), dimension(lp), private :: e_m2                           ! E block
+         real(dp), dimension(lp), private :: n_pext                         ! nonlinear p_ext
+         real(dp), dimension(lx1,ly1), private :: t_r, t_s                  ! dth element work
+ 
+         public :: init_torsion_2Dh
+         public :: set_torsion_groups
+         public :: torsion_active
          public :: torsion_lambda
-         public :: add_torsion_forcing_RZ
-         public :: add_torsion_forcing_phi
-         public :: add_torsion_coupling
-         public :: refresh_torsion_forcing_nl
-         public :: add_torsion_pressure_phi_nl
-
+         public :: dtheta, dtheta_t
+         public :: dlam_div_add, dlam_grad_t
+         public :: lambda_block_E_add, lambda_correction
+         public :: torsion_force_nl, torsion_force_lin
+         public :: torsion_refresh_nl, torsion_add_pressure_nl
+         public :: torsion_add_linear_uv, torsion_add_linear_s
+         public :: torsion_transport_velocity
+         public :: check_wall_centering
+         public :: add_g2, add_g3          ! kernels, exposed for the unit tests
+ 
       contains
-
+ 
       !====================================================================
       !     SETUP
       !====================================================================
-
-         subroutine build_torsion_coeffs()
-      !! Builds the coefficient fields from t2Dh%init_geom and, for lambda /= 0,
-      !! registers the nonlinear torsion terms. Idempotent. Called by
-      !! init_2Dh_axisym.
-            real(dp) :: r, zc, Rc
+ 
+         subroutine set_torsion_groups(adv, visc, pres)
+      !! Switch term groups on/off in BOTH solvers. Default: all on.
+            logical, optional, intent(in) :: adv, visc, pres
+            character(len=128) :: msg
+            if (torsion_built) call nek_stop_error('set_torsion_groups must be called before '//
+     &         'init_2Dh_axisym.', this_module, 'set_torsion_groups')
+            use_adv  = optval(adv,  .true.)
+            use_visc = optval(visc, .true.)
+            use_pres = optval(pres, .true.)
+            write (msg, '(A,3L2)') 'torsion groups (adv, visc, pres):', use_adv, use_visc, use_pres
+            call nek_log_message(msg, this_module, 'set_torsion_groups')
+         end subroutine set_torsion_groups
+ 
+         logical function torsion_active()
+            torsion_active = torsion_on
+         end function torsion_active
+ 
+         real(dp) function torsion_lambda()
+            torsion_lambda = merge(lamt, 0.0_dp, torsion_on)
+         end function torsion_lambda
+ 
+         subroutine init_torsion_2Dh()
+      !! Build the coefficients from t2Dh%init_geom and register the nonlinear
+      !! terms and the CFL velocity. Idempotent. Called by init_2Dh_axisym, after
+      !! the masks are built. A torus (lambda = 0, or no init_geom) leaves
+      !! everything off: every entry point below then returns at once.
+            character(len=*), parameter :: this_procedure = 'init_torsion_2Dh'
+            character(len=256) :: msg
             real(dp), external :: glsum
-            integer :: i, ntot1
-
-            if (torsion_coeffs_defined) return
-
-            if_torsion_zero = t2Dh%is_torsion_zero()
-            if (if_torsion_zero) then
-               torsion_coeffs_defined = .true.
+            integer :: i, ie, ix, iy, ntot1
+            real(dp) :: dev
+ 
+            if (torsion_built) return
+            torsion_built = .true.
+            torsion_on = .false.
+            if (t2Dh%is_torsion_zero()) then
+               call nek_log_message('lambda = 0: torsion terms inactive.', this_module, this_procedure)
                return
             end if
-
+            if (ldim /= 2) call nek_stop_error('torsion requires a 2D mesh.', this_module, this_procedure)
+            if (ifadj) call nek_stop_error('torsion: adjoint not implemented.', this_module, this_procedure)
+ 
+            lamt = t2Dh%get_lambda()
+            zcen  = t2Dh%get_axial_centre()
+            Rcen  = t2Dh%get_curv_radius()
             ntot1 = lx1*ly1*lz1*nelv
-            lambda_built = t2Dh%get_lambda()
-            vol_bm2 = glsum(bm2, lx2*ly2*lz2*nelv)
-            zc = t2Dh%get_axial_centre()
-            Rc = t2Dh%get_curv_radius()
-
-            call copy(zhat_f, xm1, ntot1)
-            call copy(rhat_f, ym1, ntot1)
+ 
             do i = 1, ntot1
-               r = rhat_f(i)
-               zhat_f  (i) = zhat_f(i) - zc
-               rhat_f  (i) = r - Rc
-               invR_f  (i) = 1.0_dp/r
-               lamR_f  (i) = lambda_built/r
-               lamR2_f (i) = lambda_built/r**2
-               lam2R2_f(i) = lambda_built**2/r**2
-               lamzR3_f(i) = lambda_built*zhat_f(i)/r**3
+               zeta_f(i) = xm1(i,1,1,1) - zcen
+               rho_f(i)  = ym1(i,1,1,1) - Rcen
+               invR_f(i) = 1.0_dp/ym1(i,1,1,1)
             end do
-
-      ! nonlinear solver: pointwise terms reading fZ_nl, fR_nl, fP_nl (ipert = 0)
-            call add_neklab_forcing_term(torsion_forcing_pw, 'torsion')
-            call add_neklab_source_term (torsion_source_pw,  'torsion')
-
-            torsion_coeffs_defined = .true.
-         end subroutine build_torsion_coeffs
-
-         subroutine check_torsion_cache(caller)
-      !! Stop if lambda has changed since build_torsion_coeffs ran, i.e. if
-      !! t2Dh%init_geom was called after init_2Dh_axisym.
-            character(len=*), intent(in) :: caller
-            real(dp) :: lam_now
-            if (.not. torsion_coeffs_defined) return
-            lam_now = merge(0.0_dp, t2Dh%get_lambda(), t2Dh%is_torsion_zero())
-            if (lam_now /= lambda_built) call nek_stop_error(
-     &         'lambda changed after the torsion coefficients were built: '//
-     &         'call t2Dh%init_geom before init_2Dh_axisym.', this_module, caller)
-         end subroutine check_torsion_cache
-
-      !====================================================================
-      !     THE dtheta KERNEL AND ITS EXACT TRANSPOSE
-      !====================================================================
-
-         subroutine apply_dtheta(dout, din)
-      !! dout = dtheta(din) = zhat*d(din)/dR - rhat*d(din)/dZ (Nek x = Z, y = R).
-      !! Element-local collocation derivative, exactly as gradm1 returns it, so
-      !! that apply_dtheta_t is its exact discrete transpose.
-            real(dp), dimension(lv), intent(out) :: dout
-            real(dp), dimension(lv), intent(in)  :: din
-            integer :: i, ntot1
-            ntot1 = lx1*ly1*lz1*nelv
-            call gradm1(g_x, g_y, g_z, din)
-            do i = 1, ntot1
-               dout(i) = zhat_f(i)*g_y(i) - rhat_f(i)*g_x(i)
-            end do
-         end subroutine apply_dtheta
-
-         subroutine apply_dtheta_t(dout, din)
-      !! dout = dtheta^T(din), the exact discrete transpose of apply_dtheta under
-      !! the Euclidean inner product: gradm1 run backwards. gradm1 pairs
-      !! local_grad2(ur,us,u,N,e,dxm1,dytm1); its transpose is
-      !! local_grad2_t(u,ur,us,N,e,dym1,dxtm1).
-            real(dp), dimension(lv), intent(out) :: dout
-            real(dp), dimension(lv), intent(in)  :: din
-            real(dp), dimension(lxyz) :: ur, us, wtmp, ax, ay
-            integer :: e, i, i0, ix, iy, N
-
-            if (if3d) call nek_stop_error('apply_dtheta_t is 2D only.',
-     &         this_module, 'apply_dtheta_t')
-
-            N = lx1 - 1
-            do e = 1, nelv
-               i0 = (e - 1)*lxyz
-               do i = 1, lxyz
-                  ax(i) = -rhat_f(i0 + i)*din(i0 + i)
-                  ay(i) =  zhat_f(i0 + i)*din(i0 + i)
-               end do
+            do ie = 1, nelv
                do iy = 1, ly1
                do ix = 1, lx1
-                  i = ix + (iy - 1)*lx1
-                  ur(i) = jacmi(i, e)*(rxm1(ix,iy,1,e)*ax(i) + rym1(ix,iy,1,e)*ay(i))
-                  us(i) = jacmi(i, e)*(sxm1(ix,iy,1,e)*ax(i) + sym1(ix,iy,1,e)*ay(i))
+                  i = ix + lx1*(iy - 1) + lx1*ly1*(ie - 1)
+                  Ar_f(i) = jacmi(ix + lx1*(iy - 1),ie)*(zeta_f(i)*rym1(ix,iy,1,ie) - rho_f(i)*rxm1(ix,iy,1,ie))
+                  As_f(i) = jacmi(ix + lx1*(iy - 1),ie)*(zeta_f(i)*sym1(ix,iy,1,ie) - rho_f(i)*sxm1(ix,iy,1,ie))
                end do
                end do
-               if (ifaxis) call setaxdy(ifrzer(e))
-               call local_grad2_t(dout(i0 + 1), ur, us, N, 1, dym1, dxtm1, wtmp)
             end do
-         end subroutine apply_dtheta_t
-
-      !====================================================================
-      !     THE D_lambda PAIR  (continuity / u_phi pressure)
-      !====================================================================
-
-         subroutine dphi_apply(dout, uin)
-      !! dout = -(lambda/R)*dtheta(uin) on M1, unweighted. D_lam u = bm2*I12(dout).
-            real(dp), dimension(lv), intent(out) :: dout
-            real(dp), dimension(lv), intent(in)  :: uin
-            integer :: ntot1
-            ntot1 = lx1*ly1*lz1*nelv
-            if (if_torsion_zero) then
-               call rzero(dout, ntot1)
-               return
+            vol2 = glsum(bm2, lx2*ly2*lz2*nelv)
+ 
+            call check_full_section(this_procedure)
+            call check_masks_equal(this_procedure)
+            call check_wall_centering(dev, verbose=.true.)
+ 
+            call add_neklab_forcing_term(torsion_forcing_pw, 'torsion')
+            call add_neklab_source_term (torsion_source_pw,  'torsion')
+            call set_cfl_velocity_hook(torsion_transport_velocity)
+ 
+            torsion_on = .true.
+            write (msg, '(A,ES14.6,A,ES14.6,A,ES14.6)') 'torsion active: lambda =', lamt,
+     &         ', z_c =', zcen, ', R_c =', Rcen
+            call nek_log_message(msg, this_module, this_procedure)
+            write (msg, '(A,3L2)') 'torsion groups (adv, visc, pres):', use_adv, use_visc, use_pres
+            call nek_log_message(msg, this_module, this_procedure)
+         end subroutine init_torsion_2Dh
+ 
+         subroutine check_full_section(caller)
+      !! Torsion breaks Z -> -Z symmetry and dth is wall-normal on a plane
+      !! Z = z_c: a helix needs the full cross-section (no SYM/ON faces).
+            character(len=*), intent(in) :: caller
+            character(len=3) :: cb
+            integer :: ie, ifc, nbad
+            integer, external :: iglsum
+            nbad = 0
+            do ie = 1, nelv
+               do ifc = 1, 2*ndim
+                  cb = cbc(ifc, ie, 1)
+                  if (cb == 'SYM' .or. cb == 'ON ' .or. cb == 'on ') nbad = nbad + 1
+               end do
+            end do
+            nbad = iglsum(nbad, 1)
+            if (nbad > 0) call nek_stop_error('lambda /= 0 requires the full cross-section: '//
+     &         'SYM/ON faces found.', this_module, caller)
+         end subroutine check_full_section
+ 
+         subroutine check_masks_equal(caller)
+      !! The nonlinear step masks u_s with tmask (Nek's scalar), the linear one
+      !! with wmask. With torsion the two steps must be the same operator.
+            character(len=*), intent(in) :: caller
+            integer :: i, nbad
+            integer, external :: iglsum
+            nbad = 0
+            do i = 1, lx1*ly1*lz1*nelv
+               if (wmask(i,1,1,1) /= tmask(i,1,1,1,1)) nbad = nbad + 1
+            end do
+            nbad = iglsum(nbad, 1)
+            if (nbad > 0) call nek_stop_error('lambda /= 0 requires tmask = wmask '//
+     &         '(temperature BCs must match the velocity BCs).', this_module, caller)
+         end subroutine check_masks_equal
+ 
+         subroutine check_wall_centering(maxdev, verbose)
+      !! dth is tangent to the wall only if the wall is the circle of radius
+      !! t2Dh%radius about (z_c, R_c). Reports the largest deviation of a
+      !! velocity-Dirichlet boundary node from that circle. Midpoint ('m') curved
+      !! sides give O(h^4) deviations; 'C' arcs give round-off.
+            real(dp), intent(out) :: maxdev
+            logical, optional, intent(in) :: verbose
+            character(len=*), parameter :: this_procedure = 'check_wall_centering'
+            character(len=256) :: msg
+            real(dp) :: a, dist, zcl, Rcl
+            integer :: ie, ifc, ix, iy, kx1, kx2, ky1, ky2, kz1, kz2, iz
+            real(dp), external :: glmax
+            a = t2Dh%get_radius()
+            zcl = t2Dh%get_axial_centre()
+            Rcl = t2Dh%get_curv_radius()
+            maxdev = 0.0_dp
+            do ie = 1, nelv
+               do ifc = 1, 2*ndim
+                  if (cbc(ifc, ie, 1) /= 'W  ' .and. cbc(ifc, ie, 1) /= 'v  ') cycle
+                  call facind(kx1, kx2, ky1, ky2, kz1, kz2, lx1, ly1, lz1, ifc)
+                  do iz = kz1, kz2
+                  do iy = ky1, ky2
+                  do ix = kx1, kx2
+                     dist = hypot(xm1(ix,iy,iz,ie) - zcl, ym1(ix,iy,iz,ie) - Rcl)
+                     maxdev = max(maxdev, abs(dist - a))
+                  end do
+                  end do
+                  end do
+               end do
+            end do
+            maxdev = glmax(maxdev, 1)
+            if (optval(verbose, .false.)) then
+               write (msg, '(A,ES12.4)') 'max wall deviation from the circle about (z_c, R_c): ', maxdev
+               if (maxdev > 1.0e-3_dp*a) then
+                  call nek_log_warning(trim(msg)//' -- (z_c, R_c) is not the wall centre?',
+     &               this_module, this_procedure)
+               else
+                  call nek_log_message(msg, this_module, this_procedure)
+               end if
             end if
-            call apply_dtheta(dout, uin)
-            call col2  (dout, lamR_f, ntot1)
-            call chsign(dout, ntot1)
-         end subroutine dphi_apply
-
-         subroutine dphi_apply_t(dout, win)
-      !! dout = [-(lambda/R)*dtheta]^T(win) = -dtheta^T[(lambda/R)*win], the exact
-      !! discrete transpose of dphi_apply.
-            real(dp), dimension(lv), intent(out) :: dout
-            real(dp), dimension(lv), intent(in)  :: win
-            integer :: ntot1
-            ntot1 = lx1*ly1*lz1*nelv
-            if (if_torsion_zero) then
-               call rzero(dout, ntot1)
-               return
-            end if
-            call col3          (p_t, win, lamR_f, ntot1)
-            call apply_dtheta_t(dout, p_t)
-            call chsign        (dout, ntot1)
-         end subroutine dphi_apply_t
-
-         subroutine add_dlam_div(d, u)
-      !! d += D_lam u, the torsion part of the discrete divergence (M2, weighted):
-      !!    D_lam u = (I - bm2 1^T / sum(bm2)) bm2 I12( -(lambda/R) dtheta u ).
-      !! The projection makes 1^T D_lam u = 0 EXACTLY. Continuously
-      !! int D_lam u = -lambda int dtheta u dZ dR = 0 for any u (dtheta is tangent
-      !! to the wall); discretely the quadrature leaves an O(discretisation)
-      !! mean. Without the projection the constant pressure mode is not in the
-      !! null space of E = D B^-1 D^T, while ortho and the hsmg preconditioner
-      !! assume it is: the pressure solve then carries an O(1) spurious mean that
-      !! ortho discards, leaving an O(1) divergence error every step.
+         end subroutine check_wall_centering
+ 
+      !====================================================================
+      !     dth AND ITS EXACT TRANSPOSE
+      !====================================================================
+ 
+         subroutine dtheta(out, f)
+      !! out = dth f = A_r f_r + A_s f_s, element-local (no dssum).
+            real(dp), dimension(lx1,ly1,lelv), intent(out) :: out
+            real(dp), dimension(lx1,ly1,lelv), intent(in)  :: f
+            integer :: ie, ix, iy, i0
+            do ie = 1, nelv
+               call mxm(dxm1, lx1, f(1,1,ie), lx1, t_r, ly1)      ! f_r
+               call mxm(f(1,1,ie), lx1, dytm1, ly1, t_s, ly1)     ! f_s
+               i0 = lx1*ly1*(ie - 1)
+               do iy = 1, ly1
+               do ix = 1, lx1
+                  out(ix,iy,ie) = Ar_f(i0 + ix + lx1*(iy - 1))*t_r(ix,iy)
+     &                          + As_f(i0 + ix + lx1*(iy - 1))*t_s(ix,iy)
+               end do
+               end do
+            end do
+         end subroutine dtheta
+ 
+         subroutine dtheta_t(out, g)
+      !! out = dth^T g = D_r^T (A_r g) + D_s^T (A_s g), element-local.
+            real(dp), dimension(lx1,ly1,lelv), intent(out) :: out
+            real(dp), dimension(lx1,ly1,lelv), intent(in)  :: g
+            real(dp), dimension(lx1,ly1) :: w2
+            integer :: ie, ix, iy, i0
+            do ie = 1, nelv
+               i0 = lx1*ly1*(ie - 1)
+               do iy = 1, ly1
+               do ix = 1, lx1
+                  t_r(ix,iy) = Ar_f(i0 + ix + lx1*(iy - 1))*g(ix,iy,ie)
+                  t_s(ix,iy) = As_f(i0 + ix + lx1*(iy - 1))*g(ix,iy,ie)
+               end do
+               end do
+               call mxm(dxtm1, lx1, t_r, lx1, out(1,1,ie), ly1)   ! D_r^T
+               call mxm(t_s, lx1, dym1, ly1, w2, ly1)             ! D_s^T
+               out(:,:,ie) = out(:,:,ie) + w2
+            end do
+         end subroutine dtheta_t
+ 
+      !====================================================================
+      !     THE CONTINUITY / PRESSURE PAIR (mean-free)
+      !====================================================================
+      !
+      !   A u     = bm2 * I12( -(lambda/R) dth u )                 (M1 -> M2)
+      !   D_lam   = P0 A,    P0 d = d - bm2 (1^T d)/sum(bm2)
+      !   D_lam^T = A^T P0^T,  P0^T p = p - 1 (bm2^T p)/sum(bm2)
+      !   A^T q   = dth^T( -(lambda/R) I12^T(bm2 q) )
+      !
+      ! so 1^T D_lam u = 0 and D_lam^T 1 = 0 exactly, and the pair is an exact
+      ! transpose. The removed mean is O(discretisation): the continuous
+      ! integral of dth u vanishes on a circular wall centred at (z_c, R_c).
+ 
+         subroutine dlam_div_add(d, u)
+      !! d += D_lam u   (d on M2, u on M1). No-op without torsion or with pres off.
             real(dp), dimension(lp), intent(inout) :: d
             real(dp), dimension(lv), intent(in)    :: u
             real(dp), external :: glsum
             real(dp) :: s
-            integer :: ntot2
-            if (if_torsion_zero) return
+            integer :: ntot1, ntot2
+            if (.not. (torsion_on .and. use_pres)) return
+            ntot1 = lx1*ly1*lz1*nelv
             ntot2 = lx2*ly2*lz2*nelv
-            call dphi_apply   (d_t, u)
-            call bm2_map12_2Dh(d_m2, d_t)
-            s = glsum(d_m2, ntot2)/vol_bm2
-            call add2s2(d_m2, bm2, -s, ntot2)
-            call add2  (d, d_m2, ntot2)
-         end subroutine add_dlam_div
-
-         subroutine dlam_grad_t(dout, p)
-      !! dout = D_lam^T p, the exact transpose of add_dlam_div:
-      !!    D_lam^T p = dphi_apply_t( I12^T (bm2 (p - pbar)) ),  pbar = (bm2.p)/sum(bm2),
-      !! so that D_lam^T 1 = 0 exactly. Weak, element-local u_phi pressure term
-      !! (Nek's sign convention: the momentum RHS gets +D^T p). p lives on M2.
-            real(dp), dimension(lv), intent(out) :: dout
-            real(dp), dimension(lx2*ly2*lz2*lelv), intent(in) :: p
+            call dtheta(p_m1a, u)
+            p_m1a(1:ntot1) = -lamt*invR_f(1:ntot1)*p_m1a(1:ntot1)
+            call bm2_map12_2Dh(p_m2a, p_m1a)
+            s = glsum(p_m2a, ntot2)/vol2
+            call add2s2(p_m2a, bm2, -s, ntot2)
+            call add2(d, p_m2a, ntot2)
+         end subroutine dlam_div_add
+ 
+         subroutine dlam_grad_t(g, p)
+      !! g = D_lam^T p   (g on M1, element-local, unassembled; p on M2).
+      !! Zero without torsion or with pres off.
+            real(dp), dimension(lv), intent(out) :: g
+            real(dp), dimension(lp), intent(in)  :: p
             real(dp), external :: glsc2
-            real(dp) :: pbar
-            integer :: ntot2
-            if (if_torsion_zero) then
-               call rzero(dout, lx1*ly1*lz1*nelv)
+            real(dp) :: pm
+            integer :: ntot1, ntot2
+            ntot1 = lx1*ly1*lz1*nelv
+            ntot2 = lx2*ly2*lz2*nelv
+            if (.not. (torsion_on .and. use_pres)) then
+               call rzero(g, ntot1)
                return
             end if
-            ntot2 = lx2*ly2*lz2*nelv
-            pbar = glsc2(p, bm2, ntot2)/vol_bm2
-            call copy(pm_t, p, ntot2)
-            call cadd(pm_t, -pbar, ntot2)
-            call bm2_map12T_2Dh(m_t, pm_t)
-            call dphi_apply_t  (dout, m_t)
+            pm = glsc2(bm2, p, ntot2)/vol2
+            call copy(p_m2a, p, ntot2)
+            call cadd(p_m2a, -pm, ntot2)
+            call bm2_map12T_2Dh(p_m1b, p_m2a)                 ! I12^T (bm2 (p - pm))
+            p_m1b(1:ntot1) = -lamt*invR_f(1:ntot1)*p_m1b(1:ntot1)
+            call dtheta_t(g, p_m1b)
          end subroutine dlam_grad_t
-
-         subroutine dphi_alpha_apply(dout, uin, alphaR)
-      !! The alpha half of the streamwise divergence, without the slot swap:
-      !! dout = (alpha/R) * uin. Used by the coupled pressure path (Step 7).
-            real(dp), dimension(lv), intent(out) :: dout
-            real(dp), dimension(lv), intent(in)  :: uin
-            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: alphaR
-            call col3(dout, uin, alphaR, lx1*ly1*lz1*nelv)
-         end subroutine dphi_alpha_apply
-
-         subroutine dphi_alpha_apply_t(dout, win, alphaR)
-      !! Transpose of dphi_alpha_apply (a diagonal multiply).
-            real(dp), dimension(lv), intent(out) :: dout
-            real(dp), dimension(lv), intent(in)  :: win
-            real(dp), dimension(lx1,ly1,lz1,lelv), intent(in) :: alphaR
-            call col3(dout, win, alphaR, lx1*ly1*lz1*nelv)
-         end subroutine dphi_alpha_apply_t
-
-      !====================================================================
-      !     KERNELS  (strong form, unweighted; shared by both solvers)
-      !====================================================================
-
-         subroutine adv_RZ(aZ, aR, cf, uZ, uR)
-      !! a += cf * S(u), Z and R components (RHS sign):
-      !!    Z: cf*(dtheta u_Z + u_R) ,  R: cf*(dtheta u_R - u_Z)
-            real(dp), dimension(lv), intent(inout) :: aZ, aR
-            real(dp), dimension(lv), intent(in)    :: cf, uZ, uR
-            integer :: ntot1
-            ntot1 = lx1*ly1*lz1*nelv
-            call apply_dtheta(k_dZ, uZ)
-            call apply_dtheta(k_dR, uR)
-            call add2   (k_dZ, uR, ntot1)
-            call sub2   (k_dR, uZ, ntot1)
-            call addcol3(aZ, cf, k_dZ, ntot1)
-            call addcol3(aR, cf, k_dR, ntot1)
-         end subroutine adv_RZ
-
-         subroutine adv_P(aP, cf, uP)
-      !! a += cf * S(u), phi component: cf*dtheta u_phi.
-            real(dp), dimension(lv), intent(inout) :: aP
-            real(dp), dimension(lv), intent(in)    :: cf, uP
-            integer :: ntot1
-            ntot1 = lx1*ly1*lz1*nelv
-            call apply_dtheta(k_dP, uP)
-            call addcol3(aP, cf, k_dP, ntot1)
-         end subroutine adv_P
-
-         subroutine visc_RZ(aZ, aR, uZ, uR, uP)
-      !! a += torsion part of the vector Laplacian (without nu), Z and R:
-      !!    Z: lambda^2 Lth u_Z + (2 lambda^2/R^2) dth u_R + (lambda/R^2) u_phi
-      !!       - (lambda^2 zhat/R^3) u_R - (lambda^2/R^2) u_Z
-      !!    R: lambda^2 Lth u_R - (2 lambda^2/R^2) dth u_Z + (2 lambda/R^2) dth u_phi
-      !!       + (lambda^2 zhat/R^3) u_Z - (lambda zhat/R^3) u_phi - (lambda^2/R^2) u_R
-            real(dp), dimension(lv), intent(inout) :: aZ, aR
-            real(dp), dimension(lv), intent(in)    :: uZ, uR, uP
-            real(dp) :: lam, lam2
-            integer :: ntot1
-            ntot1 = lx1*ly1*lz1*nelv
-            lam  = lambda_built
-            lam2 = lam*lam
-            call apply_dtheta(k_dZ, uZ)
-            call apply_dtheta(k_dR, uR)
-            call apply_dtheta(k_dP, uP)
-      ! Z
-            call apply_Ltheta(k_L, uZ)
-            call add2s2 (aZ, k_L, lam2, ntot1)
-            call add_cxy(aZ, lam2R2_f, k_dR,  2.0_dp, ntot1)
-            call add_cxy(aZ, lamR2_f,  uP,    1.0_dp, ntot1)
-            call add_cxy(aZ, lamzR3_f, uR,   -lam,    ntot1)
-            call add_cxy(aZ, lam2R2_f, uZ,   -1.0_dp, ntot1)
-      ! R
-            call apply_Ltheta(k_L, uR)
-            call add2s2 (aR, k_L, lam2, ntot1)
-            call add_cxy(aR, lam2R2_f, k_dZ, -2.0_dp, ntot1)
-            call add_cxy(aR, lamR2_f,  k_dP,  2.0_dp, ntot1)
-            call add_cxy(aR, lamzR3_f, uZ,    lam,    ntot1)
-            call add_cxy(aR, lamzR3_f, uP,   -1.0_dp, ntot1)
-            call add_cxy(aR, lam2R2_f, uR,   -1.0_dp, ntot1)
-         end subroutine visc_RZ
-
-         subroutine visc_P(aP, uZ, uR, uP)
-      !! a += torsion part of the vector Laplacian (without nu), phi:
-      !!    lambda^2 Lth u_phi - (2 lambda/R^2) dth u_R + (lambda/R^2) u_Z
-      !!    + (lambda zhat/R^3) u_R
-            real(dp), dimension(lv), intent(inout) :: aP
-            real(dp), dimension(lv), intent(in)    :: uZ, uR, uP
-            integer :: ntot1
-            ntot1 = lx1*ly1*lz1*nelv
-            call apply_dtheta(k_dR, uR)
-            call apply_Ltheta(k_L, uP)
-            call add2s2 (aP, k_L, lambda_built**2, ntot1)
-            call add_cxy(aP, lamR2_f,  k_dR, -2.0_dp, ntot1)
-            call add_cxy(aP, lamR2_f,  uZ,    1.0_dp, ntot1)
-            call add_cxy(aP, lamzR3_f, uR,    1.0_dp, ntot1)
-         end subroutine visc_P
-
-      !====================================================================
-      !     LINEAR SOLVER  (alpha = 0 terms; called from makefp_2Dh_axisym)
-      !====================================================================
-
-         subroutine add_torsion_forcing_RZ(rhs_z, rhs_r, jp_)
-      !! Z and R momentum RHS of slot jp_, injected before EXT3:
-      !!    rho*bm1*[ c(U) S(u) + c(u) S(U) ]  +  vdiff*bm1*[viscous(u)],
-      !! c(v) = lambda v_phi/R. Exact linearisation of refresh_torsion_forcing_nl.
-            real(dp), dimension(lv), intent(inout) :: rhs_z, rhs_r
-            integer, intent(in) :: jp_
-            integer :: ntot1
-            if (if_torsion_zero) return
-            ntot1 = lx1*ly1*lz1*nelv
-      ! ---- advection + frame rotation (rho)
-            call rzero(acc_a, ntot1)
-            call rzero(acc_b, ntot1)
-            call col3  (cf_1, lamR_f, t(1,1,1,1,1), ntot1)       ! c(U)
-            call adv_RZ(acc_a, acc_b, cf_1, vxp(1,jp_), vyp(1,jp_))
-            call col3  (cf_1, lamR_f, tp(1,1,jp_), ntot1)        ! c(u)
-            call adv_RZ(acc_a, acc_b, cf_1, vx, vy)
-            call weight_forcing(acc_a, vtrans(1,1,1,1,1))
-            call weight_forcing(acc_b, vtrans(1,1,1,1,1))
-            call add2(rhs_z, acc_a, ntot1)
-            call add2(rhs_r, acc_b, ntot1)
-      ! ---- viscous (nu), including -lambda^2/R^2 on Z and R
-            call rzero  (acc_a, ntot1)
-            call rzero  (acc_b, ntot1)
-            call visc_RZ(acc_a, acc_b, vxp(1,jp_), vyp(1,jp_), tp(1,1,jp_))
-            call weight_forcing(acc_a, vdiff(1,1,1,1,1))
-            call weight_forcing(acc_b, vdiff(1,1,1,1,1))
-            call add2(rhs_z, acc_a, ntot1)
-            call add2(rhs_r, acc_b, ntot1)
-         end subroutine add_torsion_forcing_RZ
-
-         subroutine add_torsion_forcing_phi(rhs_phi, jp_)
-      !! u_phi RHS of slot jp_, injected before EXT3:
-      !!    rhoCp*bm1*[ c(U) S(u) + c(u) S(U) ]_phi + vdiff*bm1*[viscous(u)]_phi
-      !! The pressure term D_lam^T p_ext is in gradw (compute_gradp_axisym).
-            real(dp), dimension(lv), intent(inout) :: rhs_phi
-            integer, intent(in) :: jp_
-            integer :: ntot1
-            if (if_torsion_zero) return
-            ntot1 = lx1*ly1*lz1*nelv
-      ! ---- advection (rhoCp)
-            call rzero(acc_c, ntot1)
-            call col3 (cf_1, lamR_f, t(1,1,1,1,1), ntot1)        ! c(U)
-            call adv_P(acc_c, cf_1, tp(1,1,jp_))
-            call col3 (cf_1, lamR_f, tp(1,1,jp_), ntot1)         ! c(u)
-            call adv_P(acc_c, cf_1, t(1,1,1,1,1))
-            call weight_forcing(acc_c, vtrans(1,1,1,1,2))
-            call add2(rhs_phi, acc_c, ntot1)
-      ! ---- viscous (nu)
-            call rzero (acc_c, ntot1)
-            call visc_P(acc_c, vxp(1,jp_), vyp(1,jp_), tp(1,1,jp_))
-            call weight_forcing(acc_c, vdiff(1,1,1,1,1))
-            call add2(rhs_phi, acc_c, ntot1)
-         end subroutine add_torsion_forcing_phi
-
-         subroutine add_torsion_coupling(rhs_z, rhs_r, rhs_phi, alpha, jp_)
-      !! alpha*lambda viscous terms that couple the Re/Im slots (alpha /= 0 only,
-      !! currently refused by prepare_step_2Dh_axisym; kept for Step 7). With
-      !! D = -i alpha - lambda dtheta, the single-i terms of the vector Laplacian:
-      !!   T1: +(2 alpha lambda/R^2) dtheta(u_i)
-      !!   T2: -(alpha lambda zhat/R^3) u_i
-      !!   T3: R-eq -(2 alpha lambda/R^2) u_Z, Z-eq +(2 alpha lambda/R^2) u_R
-      !! all times +i: read slot jp_, write ipert with Re[i w] = -w^I, Im[i w] = w^R.
-            real(dp), dimension(lv,lpert), intent(inout) :: rhs_z, rhs_r, rhs_phi
-            real(dp), intent(in) :: alpha
-            integer, intent(in) :: jp_
-            real(dp) :: lam, sgn
-            integer :: ipert, ntot1
-
-            if (if_torsion_zero) return
-            if (alpha == 0.0_dp) return
-            ntot1 = lx1*ly1*lz1*nelv
-            lam = lambda_built
-            ipert = npert + 1 - jp_
-            sgn = merge(-1.0_dp, 1.0_dp, ipert == 1)
-
-            call rzero(acc_a, ntot1)
-            call rzero(acc_b, ntot1)
-            call rzero(acc_c, ntot1)
-            call apply_dtheta(k_dZ, vxp(1,jp_))
-            call apply_dtheta(k_dR, vyp(1,jp_))
-            call apply_dtheta(k_dP, tp(1,1,jp_))
-      ! T1
-            call add_cxy(acc_a, lamR2_f, k_dZ, 2.0_dp*alpha*lam, ntot1)
-            call add_cxy(acc_b, lamR2_f, k_dR, 2.0_dp*alpha*lam, ntot1)
-            call add_cxy(acc_c, lamR2_f, k_dP, 2.0_dp*alpha*lam, ntot1)
-      ! T2
-            call add_cxy(acc_a, lamzR3_f, vxp(1,jp_),  -alpha, ntot1)
-            call add_cxy(acc_b, lamzR3_f, vyp(1,jp_),  -alpha, ntot1)
-            call add_cxy(acc_c, lamzR3_f, tp(1,1,jp_), -alpha, ntot1)
-      ! T3
-            call add_cxy(acc_b, lamR2_f, vxp(1,jp_), -2.0_dp*alpha*lam, ntot1)
-            call add_cxy(acc_a, lamR2_f, vyp(1,jp_),  2.0_dp*alpha*lam, ntot1)
-
-            call weight_forcing(acc_a, vdiff(1,1,1,1,1))
-            call weight_forcing(acc_b, vdiff(1,1,1,1,1))
-            call weight_forcing(acc_c, vdiff(1,1,1,1,1))
-            call add2s2(rhs_z(1,ipert),   acc_a, sgn, ntot1)
-            call add2s2(rhs_r(1,ipert),   acc_b, sgn, ntot1)
-            call add2s2(rhs_phi(1,ipert), acc_c, sgn, ntot1)
-         end subroutine add_torsion_coupling
-
-      !====================================================================
-      !     NONLINEAR SOLVER  (called from nek_advance_2Dh_axisym_nl)
-      !====================================================================
-
-         subroutine refresh_torsion_forcing_nl()
-      !! Torsion forcing of the nonlinear step, as ACCELERATIONS (Nek multiplies
-      !! userf by rho*bm1; neklab_source multiplies by rhoCp, Nek by bm1), from
-      !! the current U^n. Same kernels as the linear solver:
-      !!    Z, R, phi : c(U) S(U) + nu*viscous(U)
-      !! with nu = vdiff/vtrans, so that Nek rebuilds exactly the weights of the
-      !! linear solver.
-            integer :: ntot1
-            if (if_torsion_zero) return
-            ntot1 = lx1*ly1*lz1*nelv
-            call rzero(fZ_nl, ntot1)
-            call rzero(fR_nl, ntot1)
-            call rzero(fP_nl, ntot1)
-      ! ---- advection + frame rotation
-            call col3  (cf_1, lamR_f, t(1,1,1,1,1), ntot1)       ! c(U)
-            call adv_RZ(fZ_nl, fR_nl, cf_1, vx, vy)
-            call adv_P (fP_nl, cf_1, t(1,1,1,1,1))
-      ! ---- viscous
-            call rzero  (acc_a, ntot1)
-            call rzero  (acc_b, ntot1)
-            call rzero  (acc_c, ntot1)
-            call visc_RZ(acc_a, acc_b, vx, vy, t(1,1,1,1,1))
-            call visc_P (acc_c, vx, vy, t(1,1,1,1,1))
-            call col2   (acc_a, vdiff(1,1,1,1,1),  ntot1)        ! nu = vdiff/rho
-            call invcol2(acc_a, vtrans(1,1,1,1,1), ntot1)
-            call add2   (fZ_nl, acc_a, ntot1)
-            call col2   (acc_b, vdiff(1,1,1,1,1),  ntot1)
-            call invcol2(acc_b, vtrans(1,1,1,1,1), ntot1)
-            call add2   (fR_nl, acc_b, ntot1)
-            call col2   (acc_c, vdiff(1,1,1,1,1),  ntot1)        ! vdiff/rhoCp
-            call invcol2(acc_c, vtrans(1,1,1,1,2), ntot1)
-            call add2   (fP_nl, acc_c, ntot1)
-         end subroutine refresh_torsion_forcing_nl
-
-         subroutine add_torsion_pressure_phi_nl()
-      !! Nonlinear u_phi predictor pressure term +D_lam^T p_ext, with
-      !! p_ext the pressure Nek's cresvif will use for the in-plane predictor
-      !! (extrapp, run here on copies so that pr and prlag are untouched).
-      !! Call right after heat(1): bq of field 2 is then complete (source,
-      !! advection, EXT, BDF) and the term is NOT stored in the EXT history,
-      !! exactly like opgradt(p_ext) in cresvif. bq is element-local weak form,
-      !! as dlam_grad_t returns it; the pressure term is not multiplied by rho.
-            integer :: ntot1, ntot2
-            if (if_torsion_zero) return
-            ntot1 = lx1*ly1*lz1*nelv
-            ntot2 = lx2*ly2*lz2*nelv
-            call copy(pe_m2, pr, ntot2)
-            call copy(pl_m2, prlag, ntot2)
-            call extrapp(pe_m2, pl_m2)                 ! Nek's own extrapolation, on copies
-            call dlam_grad_t(cf_1, pe_m2)
-            call add2(bq(1,1,1,1,1), cf_1, ntot1)
-         end subroutine add_torsion_pressure_phi_nl
-
-         subroutine add_lambda_block_E(ap, wp, h2inv, mask)
-      !! ap += D_lam (h2inv B^-1) D_lam^T wp, the lambda block of the pressure
-      !! Schur complement E = D B^-1 D^T, D = [D_in, D_lam]. B^-1 is assembled
-      !! and masked with the Dirichlet mask of u_phi (linear: wmask, nonlinear:
-      !! tmask), exactly as opbinv does for the in-plane block in cdabdtp.
-      !! Symmetric positive semi-definite.
+ 
+         subroutine lambda_block_E_add(ap, p, h2inv, mask)
+      !! ap += D_lam (mask h2inv B^-1) D_lam^T p : the lambda block of the
+      !! pressure operator E = D (h2inv B^-1) D^T. Symmetric, positive
+      !! semi-definite, annihilates constants.
             real(dp), dimension(lp), intent(inout) :: ap
-            real(dp), dimension(lp), intent(in)    :: wp
+            real(dp), dimension(lp), intent(in)    :: p
             real(dp), dimension(lv), intent(in)    :: h2inv, mask
-            if (if_torsion_zero) return
-            call lambda_correction(e_a, wp, h2inv, mask)
-            call add_dlam_div(ap, e_a)
-         end subroutine add_lambda_block_E
-
+            integer :: ntot1
+            if (.not. (torsion_on .and. use_pres)) return
+            call lambda_correction(e_m1, p, h2inv, mask)
+            call dlam_div_add(ap, e_m1)
+         end subroutine lambda_block_E_add
+ 
          subroutine lambda_correction(dw, dp_, h2inv, mask)
-      !! dw = h2inv B^-1 D_lam^T dp_ (assembled, masked): the u_phi part of the
-      !! velocity correction u += h2inv B^-1 D^T dp. Same sign as the in-plane
-      !! part (opgradt, opbinv).
+      !! dw = mask h2inv B^-1 D_lam^T dp : the u_s pressure correction, same
+      !! sign and same B^-1 as the in-plane one (opgradt -> opbinv).
             real(dp), dimension(lv), intent(out) :: dw
             real(dp), dimension(lp), intent(in)  :: dp_
             real(dp), dimension(lv), intent(in)  :: h2inv, mask
             integer :: ntot1
             ntot1 = lx1*ly1*lz1*nelv
             call dlam_grad_t(dw, dp_)
+            if (.not. (torsion_on .and. use_pres)) return
             call col2 (dw, mask, ntot1)
             call dssum(dw, lx1, ly1, lz1)
             call col2 (dw, binvm1, ntot1)
             call col2 (dw, h2inv, ntot1)
          end subroutine lambda_correction
-
-         real(dp) function torsion_lambda()
-      !! lambda the coefficients were built with (0 for the torus).
-            torsion_lambda = merge(0.0_dp, lambda_built, if_torsion_zero)
-         end function torsion_lambda
-
+ 
+      !====================================================================
+      !     G2 AND G3: WEAK FORCE VECTORS
+      !====================================================================
+ 
+         subroutine add_g2(FZ, FR, Fs, aZ, aR, as, bZ, bR, bs)
+      !! F += rho bm1 c(a) S(b),  c(a) = lambda a_s/R,
+      !! S(b) = (dth b_Z + b_R, dth b_R - b_Z, dth b_s).
+      !! dth b is element-local: fine, the result is a local weak contribution.
+            real(dp), dimension(lv), intent(inout) :: FZ, FR, Fs
+            real(dp), dimension(lv), intent(in)    :: aZ, aR, as, bZ, bR, bs
+            integer :: i, ntot1
+            real(dp) :: c, w1, w2
+            if (.not. use_adv) return
+            ntot1 = lx1*ly1*lz1*nelv
+            call dtheta(k_aZ, bZ)
+            call dtheta(k_aR, bR)
+            call dtheta(k_as, bs)
+            do i = 1, ntot1
+               c  = lamt*as(i)*invR_f(i)*bm1(i,1,1,1)
+               w1 = c*vtrans(i,1,1,1,1)
+               w2 = c*vtrans(i,1,1,1,2)
+               FZ(i) = FZ(i) + w1*(k_aZ(i) + bR(i))
+               FR(i) = FR(i) + w1*(k_aR(i) - bZ(i))
+               Fs(i) = Fs(i) + w2*k_as(i)
+            end do
+         end subroutine add_g2
+ 
+         subroutine add_g3(FZ, FR, Fs, vZ, vR, vs)
+      !! F += mu * [torsion part of (D_s + M)^2 v] at P = 0, weak:
+      !!   pointwise: bm1 * ( 2 l^2/R^2 (dth v_R, -dth v_Z, 0) + 2 l/R^2 (0, dth v_s, -dth v_R)
+      !!                    + l/R^2 (v_s, 0, v_Z) + l z/R^3 (-l v_R, l v_Z - v_s, v_R)
+      !!                    - l^2/R^2 (v_Z, v_R, 0) )
+      !!   l^2 L_theta, weak symmetric form:  - l^2 dth^T[ (bm1/R^2) dth v_c ]
+            real(dp), dimension(lv), intent(inout) :: FZ, FR, Fs
+            real(dp), dimension(lv), intent(in)    :: vZ, vR, vs
+            integer :: i, ntot1
+            real(dp) :: iR, iR2, l2R2, lR2, lzR3, mu1, mu2, b
+            if (.not. use_visc) return
+            ntot1 = lx1*ly1*lz1*nelv
+            call dtheta(k_dZ, vZ)
+            call dtheta(k_dR, vR)
+            call dtheta(k_ds, vs)
+            do i = 1, ntot1
+               iR   = invR_f(i)
+               iR2  = iR*iR
+               l2R2 = lamt*lamt*iR2
+               lR2  = lamt*iR2
+               lzR3 = lamt*zeta_f(i)*iR2*iR
+               b    = bm1(i,1,1,1)
+               mu1  = vdiff(i,1,1,1,1)*b
+               mu2  = vdiff(i,1,1,1,2)*b
+               FZ(i) = FZ(i) + mu1*( 2.0_dp*l2R2*k_dR(i) + lR2*vs(i)
+     &                             - lamt*lzR3*vR(i) - l2R2*vZ(i) )
+               FR(i) = FR(i) + mu1*(-2.0_dp*l2R2*k_dZ(i) + 2.0_dp*lR2*k_ds(i)
+     &                             + lamt*lzR3*vZ(i) - lzR3*vs(i) - l2R2*vR(i) )
+               Fs(i) = Fs(i) + mu2*(-2.0_dp*lR2*k_dR(i) + lR2*vZ(i) + lzR3*vR(i) )
+            end do
+      ! lambda^2 L_theta: - lambda^2 mu dth^T[(bm1/R^2) dth v]
+            do i = 1, ntot1
+               b = -lamt*lamt*bm1(i,1,1,1)*invR_f(i)*invR_f(i)
+               k_t1(i) = b*vdiff(i,1,1,1,1)*k_dZ(i)
+            end do
+            call dtheta_t(k_t2, k_t1)
+            call add2(FZ, k_t2, ntot1)
+            do i = 1, ntot1
+               b = -lamt*lamt*bm1(i,1,1,1)*invR_f(i)*invR_f(i)
+               k_t1(i) = b*vdiff(i,1,1,1,1)*k_dR(i)
+            end do
+            call dtheta_t(k_t2, k_t1)
+            call add2(FR, k_t2, ntot1)
+            do i = 1, ntot1
+               b = -lamt*lamt*bm1(i,1,1,1)*invR_f(i)*invR_f(i)
+               k_t1(i) = b*vdiff(i,1,1,1,2)*k_ds(i)
+            end do
+            call dtheta_t(k_t2, k_t1)
+            call add2(Fs, k_t2, ntot1)
+         end subroutine add_g3
+ 
+         subroutine torsion_force_nl(FZ, FR, Fs, UZ, UR, Us)
+      !! Nonlinear torsion force (weak): G2(U,U) + G3(U).
+            real(dp), dimension(lv), intent(out) :: FZ, FR, Fs
+            real(dp), dimension(lv), intent(in)  :: UZ, UR, Us
+            integer :: ntot1
+            ntot1 = lx1*ly1*lz1*nelv
+            call rzero(FZ, ntot1); call rzero(FR, ntot1); call rzero(Fs, ntot1)
+            if (.not. torsion_on) return
+            call add_g2(FZ, FR, Fs, UZ, UR, Us, UZ, UR, Us)
+            call add_g3(FZ, FR, Fs, UZ, UR, Us)
+         end subroutine torsion_force_nl
+ 
+         subroutine torsion_force_lin(FZ, FR, Fs, UZ, UR, Us, uZp, uRp, usp)
+      !! Linearised torsion force (weak): G2(U,u) + G2(u,U) + G3(u). Exact
+      !! derivative of torsion_force_nl by construction (G2 bilinear, G3 linear).
+            real(dp), dimension(lv), intent(out) :: FZ, FR, Fs
+            real(dp), dimension(lv), intent(in)  :: UZ, UR, Us, uZp, uRp, usp
+            integer :: ntot1
+            ntot1 = lx1*ly1*lz1*nelv
+            call rzero(FZ, ntot1); call rzero(FR, ntot1); call rzero(Fs, ntot1)
+            if (.not. torsion_on) return
+            call add_g2(FZ, FR, Fs, UZ, UR, Us, uZp, uRp, usp)
+            call add_g2(FZ, FR, Fs, uZp, uRp, usp, UZ, UR, Us)
+            call add_g3(FZ, FR, Fs, uZp, uRp, usp)
+         end subroutine torsion_force_lin
+ 
+      !====================================================================
+      !     NONLINEAR STEP HOOKS
+      !====================================================================
+ 
+         subroutine torsion_refresh_nl()
+      !! From U^n (vx, vy, t) before heat(1): the accelerations read by the
+      !! registered userf/userq terms. Nek rebuilds F exactly: makeuf multiplies
+      !! by bm1 and makeabf by rho; makeuq by bm1 and neklab_source by rhoCp.
+            integer :: i, ntot1
+            if (.not. torsion_on) return
+            ntot1 = lx1*ly1*lz1*nelv
+            call torsion_force_nl(fZ_nl, fR_nl, fs_nl, vx, vy, t(1,1,1,1,1))
+            do i = 1, ntot1
+               fZ_nl(i) = fZ_nl(i)/(vtrans(i,1,1,1,1)*bm1(i,1,1,1))
+               fR_nl(i) = fR_nl(i)/(vtrans(i,1,1,1,1)*bm1(i,1,1,1))
+               fs_nl(i) = fs_nl(i)/(vtrans(i,1,1,1,2)*bm1(i,1,1,1))
+            end do
+         end subroutine torsion_refresh_nl
+ 
          subroutine torsion_forcing_pw(fx, fy, fz, ix, iy, iz, e)
-      !! Registered pointwise forcing (ipert = 0): Z and R torsion accelerations.
             real(dp), intent(inout) :: fx, fy, fz
             integer, intent(in) :: ix, iy, iz, e
             integer :: i
+            if (.not. torsion_on) return
             i = ix + lx1*((iy - 1) + ly1*((iz - 1) + lz1*(e - 1)))
             fx = fx + fZ_nl(i)
             fy = fy + fR_nl(i)
          end subroutine torsion_forcing_pw
-
+ 
          subroutine torsion_source_pw(q, ix, iy, iz, e)
-      !! Registered pointwise source (ipert = 0): u_phi torsion acceleration.
             real(dp), intent(inout) :: q
             integer, intent(in) :: ix, iy, iz, e
             integer :: i
+            if (.not. torsion_on) return
             i = ix + lx1*((iy - 1) + ly1*((iz - 1) + lz1*(e - 1)))
-            q = q + fP_nl(i)
+            q = q + fs_nl(i)
          end subroutine torsion_source_pw
-
-      !====================================================================
-      !     HELPERS
-      !====================================================================
-
-         subroutine apply_Ltheta(dout, din)
-      !! Ltheta(u) = (1/R) dtheta[ (1/R) dtheta u ], with the intermediate field
-      !! mass-averaged across elements before the second derivative.
-            real(dp), dimension(lv), intent(out) :: dout
-            real(dp), dimension(lv), intent(in)  :: din
-            integer :: ntot1
+ 
+         subroutine torsion_add_pressure_nl()
+      !! After heat(1), before heat(2): bq(u_s) += D_lam^T p_ext, with p_ext the
+      !! extrapolation that cresvif/extrapp will apply to the in-plane gradient
+      !! in fluid(2) of this step (copied, pr/prlag untouched). Added AFTER
+      !! makeabq, so it is not extrapolated again.
+            integer :: i, ntot1, ntot2
+            real(dp) :: cst
+            integer :: igeom
+            common /cgeom/ igeom
+            if (.not. (torsion_on .and. use_pres)) return
             ntot1 = lx1*ly1*lz1*nelv
-            call apply_dtheta(l_g, din)
-            call col2 (l_g, invR_f, ntot1)
-            call col2 (l_g, bm1, ntot1)
-            call dssum(l_g, lx1, ly1, lz1)
-            call col2 (l_g, binvm1, ntot1)
-            call apply_dtheta(dout, l_g)
-            call col2 (dout, invR_f, ntot1)
-         end subroutine apply_Ltheta
-
-         subroutine add_cxy(dst, a, b, s, ntot1)
-      !! dst += s*a*b, elementwise.
-            real(dp), dimension(lv), intent(inout) :: dst
-            real(dp), dimension(lv), intent(in)    :: a, b
-            real(dp), intent(in) :: s
-            integer, intent(in)  :: ntot1
-            call col3  (c_t, a, b, ntot1)
-            call add2s2(dst, c_t, s, ntot1)
-         end subroutine add_cxy
-
-         subroutine weight_forcing(rhs, prop)
-      !! Strong form -> the weighting bfxp/bfyp/bqp expect: times the property
-      !! (rho for advection, vdiff for viscous terms) and bm1.
-            real(dp), dimension(lv), intent(inout) :: rhs
-            real(dp), dimension(lv), intent(in)    :: prop
+            ntot2 = lx2*ly2*lz2*nelv
+            if (nbd == 3) then
+               cst = dtlag(1)/dtlag(2)
+               call extrap_copy(n_pext, pr, prlag, cst, ntot2)
+            else if (nbd > 3) then
+               call nek_stop_error('pressure extrapolation order > 3.', this_module,
+     &            'torsion_add_pressure_nl')
+            else
+               call copy(n_pext, pr, ntot2)
+            end if
+            call dlam_grad_t(e_m1, n_pext)
+            call add2(bq(1,1,1,1,1), e_m1, ntot1)
+         end subroutine torsion_add_pressure_nl
+ 
+         subroutine extrap_copy(pe, p, pl, cst, n)
+            integer, intent(in) :: n
+            real(dp), intent(out) :: pe(n)
+            real(dp), intent(in)  :: p(n), pl(n), cst
+            pe = p + cst*(p - pl)
+         end subroutine extrap_copy
+ 
+      !====================================================================
+      !     LINEAR STEP HOOKS (slot jp)
+      !====================================================================
+ 
+         subroutine torsion_add_linear_uv(bfx_jp, bfy_jp, jp_)
+      !! Velocity stage of makefp: bfxp/bfyp += L_Z, L_R of slot jp_; the u_s
+      !! component is kept for torsion_add_linear_s.
+            real(dp), dimension(lv), intent(inout) :: bfx_jp, bfy_jp
+            integer, intent(in) :: jp_
             integer :: ntot1
+            if (.not. torsion_on) return
             ntot1 = lx1*ly1*lz1*nelv
-            call col2(rhs, prop, ntot1)
-            call col2(rhs, bm1, ntot1)
-         end subroutine weight_forcing
-
+            call torsion_force_lin(lin_FZ, lin_FR, lin_Fs, vx, vy, t(1,1,1,1,1),
+     &                             vxp(1,jp_), vyp(1,jp_), tp(1,1,jp_))
+            call add2(bfx_jp, lin_FZ, ntot1)
+            call add2(bfy_jp, lin_FR, ntot1)
+         end subroutine torsion_add_linear_uv
+ 
+         subroutine torsion_add_linear_s(bq_jp)
+      !! Scalar stage of makefp: bqp += L_s (computed by torsion_add_linear_uv).
+            real(dp), dimension(lv), intent(inout) :: bq_jp
+            if (.not. torsion_on) return
+            call add2(bq_jp, lin_Fs, lx1*ly1*lz1*nelv)
+         end subroutine torsion_add_linear_s
+ 
+      !====================================================================
+      !     CFL
+      !====================================================================
+ 
+         subroutine torsion_transport_velocity(cx, cy, cz)
+      !! In-plane velocity that sets the explicit advective limit:
+      !!   a = (U_Z + c rho, U_R - c zeta, 0),  c = lambda U_s/R.
+      !! The rotation part c dth is explicit and invisible to Nek's CFL.
+            real(dp), dimension(lv), intent(out) :: cx, cy, cz
+            integer :: i, ntot1
+            real(dp) :: c
+            ntot1 = lx1*ly1*lz1*nelv
+            do i = 1, ntot1
+               c = merge(lamt*t(i,1,1,1,1)*invR_f(i), 0.0_dp, torsion_on)
+               cx(i) = vx(i,1,1,1) + c*rho_f(i)
+               cy(i) = vy(i,1,1,1) - c*zeta_f(i)
+               cz(i) = 0.0_dp
+            end do
+         end subroutine torsion_transport_velocity
+ 
       end module neklab_2Dh_torsion

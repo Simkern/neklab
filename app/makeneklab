@@ -297,7 +297,7 @@ else
    echo ""
    USR=$USR_NEKLAB
    export USR
-   $NEK_SOURCE_ROOT/bin/nekconfig $@
+   rm -rfv nek5000
 
    # Swap the dummy back out for the real case file.
    rm -f "$DUMMY"

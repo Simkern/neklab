@@ -1,5 +1,6 @@
       submodule(neklab_linops) exponential_propagator_2Dh
          implicit none
+         real(dp), parameter :: cfl_limit = 0.4_dp
       contains
          module procedure init_exptA_2Dh_planar
          character(len=*), parameter :: this_procedure = "init_exptA_2Dh_planar"
@@ -15,7 +16,7 @@
          call setup_linear_solver(solve_baseflow = .false.,
      &                            endtime        = self%tau,
      &                            recompute_dt   = .true.,
-     &                            cfl_limit      = 0.4_dp)
+     &                            cfl_limit      = cfl_limit)
          ! Check whether we need to consider spanwise advection (W)
          if_advW = check_W(self%if_advW, self%betaz, wtol)
          msg = 'W advection is '//merge('active.  ','inactive.',if_advW)
@@ -44,8 +45,8 @@
                call setup_linear_solver(transpose     = .false.,
      &                                  silent        = .false.,
      &                                  endtime       = self%tau,
-     &                                  recompute_dt  = .true.,
-     &                                  cfl_limit     = 0.4_dp)
+     &                                  recompute_dt  = .false.,
+     &                                  cfl_limit     = cfl_limit)
          ! Set initial condition for the linearized solver.
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
          ! Integrate the equations forward in time.
@@ -78,7 +79,7 @@
                call setup_linear_solver(transpose     = .true.,
      &                                  silent        = .false.,
      &                                  endtime       = self%tau,
-     &                                  recompute_dt  = .true.,
+     &                                  recompute_dt  = .false.,
      &                                  cfl_limit     = 0.5_dp)
          ! Set initial condition for the linearized solver.
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
@@ -106,8 +107,8 @@
          ! Setup Nek5000 for perturbation solver.
          call setup_linear_solver(solve_baseflow = .false.,
      &                            endtime        = self%tau,
-     &                            recompute_dt   = .true.,
-     &                            cfl_limit      = 0.4_dp)
+     &                            recompute_dt   = .false.,
+     &                            cfl_limit      = cfl_limit)
          end procedure init_exptA_2Dh_axisym
 
          module procedure exptA_2Dh_axisym_matvec
@@ -123,7 +124,7 @@
      &                                  silent        = .false.,
      &                                  endtime       = self%tau,
      &                                  recompute_dt  = .true.,
-     &                                  cfl_limit     = 0.4_dp)
+     &                                  cfl_limit     = cfl_limit)
          ! Set initial condition for the linearized solver.
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
          ! Integrate the equations forward in time.
@@ -154,7 +155,7 @@
      &                                  silent        = .false.,
      &                                  endtime       = self%tau,
      &                                  recompute_dt  = .true.,
-     &                                  cfl_limit     = 0.4_dp)
+     &                                  cfl_limit     = cfl_limit)
          ! Set initial condition for the linearized solver.
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
          ! Integrate the equations forward in time.
@@ -171,6 +172,68 @@
             call type_error('vec_in','nek_zvector','IN',this_module,this_procedure)
          end select
          end procedure exptA_2Dh_axisym_rmatvec
+
+         module procedure init_exptA_2Dh_axisym_torsion
+         character(len=*), parameter :: this_procedure = "init_exptA_2Dh_axisym_torsion"
+         character(len=256) :: msg
+         call init_2Dh_axisym(.true.) ! no-op if already done; activates torsion
+         if (lpert < 2) call nek_stop_error('The axisym_torsion propagator needs lpert = 2 '//
+     &      '(Re and Im slots) in SIZE.', this_module, this_procedure)
+         if (.not. torsion_active()) call nek_log_warning('lambda = 0: no torsion, '//
+     &      'this is the torus operator (exptA_2Dh_axisym_linop).', this_module, this_procedure)
+         ! For the baseflow field for dt/nsteps/cfl computation.
+         call vec2nek(vx, vy, vz, pr, t, self%baseflow)
+         call nek_log_message("Set self%baseflow -> vx, vy, vz, pr, t", this_module, this_procedure)
+         write (msg, '(A,1pE14.6,A,1pE14.6,A,1pE14.6)') 'axisym_torsion propagator: alpha =', self%alpha,
+     &      ', lambda =', torsion_lambda(), ', tau =', self%tau
+         call nek_log_message(msg, this_module, this_procedure)
+         ! Setup Nek5000 for perturbation solver.
+         call setup_linear_solver(solve_baseflow    = .false.,
+     &                            endtime           = self%tau,
+     &                            recompute_dt      = .true.,
+     &                            cfl_limit         = cfl_limit,
+     &                            solve_temperature = .true.)
+         end procedure init_exptA_2Dh_axisym_torsion
+
+         module procedure exptA_2Dh_axisym_torsion_matvec
+         character(len=*), parameter :: this_procedure = "exptA_2Dh_axisym_torsion_matvec"
+         select type (vec_in)
+         type is (nek_zvector)
+            select type (vec_out)
+            type is (nek_zvector)
+         ! Force baseflow.
+               call vec2nek(vx, vy, vz, pr, t, self%baseflow)
+         ! Ensure correct Nek status
+               call setup_linear_solver(transpose         = .false.,
+     &                                  silent            = .false.,
+     &                                  endtime           = self%tau,
+     &                                  recompute_dt      = .false.,
+     &                                  cfl_limit         = cfl_limit,
+     &                                  solve_temperature = .true.)
+         ! Set initial condition for the linearized solver; velocity only.
+               call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
+               call rzero(prp, lp*lpert)
+         ! Integrate the equations forward in time.
+               time = 0.0_dp
+               do istep = 1, nsteps
+                  call nek_advance_2Dh_axisym(self%alpha)
+               end do
+         ! Copy the final solution to vector; velocity only.
+               call rzero(prp, lp*lpert)
+               call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
+            class default
+               call type_error('vec_out','nek_zvector','OUT',this_module,this_procedure)
+            end select
+         class default
+            call type_error('vec_in','nek_zvector','IN',this_module,this_procedure)
+         end select
+         end procedure exptA_2Dh_axisym_torsion_matvec
+
+         module procedure exptA_2Dh_axisym_torsion_rmatvec
+         character(len=*), parameter :: this_procedure = "exptA_2Dh_axisym_torsion_rmatvec"
+         call nek_stop_error('Adjoint of the axisym_torsion propagator not implemented '//
+     &      '(torsion terms have no transpose yet).', this_module, this_procedure)
+         end procedure exptA_2Dh_axisym_torsion_rmatvec
 
          logical function check_W(if_advW_in, betaz, wtol) result(if_advW)
             ! Cross-check whether W advection is enabled and whether the W field is nonzero.

@@ -12,6 +12,7 @@
          use neklab_helix
          use neklab_2Dh_planar, only: init_2Dh_planar
          use neklab_2Dh_axisym, only: init_2Dh_axisym
+         use neklab_2Dh_torsion, only: torsion_active, torsion_lambda
          use neklab_2Dh, only: nek_advance_2Dh_planar, nek_advance_2Dh_axisym
          implicit none
          include "SIZE"
@@ -134,6 +135,42 @@
       
             module subroutine exptA_2Dh_axisym_rmatvec(self, vec_in, vec_out)
                class(exptA_2Dh_axisym_linop), intent(inout) :: self
+               class(abstract_vector_cdp), intent(in) :: vec_in
+               class(abstract_vector_cdp), intent(out) :: vec_out
+            end subroutine
+         end interface
+
+      !-----------------------------------------------------------------
+      !-----     EXPONENTIAL PROPAGATOR 2Dh axisym with torsion    -----
+      !-----------------------------------------------------------------
+
+      ! --> Type.
+         type, extends(abstract_linop_cdp), public :: exptA_2Dh_axisym_torsion_linop
+            real(kind=dp) :: tau
+            real(kind=dp) :: alpha
+            real(kind=dp) :: Ls
+            type(nek_dvector) :: baseflow
+         contains
+            private
+            procedure, pass(self), public :: init => init_exptA_2Dh_axisym_torsion
+            procedure, pass(self), public :: matvec => exptA_2Dh_axisym_torsion_matvec
+            procedure, pass(self), public :: rmatvec => exptA_2Dh_axisym_torsion_rmatvec
+         end type exptA_2Dh_axisym_torsion_linop
+
+      ! --> Type-bound procedures: exponential_propagator_2Dh.f90
+         interface
+            module subroutine init_exptA_2Dh_axisym_torsion(self)
+               class(exptA_2Dh_axisym_torsion_linop), intent(in) :: self
+            end subroutine
+
+            module subroutine exptA_2Dh_axisym_torsion_matvec(self, vec_in, vec_out)
+               class(exptA_2Dh_axisym_torsion_linop), intent(inout) :: self
+               class(abstract_vector_cdp), intent(in) :: vec_in
+               class(abstract_vector_cdp), intent(out) :: vec_out
+            end subroutine
+
+            module subroutine exptA_2Dh_axisym_torsion_rmatvec(self, vec_in, vec_out)
+               class(exptA_2Dh_axisym_torsion_linop), intent(inout) :: self
                class(abstract_vector_cdp), intent(in) :: vec_in
                class(abstract_vector_cdp), intent(out) :: vec_out
             end subroutine

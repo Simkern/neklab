@@ -184,9 +184,13 @@
 
          module procedure compute_fshape
             integer :: ix, iy, iz, ie
-            real(dp) :: helix_r2, r, rr, alpha
+            real(dp) :: helix_r2, r, rr, alpha, kappa
             self%fshape = 0.0_dp
             if (self%is_helix() .or. self%is_torus()) then
+               ! true centreline curvature: 
+               !     helix: kappa = c/(c^2+b^2) = (1/c)*cos(phi)^2
+               !     torus: phi = 0   ->    kappa = delta = 1/c
+               kappa = self%delta * cos(self%phi)**2
                do ie = 1, lelv
                do iz = 1, lz1
                do iy = 1, ly1
@@ -200,7 +204,8 @@
                   ! Radial position in the cross-sectional plane
                   rr = sqrt(r**2 + self%zax(ix,iy,iz,ie)**2)
                   ! Compute fshape
-                  self%fshape(ix,iy,iz,ie) = 1.0_dp / abs(1.0_dp + self%delta * rr * sin(alpha))
+                  ! fshape = 1/(1 + kappa * rr * sin(alpha)) for helix and torus
+                  self%fshape(ix,iy,iz,ie) = 1.0_dp / abs(1.0_dp + kappa * rr * sin(alpha))
                end do
                end do
                end do

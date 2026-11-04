@@ -748,7 +748,7 @@
             real(dp), intent(in) :: diameter
             !! torus/helix diameter
             real(dp), intent(in) :: pitch_s
-            !! helix pitch angle (set to 0.0 for torus)
+            !! helix pitch angle (set to 0.0 for torus): rise per radian (ptich/2pi); > 0 right handed, < 0 left handed (like Germano coordinates)
             real(dp), intent(in) :: length
             !! length of the helix/torus at the centerline
             logical, optional, intent(in) :: if_sym
@@ -800,7 +800,7 @@
             ! Geometry
             pipe%delta    = delta
             pipe%diameter = diameter
-            pipe%pitch_s  = pitch_s
+            pipe%pitch_s  = -pitch_s ! the minus sign is to match the Germano coordinates
             pipe%length   = length
 
             !  Derived quantities

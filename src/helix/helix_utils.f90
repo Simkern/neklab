@@ -191,7 +191,7 @@
                !     helix: kappa = c/(c^2+b^2) = (1/c)*cos(phi)^2
                !     torus: phi = 0   ->    kappa = delta = 1/c
                kappa = self%delta * cos(self%phi)**2
-               do ie = 1, lelv
+               do ie = 1, nelv
                do iz = 1, lz1
                do iy = 1, ly1
                do ix = 1, lx1
@@ -230,11 +230,15 @@
 
          module procedure compute_bf_forcing
             integer :: ix, iy, iz, ie
-            real(dp) :: fs, phi
+            real(dp) :: fs, phi, kappa
             real(dp), dimension(lx1,ly1,lz1,lelv) :: ffx, ffy, ffz
 
-            if (self%is_torus()) then
-               fs = self%forcing_amplitude(t) / self%curv_radius
+            if (self%is_helix() .or. self%is_torus()) then
+               ! true centreline curvature: 
+               !     helix: kappa = c/(c^2+b^2) = (1/c)*cos(phi)^2
+               !     torus: phi = 0   ->    kappa = delta = 1/c
+               kappa = self%delta * cos(self%phi)**2
+               fs = self%forcing_amplitude(t) * kappa
             else
                fs = self%forcing_amplitude(t)
             end if
@@ -290,7 +294,7 @@
                   uy = v(ix,iy,iz,ie)
                   uz = w(ix,iy,iz,ie)
                   utmp            = sin(s)*ux + cos(s)*uy
-                  vtmp            = sin(phi) * (-cos(s)*ux - sin(s)*uy) + cos(phi)*uz
+                  vtmp            = sin(phi) * (-cos(s)*ux + sin(s)*uy) + cos(phi)*uz
                   us(ix,iy,iz,ie) = cos(phi) * ( cos(s)*ux - sin(s)*uy) + sin(phi)*uz
                   ur(ix,iy,iz,ie) = cos(a) * utmp + sin(a) * vtmp
                   ut(ix,iy,iz,ie) = sin(a) * utmp - cos(a) * vtmp

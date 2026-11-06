@@ -116,7 +116,8 @@
             logical :: iffxdt
             common /FIXDT/ iffxdt
             integer, parameter :: pad = 30
-            logical :: if_vel_zero
+            logical :: if_vel_zero, if_t_zero, if_vel_tiny, if_t_tiny
+            real(dp), parameter :: tiny_tol = 1e-6_dp 
             real, external :: glamax
  
       ! Only print summary if we switch from linear to nonlinear solvers or vice versa
@@ -131,14 +132,37 @@
             cfl_limit_ = optval(cfl_limit, param(26))
             silent_ = optval(silent, .false.)
  
-      ! Global test (glamax): every rank must take the same branch below, since
-      ! compute_cfl is collective.
             n = lx1*ly1*lz1*nelv
-            if_vel_zero = (glamax(vx, n) == 0.0_dp .and. glamax(vy, n) == 0.0_dp .and. glamax(vz, n) == 0.0_dp)
+            if_vel_zero = (glamax(vx, n) == 0.0_dp  .and. glamax(vy, n) == 0.0_dp)
+            if_t_zero   = (glamax(t,  n) == 0.0_dp)
+            if_vel_tiny = (glamax(vx, n) < tiny_tol .and. glamax(vy, n) < tiny_tol)
+            if_t_tiny   = (glamax(t,  n) < tiny_tol)
+            if (if3D) then
+               if_vel_zero = if_vel_zero .and. glamax(vz, n) == 0.0_dp
+               if_vel_tiny = if_vel_tiny .and. glamax(vz, n) < tiny_tol
+            end if
             if (if_vel_zero) then
                recompute_dt_ = .false.
+               write(msg, '(A,ES8.1,A,F8.6,A)') 'Velocities are zero. dt =', dt, ' (.par)'
+               if (ifaxis .and. if_t_zero) then
+                  call nek_log_warning(msg, this_module, 'setup_nek')
+               else
+                  call nek_log_debug(msg, this_module, 'setup_nek')
+               end if
+            elseif (if_vel_tiny) then
+               recompute_dt_  = .false.
+               write(msg, '(A,ES8.1,A,F8.6,A)') 'Velocity amplitudes are tiny (max < ', tiny_tol, '). dt =', dt, ' (.par)'
+               if (ifaxis .and. if_t_tiny) then
+                  call nek_log_warning(msg, this_module, 'setup_nek')
+               else
+                  call nek_log_debug(msg, this_module, 'setup_nek')
+               end if
             else
                recompute_dt_ = optval(recompute_dt, .false.)
+            end if
+            if (.not. recompute_dt_ .and. dt <= 0.0_dp) then
+               write(msg, '(A,ES8.1,A,F8.6,A)') 'dt =', dt, ' (.par) and recompute_dt =', recompute_dt_, '.'
+               call nek_stop_error(msg, this_module, 'setup_nek')
             end if
  
             variable_dt_ = optval(variable_dt, .false.)

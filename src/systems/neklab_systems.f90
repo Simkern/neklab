@@ -127,6 +127,45 @@
             end subroutine jac_adjoint_map
          end interface
 
+      !-------------------------------------------------------
+      !-----     NEKLAB SYSTEM FOR FIXED POINTS 2Dh    -------
+      !-------------------------------------------------------
+
+         type, extends(abstract_system_rdp), public :: nek_system_2Dh_axisym
+         contains
+            private
+            procedure, pass(self), public :: response => nonlinear_map_2Dh_axisym
+         end type nek_system_2Dh_axisym
+      
+         type, extends(abstract_jacobian_linop_rdp), public :: nek_jacobian_2Dh_axisym
+         contains
+            private
+            procedure, pass(self), public :: matvec => jac_direct_map_2Dh_axisym
+            procedure, pass(self), public :: rmatvec => jac_adjoint_map_2Dh_axisym
+         end type nek_jacobian_2Dh_axisym
+
+         ! --> Type-bound procedures for nek_system_2Dh_axisym & nek_jacobian_2Dh_axisym
+         interface
+            module subroutine nonlinear_map_2Dh_axisym(self, vec_in, vec_out, atol)
+               class(nek_system_2Dh_axisym), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+               real(dp), intent(in) :: atol
+            end subroutine nonlinear_map_2Dh_axisym
+
+            module subroutine jac_direct_map_2Dh_axisym(self, vec_in, vec_out)
+               class(nek_jacobian_2Dh_axisym), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+            end subroutine jac_direct_map_2Dh_axisym
+
+            module subroutine jac_adjoint_map_2Dh_axisym(self, vec_in, vec_out)
+               class(nek_jacobian_2Dh_axisym), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+            end Subroutine jac_adjoint_map_2Dh_axisym
+         end interface
+
       !-----------------------------------------------------------
       !-----     NEKLAB SYSTEM FOR FIXED POINTS IN TORI    -------
       !-----------------------------------------------------------

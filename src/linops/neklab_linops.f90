@@ -140,6 +140,41 @@
             end subroutine
          end interface
 
+      !---------------------------------------------------
+      !-----     EXPONENTIAL PROPAGATOR 2Dh axisym   -----
+      !---------------------------------------------------
+      
+      ! --> Type.
+         type, extends(abstract_linop_rdp), public :: exptA_2Dh_axisym_linop_real
+            real(kind=dp) :: tau
+            real(kind=dp) :: Ls
+            type(nek_dvector) :: baseflow
+         contains
+            private
+            procedure, pass(self), public :: init => init_exptA_2Dh_axisym_real
+            procedure, pass(self), public :: matvec => exptA_2Dh_axisym_matvec_real
+            procedure, pass(self), public :: rmatvec => exptA_2Dh_axisym_rmatvec_real
+         end type exptA_2Dh_axisym_linop_real
+      
+      ! --> Type-bound procedures: exponential_propagator_2Dh_axisym.f90
+         interface
+            module subroutine init_exptA_2Dh_axisym_real(self)
+               class(exptA_2Dh_axisym_linop_real), intent(in) :: self
+            end subroutine
+      
+            module subroutine exptA_2Dh_axisym_matvec_real(self, vec_in, vec_out)
+               class(exptA_2Dh_axisym_linop_real), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+            end subroutine
+      
+            module subroutine exptA_2Dh_axisym_rmatvec_real(self, vec_in, vec_out)
+               class(exptA_2Dh_axisym_linop_real), intent(inout) :: self
+               class(abstract_vector_rdp), intent(in) :: vec_in
+               class(abstract_vector_rdp), intent(out) :: vec_out
+            end subroutine
+         end interface
+
       !-----------------------------------------------------------------
       !-----     EXPONENTIAL PROPAGATOR 2Dh axisym with torsion    -----
       !-----------------------------------------------------------------

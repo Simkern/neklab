@@ -101,6 +101,81 @@
          end select
          end procedure exptA_2Dh_planar_rmatvec
 
+         module procedure init_exptA_2Dh_axisym_real
+         character(len=*), parameter :: this_procedure = "init_exptA_2Dh_axisym_real"
+         call init_2Dh_axisym(.true.) ! no-op if already done
+         ! For the baseflow field for dt/nsteps/cfl computation.
+         call vec2nek(vx, vy, vz, pr, t, self%baseflow)
+         call nek_log_message("Set self%baseflow -> vx, vy, vz, pr, t", this_module, this_procedure)
+         ! Setup Nek5000 for perturbation solver.
+         call setup_linear_solver(solve_baseflow = .false.,
+     &                            endtime        = self%tau,
+     &                            recompute_dt   = .false.,
+     &                            cfl_limit      = cfl_limit)
+         end procedure init_exptA_2Dh_axisym_real
+
+         module procedure exptA_2Dh_axisym_matvec_real
+         character(len=*), parameter :: this_procedure = "exptA_2Dh_axisym_matvec_real"
+         select type (vec_in)
+         type is (nek_dvector)
+            select type (vec_out)
+            type is (nek_dvector)
+         ! Force baseflow.
+               call vec2nek(vx, vy, vz, pr, t, self%baseflow)
+         ! Ensure correct Nek status
+               call setup_linear_solver(transpose     = .false.,
+     &                                  silent        = .false.,
+     &                                  endtime       = self%tau,
+     &                                  recompute_dt  = .true.,
+     &                                  cfl_limit     = cfl_limit)
+         ! Set initial condition for the linearized solver.
+               call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
+         ! Integrate the equations forward in time.
+               time = 0.0_dp
+               do istep = 1, nsteps
+                  call nek_advance_2Dh_axisym(0.0_dp)
+               end do
+         ! Copy the final solution to vector.
+               call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
+            class default
+               call type_error('vec_out','nek_dvector','OUT',this_module,this_procedure)
+            end select
+         class default
+            call type_error('vec_in','nek_dvector','IN',this_module,this_procedure)
+         end select
+         end procedure exptA_2Dh_axisym_matvec_real
+
+         module procedure exptA_2Dh_axisym_rmatvec_real
+         character(len=*), parameter :: this_procedure = "exptA_2Dh_axisym_rmatvec_real"
+         select type (vec_in)
+         type is (nek_dvector)
+            select type (vec_out)
+            type is (nek_dvector)
+         ! Force baseflow.
+               call vec2nek(vx, vy, vz, pr, t, self%baseflow)
+         ! Ensure correct Nek status
+               call setup_linear_solver(transpose     = .true.,
+     &                                  silent        = .false.,
+     &                                  endtime       = self%tau,
+     &                                  recompute_dt  = .true.,
+     &                                  cfl_limit     = cfl_limit)
+         ! Set initial condition for the linearized solver.
+               call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
+         ! Integrate the equations forward in time.
+               time = 0.0_dp
+               do istep = 1, nsteps
+                  call nek_advance_2Dh_axisym(0.0_dp)
+               end do
+         ! Copy the final solution to vector.
+               call nek2vec(vec_out, vxp, vyp, vzp, prp, tp)
+            class default
+               call type_error('vec_out','nek_dvector','OUT',this_module,this_procedure)
+            end select
+         class default
+            call type_error('vec_in','nek_dvector','IN',this_module,this_procedure)
+         end select
+         end procedure exptA_2Dh_axisym_rmatvec_real
+
          module procedure init_exptA_2Dh_axisym
          character(len=*), parameter :: this_procedure = "init_exptA_2Dh_axisym"
          call init_2Dh_axisym(.true.) ! no-op if already done

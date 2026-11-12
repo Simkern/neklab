@@ -67,6 +67,7 @@
          public :: exptA_linop
          public :: exptA_2Dh_planar_linop
          public :: exptA_2Dh_axisym_linop
+         public :: exptA_2Dh_axisym_linop_real
          public :: exptA_2Dh_axisym_torsion_linop
          public :: floquet_linop
          public :: floquet_2Dh_axisym_linop
@@ -77,6 +78,7 @@
          public :: nek_system_upo, nek_jacobian_upo
          public :: nek_system_torus, nek_jacobian_torus
          public :: nek_system_torus_upo, nek_jacobian_torus_upo
+         public :: nek_system_2Dh_axisym, nek_jacobian_2Dh_axisym
          public :: nek_system_torus_2Dh, nek_jacobian_torus_2Dh
          public :: nek_system_torus_upo_2Dh, nek_jacobian_torus_upo_2Dh
 

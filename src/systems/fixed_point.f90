@@ -1,5 +1,6 @@
       submodule(neklab_systems) fixed_point
          implicit none
+         real(dp), parameter :: cfl_limit = 0.5_dp
       contains
          module procedure nonlinear_map
          select type (vec_in)
@@ -10,7 +11,7 @@
                call vec2nek(vx, vy, vz, pr, t, vec_in)
       ! Set appropriate tolerances
                call setup_nonlinear_solver(recompute_dt = .true., 
-     &                                     cfl_limit    = 0.4_dp,
+     &                                     cfl_limit    = cfl_limit,
      &                                     vtol         = atol*0.1,
      &                                     ptol         = atol*0.1)
       ! Intgrate the nonlinear equations forward
@@ -45,9 +46,9 @@
       ! Ensure correct nek status
                call setup_linear_solver(solve_baseflow = .false.,
      &                                  recompute_dt   = .true.,
-     &                                  cfl_limit      = 0.5_dp, 
-     &                                  vtol           = atol*0.5,
-     &                                  ptol           = atol*0.5)
+     &                                  cfl_limit      = cfl_limit, 
+     &                                  vtol           = atol*0.1,
+     &                                  ptol           = atol*0.1)
       ! Set the initial condition for Nek5000's linearized solver.
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
       ! Integrate the equations forward in time.
@@ -84,9 +85,9 @@
                call setup_linear_solver(transpose      = .true., 
      &                                  solve_baseflow = .false.,
      &                                  recompute_dt   = .true.,
-     &                                  cfl_limit      = 0.5_dp, 
-     &                                  vtol           = atol*0.5,
-     &                                  ptol           = atol*0.5)
+     &                                  cfl_limit      = cfl_limit, 
+     &                                  vtol           = atol*0.1,
+     &                                  ptol           = atol*0.1)
       ! Set the initial condition for Nek5000's linearized solver.
                call vec2nek(vxp, vyp, vzp, prp, tp, vec_in)
       ! Integrate the equations forward in time.

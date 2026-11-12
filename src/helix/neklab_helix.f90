@@ -42,10 +42,11 @@
             private
             ! geometry inputs
             real(dp) :: length      ! of the torus centerline
-            real(dp) :: delta       ! curvature ratio R/r
-            real(dp) :: diameter    ! of the torus 
-            real(dp) :: pitch_s     ! angle of the helix (set to 0.0 for torus)
+            real(dp) :: delta       ! curvature ratio a/R_c
+            real(dp) :: lambda      ! torsion parameter tau/kappa
+            real(dp) :: diameter    ! of the torus pipe
             ! derived geometry quantities
+            real(dp) :: pitch_s     ! angle of the helix (0.0 for torus)
             real(dp) :: radius
             real(dp) :: curv_radius ! distance from helix center to pipe center
             real(dp) :: phi         ! Rise angle of helix w.r.t. equatorial plane
@@ -767,7 +768,7 @@
 
       contains
 
-         subroutine helix_pipe(delta, diameter, pitch_s, length, if_sym, if_debug)
+         subroutine helix_pipe(delta, diameter, lambda, length, if_sym, if_debug)
             !! Constructor for the module level instance of helix
             !! This is only called once prior to computation after the boundary conditions
             !! are set to initialize the geometry and check for consistency.
@@ -776,11 +777,11 @@
             !!    3. Morph the geometry into a torus/helix
             !!    4. Initialize spatial forcing distribution
             real(dp), intent(in) :: delta
-            !! torus/helix cuvature ratio
+            !! torus/helix cuvature ratio a/R_c
             real(dp), intent(in) :: diameter
             !! torus/helix diameter
-            real(dp), intent(in) :: pitch_s
-            !! helix pitch angle (set to 0.0 for torus)
+            real(dp), intent(in) :: lambda
+            !! helix torsion parameter (ratio tau/kappa)
             real(dp), intent(in) :: length
             !! length of the helix/torus at the centerline
             logical, optional, intent(in) :: if_sym
@@ -791,6 +792,7 @@
             integer :: ie, iface
             logical :: debug, symmetry
             real(dp) :: xmin
+            real(dp) :: Rc
             integer :: nsym
             character(len=128) :: msg
             ! functions
@@ -831,20 +833,24 @@
 
             ! Geometry
             pipe%delta    = delta
+            pipe%lambda   = lambda
             pipe%diameter = diameter
-            pipe%pitch_s  = pitch_s
             pipe%length   = length
 
             !  Derived quantities
-            pipe%radius      = pipe%diameter*0.5_dp
+            pipe%radius = pipe%diameter*0.5_dp
             if (pipe%delta /= 0.0_dp) then
-               pipe%curv_radius = 1.0_dp/pipe%delta
-               pipe%if_torus = .true.
+               Rc               = pipe%radius/pipe%delta            ! radius of curvature 1/kappa
+               pipe%curv_radius = Rc/(1.0_dp + lambda**2)           ! coil radius c
+               pipe%pitch_s     = -lambda*Rc/(1.0_dp + lambda**2)   ! rise per radian b; minus sign = Germano orientation
+               pipe%if_torus    = .true.
             else
                pipe%curv_radius = 0.0_dp
-               pipe%if_torus = .false.
+               pipe%pitch_s     = 0.0_dp
+               pipe%if_torus    = .false.
+               if (lambda /= 0.0_dp) call nek_log_warning('delta = 0: lambda ignored (straight pipe).', this_module, 'helix_pipe')
             end if
-            pipe%phi         = atan2(pipe%pitch_s,pipe%curv_radius)
+            pipe%phi = atan2(pipe%pitch_s, pipe%curv_radius)        ! = -atan(lambda)
             if (pipe%phi /= 0.0_dp) then
                pipe%sweep    = pipe%length*cos(pipe%phi)/pipe%curv_radius ! sweep angle in radians
                pipe%if_helix = .true.

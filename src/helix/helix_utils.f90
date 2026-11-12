@@ -197,9 +197,10 @@
 
          module procedure compute_fshape
             integer :: ix, iy, iz, ie
-            real(dp) :: helix_r2, r, rr, alpha
+            real(dp) :: helix_r2, r, rr, alpha, kappa
             self%fshape = 0.0_dp
             if (self%is_helix() .or. self%is_torus()) then
+               kappa = self%delta / self%radius     ! = 1/R_c
                do ie = 1, lelv
                do iz = 1, lz1
                do iy = 1, ly1
@@ -212,8 +213,8 @@
                   alpha = atan2(r, self%zax(ix,iy,iz,ie))
                   ! Radial position in the cross-sectional plane
                   rr = sqrt(r**2 + self%zax(ix,iy,iz,ie)**2)
-                  ! Compute fshape
-                  self%fshape(ix,iy,iz,ie) = 1.0_dp / abs(1.0_dp + self%delta * rr * sin(alpha))
+                  ! fshape = 1/(1 + kappa * rr * sin(alpha)) for helix and torus
+                  self%fshape(ix,iy,iz,ie) = 1.0_dp / abs(1.0_dp + kappa * rr * sin(alpha))
                end do
                end do
                end do
@@ -238,11 +239,12 @@
 
          module procedure compute_bf_forcing
             integer :: ix, iy, iz, ie
-            real(dp) :: fs, phi
+            real(dp) :: fs, phi, kappa
             real(dp), dimension(lx1,ly1,lz1,lelv) :: ffx, ffy, ffz
 
             if (self%is_torus()) then
-               fs = self%forcing_amplitude(t) / self%curv_radius
+               kappa = self%delta / self%radius     ! = 1/R_c
+               fs = self%forcing_amplitude(t) * kappa
             else
                fs = self%forcing_amplitude(t)
             end if

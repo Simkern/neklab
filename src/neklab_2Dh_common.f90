@@ -45,12 +45,12 @@
          public ::     map12T_2Dh
          public :: bm2_map12_2Dh
          public :: bm2_map12T_2Dh
-         public :: solve_helmholtz_2Dh
-         public :: solve_pressure_2Dh
-         public :: solve_pressure_block_2Dh
+         public ::   solve_helmholtz_2Dh
+         public ::    solve_pressure_2Dh
+         public ::    solve_pressure_block_2Dh
+         public ::   setrhs_pressure_2Dh
+         public ::  gensoln_pressure_2Dh
          public :: abstract_pressure_block_matvec
-         public ::  setrhs_pressure_2Dh
-         public :: gensoln_pressure_2Dh
 
          abstract interface
             subroutine abstract_helmholtz_matvec(Au, u, h1, h2)

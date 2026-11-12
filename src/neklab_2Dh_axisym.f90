@@ -85,9 +85,9 @@
          public ::     ophinv_urphi_2Dh_axisym
          public ::     incomprp_div_2Dh_axisym
          public ::      incomprp_dw_2Dh_axisym
+         public ::   incomprp_block_2Dh_axisym
          public ::          pres_matvec_axisym
          public ::    pres_block_matvec_axisym
-         public ::  incomprp_block_2Dh_axisym
 
          public :: build_axisym_coeffs
          public :: enable_axisym_curvature_terms
